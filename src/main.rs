@@ -1,6 +1,12 @@
 mod auth;
 mod db;
 mod error;
+mod tenancy;
+
+#[cfg(test)]
+mod rls_tests;
+#[cfg(test)]
+mod test_support;
 
 use axum::extract::State;
 use axum::routing::get;
