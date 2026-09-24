@@ -30,6 +30,8 @@ impl DomainError {
 /// Error de la capa API.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("unauthorized")]
+    Unauthorized,
     #[error(transparent)]
     Domain(#[from] DomainError),
     #[error(transparent)]
@@ -41,6 +43,7 @@ pub enum ApiError {
 impl ApiError {
     pub fn status(&self) -> StatusCode {
         match self {
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::Domain(e) => e.status(),
             ApiError::Database(_) | ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -48,6 +51,7 @@ impl ApiError {
 
     fn message(&self) -> String {
         match self {
+            ApiError::Unauthorized => "unauthorized".to_string(),
             ApiError::Domain(e) => e.to_string(),
             ApiError::Database(_) | ApiError::Internal(_) => "internal error".to_string(),
         }
@@ -78,5 +82,6 @@ mod tests {
             status_of(DomainError::Validation("missing".into()).into()),
             StatusCode::UNPROCESSABLE_ENTITY
         );
+        assert_eq!(status_of(ApiError::Unauthorized), StatusCode::UNAUTHORIZED);
     }
 }

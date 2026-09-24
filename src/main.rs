@@ -1,3 +1,4 @@
+mod auth;
 mod db;
 mod error;
 
@@ -8,17 +9,20 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::net::SocketAddr;
 
+use crate::auth::{AuthUser, JwtValidator};
 use crate::error::ApiError;
 
 #[derive(Clone)]
 struct AppState {
     pool: PgPool,
+    jwt: JwtValidator,
 }
 
 fn app(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/health/db", get(health_db))
+        .route("/v1/context", get(context))
         .with_state(state)
 }
 
@@ -34,9 +38,27 @@ async fn health_db(State(state): State<AppState>) -> Result<Json<serde_json::Val
     Ok(Json(json!({ "db": "ok", "role": role })))
 }
 
+/// Devuelve la identidad y el tenant resueltos por RLS/GUC para el token recibido.
+async fn context(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut tx = db::begin_tenant_tx(&state.pool, &user.claims).await?;
+    let uid: Option<uuid::Uuid> = sqlx::query_scalar("select auth.uid()")
+        .fetch_one(&mut *tx)
+        .await?;
+    let tenant: Option<uuid::Uuid> = sqlx::query_scalar("select public.current_tenant_id()")
+        .fetch_one(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(Json(json!({ "uid": uid, "tenant": tenant })))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    auth::init_crypto();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -45,12 +67,15 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let database_url = std::env::var("DATABASE_URL")?;
+    let supabase_url = std::env::var("SUPABASE_URL")?;
+
     let pool = db::connect(&database_url).await?;
+    let jwt = JwtValidator::new(&supabase_url);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on {addr}");
-    axum::serve(listener, app(AppState { pool })).await?;
+    axum::serve(listener, app(AppState { pool, jwt })).await?;
     Ok(())
 }
 
@@ -63,11 +88,13 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_router() -> Router {
+        auth::init_crypto();
         // Pool perezoso: no abre conexion, solo sirve para construir el router.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://user:pass@localhost:5432/db")
             .expect("lazy pool");
-        app(AppState { pool })
+        let jwt = JwtValidator::new("http://localhost:54321");
+        app(AppState { pool, jwt })
     }
 
     #[tokio::test]
@@ -86,5 +113,36 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn context_without_token_is_unauthorized() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/context")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn context_with_malformed_token_is_unauthorized() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/context")
+                    .header("authorization", "Bearer not.a.jwt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
