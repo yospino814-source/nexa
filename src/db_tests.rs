@@ -8,8 +8,9 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::orders::OrderStatus;
 use crate::test_support::*;
-use crate::{catalog, inventory, tenancy};
+use crate::{catalog, inventory, orders, tenancy};
 
 fn dec(n: i64) -> Decimal {
     Decimal::from(n)
@@ -350,6 +351,111 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
     cleanup(admin, tenant, &[user]).await;
 }
 
+async fn order_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let loc = seed_location(admin, tenant).await;
+    let user = seed_user(admin).await;
+    seed_membership(admin, tenant, user, "mesero").await;
+    let c = claims(user, Some(tenant));
+
+    let table = seed_table(admin, tenant, loc, "T1").await;
+    let p = seed_product(admin, tenant, "Plato", None, "sellable", None, true).await;
+    seed_product_price(admin, tenant, p, None, "100").await;
+    seed_stock(admin, tenant, loc, p, "10", "0").await;
+
+    // 5.2 dine_in con mesa (se ocupa).
+    let o1 = orders::create_order(app, &c, loc, "dine_in", Some(table), None)
+        .await
+        .unwrap();
+    assert_eq!(o1.status, "creada");
+    let t_status: String =
+        sqlx::query_scalar("select status::text from tables where id = $1")
+            .bind(table)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(t_status, "ocupada");
+    assert!(orders::create_order(app, &c, loc, "dine_in", Some(table), None)
+        .await
+        .is_err());
+
+    // 5.2 pos_counter sin mesa; dine_in sin mesa rechazado.
+    let o2 = orders::create_order(app, &c, loc, "pos_counter", None, None)
+        .await
+        .unwrap();
+    assert_eq!(o2.status, "creada");
+    assert!(orders::create_order(app, &c, loc, "dine_in", None, None)
+        .await
+        .is_err());
+
+    // 5.6 una orden sin lineas no se confirma.
+    assert!(orders::confirm(app, &c, o2.id).await.is_err());
+
+    // 5.3 snapshot de unit_price.
+    let line = orders::add_line(app, &c, o2.id, p, dec(2), None)
+        .await
+        .unwrap();
+    assert_eq!(line.unit_price.normalize(), dec(100));
+    sqlx::query("update product_prices set price = 999 where product_id = $1")
+        .bind(p)
+        .execute(admin)
+        .await
+        .unwrap();
+    let reloaded = orders::line(app, &c, line.id).await.unwrap();
+    assert_eq!(reloaded.unit_price.normalize(), dec(100));
+    assert_eq!(reloaded.line_total.normalize(), dec(200));
+
+    // Confirmar reserva inventario y pasa a en_preparacion.
+    orders::confirm(app, &c, o2.id).await.unwrap();
+    assert_eq!(
+        orders::order(app, &c, o2.id).await.unwrap().status,
+        "en_preparacion"
+    );
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(8)
+    );
+
+    // 5.4 maquina de estados + transicion invalida.
+    assert!(orders::transition(app, &c, o1.id, OrderStatus::Lista)
+        .await
+        .is_err());
+    orders::transition(app, &c, o2.id, OrderStatus::Lista).await.unwrap();
+    orders::transition(app, &c, o2.id, OrderStatus::Entregada).await.unwrap();
+    orders::transition(app, &c, o2.id, OrderStatus::Cobrada).await.unwrap();
+    orders::transition(app, &c, o2.id, OrderStatus::Cerrada).await.unwrap();
+    assert_eq!(orders::order(app, &c, o2.id).await.unwrap().status, "cerrada");
+    assert!(orders::transition(app, &c, o2.id, OrderStatus::EnPreparacion)
+        .await
+        .is_err());
+
+    // 5.5 cancelacion libera reservas y mesa.
+    orders::add_line(app, &c, o1.id, p, dec(1), None).await.unwrap();
+    orders::confirm(app, &c, o1.id).await.unwrap();
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(7)
+    );
+    orders::cancel(app, &c, o1.id).await.unwrap();
+    assert_eq!(
+        orders::order(app, &c, o1.id).await.unwrap().status,
+        "cancelada"
+    );
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(8)
+    );
+    let t_status: String =
+        sqlx::query_scalar("select status::text from tables where id = $1")
+            .bind(table)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(t_status, "libre");
+
+    cleanup(admin, tenant, &[user]).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn database_integration() {
     let Some(admin) = admin_pool().await else {
@@ -367,4 +473,5 @@ async fn database_integration() {
     catalog_checks(&app, &admin).await;
     recipe_checks(&app, &admin).await;
     inventory_checks(&app, &admin).await;
+    order_checks(&app, &admin).await;
 }

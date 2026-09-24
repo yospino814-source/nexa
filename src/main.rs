@@ -6,6 +6,8 @@ mod tenancy;
 
 #[allow(dead_code)]
 mod inventory;
+#[allow(dead_code)]
+mod orders;
 
 #[cfg(test)]
 mod db_tests;

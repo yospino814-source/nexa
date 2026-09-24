@@ -64,6 +64,18 @@ pub async fn seed_membership(pool: &PgPool, tenant: Uuid, user: Uuid, role: &str
         .expect("seed membership");
 }
 
+pub async fn seed_table(pool: &PgPool, tenant: Uuid, location: Uuid, code: &str) -> Uuid {
+    sqlx::query_scalar(
+        "insert into tables (tenant_id, location_id, code) values ($1, $2, $3) returning id",
+    )
+    .bind(tenant)
+    .bind(location)
+    .bind(code)
+    .fetch_one(pool)
+    .await
+    .expect("seed table")
+}
+
 pub async fn seed_category(pool: &PgPool, tenant: Uuid) -> Uuid {
     sqlx::query_scalar("insert into categories (tenant_id, name) values ($1, 'cat') returning id")
         .bind(tenant)
