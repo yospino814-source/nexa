@@ -3,12 +3,17 @@
 //! Se ejecutan en un unico test para compartir un runtime y los pools de
 //! conexion (Supabase limita clientes en modo sesion).
 
+use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::test_support::*;
-use crate::{catalog, tenancy};
+use crate::{catalog, inventory, tenancy};
+
+fn dec(n: i64) -> Decimal {
+    Decimal::from(n)
+}
 
 async fn count_categories(pool: &PgPool, claims: &crate::auth::Claims) -> i64 {
     let mut tx = crate::db::begin_tenant_tx(pool, claims).await.unwrap();
@@ -231,6 +236,120 @@ async fn recipe_checks(app: &PgPool, admin: &PgPool) {
     cleanup(admin, tenant, &[user]).await;
 }
 
+async fn inventory_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let loc = seed_location(admin, tenant).await;
+    let user = seed_user(admin).await;
+    seed_membership(admin, tenant, user, "admin_caja").await;
+    let c = claims(user, Some(tenant));
+
+    let p = seed_product(admin, tenant, "Pan", None, "sellable", None, true).await;
+    seed_stock(admin, tenant, loc, p, "5", "0").await;
+
+    // available = on_hand - reserved
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(5)
+    );
+
+    // Reserva con disponibilidad suficiente.
+    let ids = inventory::reserve(app, &c, loc, None, None, p, dec(3), None)
+        .await
+        .unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(2)
+    );
+
+    // Reserva sin disponibilidad suficiente (solo quedan 2).
+    assert!(
+        inventory::reserve(app, &c, loc, None, None, p, dec(3), None)
+            .await
+            .is_err()
+    );
+
+    // Sobreventa bajo reservas concurrentes: exactamente una gana.
+    let p2 = seed_product(admin, tenant, "Agua", None, "sellable", None, true).await;
+    seed_stock(admin, tenant, loc, p2, "1", "0").await;
+    let (r1, r2) = tokio::join!(
+        inventory::reserve(app, &c, loc, None, None, p2, dec(1), None),
+        inventory::reserve(app, &c, loc, None, None, p2, dec(1), None),
+    );
+    assert!(r1.is_ok() ^ r2.is_ok(), "exactly one concurrent reserve wins");
+
+    // Consumacion: descuento definitivo + movimiento.
+    assert_eq!(inventory::consume(app, &c, &ids).await.unwrap(), 1);
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(2)
+    );
+    let mv = inventory::movements(app, &c, loc).await.unwrap();
+    assert!(mv
+        .iter()
+        .any(|m| m.movement_type == "descuento" && m.qty.normalize() == dec(3)));
+
+    // Liberacion explicita.
+    let r = inventory::reserve(app, &c, loc, None, None, p, dec(1), None)
+        .await
+        .unwrap();
+    assert_eq!(inventory::release(app, &c, &r).await.unwrap(), 1);
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(2)
+    );
+
+    // Expiracion por barrido.
+    let past = Utc::now() - Duration::minutes(5);
+    inventory::reserve(app, &c, loc, None, None, p, dec(1), Some(past))
+        .await
+        .unwrap();
+    assert!(inventory::expire_due(app, &c).await.unwrap() >= 1);
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(2)
+    );
+
+    // Reposicion y ajuste con bitacora.
+    inventory::replenish(app, &c, loc, p, dec(10), "compra")
+        .await
+        .unwrap();
+    inventory::adjust(app, &c, loc, p, dec(-2), "merma")
+        .await
+        .unwrap();
+    let mv = inventory::movements(app, &c, loc).await.unwrap();
+    assert!(mv
+        .iter()
+        .any(|m| m.movement_type == "reposicion" && m.qty.normalize() == dec(10)));
+    assert!(mv
+        .iter()
+        .any(|m| m.movement_type == "ajuste" && m.qty.normalize() == dec(2)));
+    // on_hand: 5 - 3 (consumo) = 2; +10 = 12; -2 = 10.
+    assert_eq!(
+        inventory::available(app, &c, loc, p).await.unwrap().unwrap().normalize(),
+        dec(10)
+    );
+
+    // Reserva por insumo (explosion de receta).
+    let dish = seed_product(admin, tenant, "Torta", None, "sellable", None, false).await;
+    let insumo = seed_product(admin, tenant, "Harina", None, "supply", None, true).await;
+    let rec = seed_recipe(admin, tenant, dish).await;
+    seed_recipe_item(admin, tenant, rec, insumo, "2").await;
+    seed_stock(admin, tenant, loc, insumo, "4", "0").await;
+
+    let ids2 = inventory::reserve(app, &c, loc, None, None, dish, dec(1), None)
+        .await
+        .unwrap();
+    assert_eq!(ids2.len(), 1);
+    // Insumo disponible 2, 2 por unidad -> 1.
+    assert_eq!(
+        inventory::available(app, &c, loc, dish).await.unwrap().unwrap().normalize(),
+        dec(1)
+    );
+
+    cleanup(admin, tenant, &[user]).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn database_integration() {
     let Some(admin) = admin_pool().await else {
@@ -247,4 +366,5 @@ async fn database_integration() {
     composite_fk_check(&admin).await;
     catalog_checks(&app, &admin).await;
     recipe_checks(&app, &admin).await;
+    inventory_checks(&app, &admin).await;
 }

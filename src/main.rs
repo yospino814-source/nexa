@@ -4,6 +4,9 @@ mod db;
 mod error;
 mod tenancy;
 
+#[allow(dead_code)]
+mod inventory;
+
 #[cfg(test)]
 mod db_tests;
 #[cfg(test)]
