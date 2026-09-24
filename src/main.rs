@@ -1,19 +1,22 @@
 mod auth;
+mod catalog;
 mod db;
 mod error;
 mod tenancy;
 
 #[cfg(test)]
-mod rls_tests;
+mod db_tests;
 #[cfg(test)]
 mod test_support;
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
 use std::net::SocketAddr;
+use uuid::Uuid;
 
 use crate::auth::{AuthUser, JwtValidator};
 use crate::error::ApiError;
@@ -29,7 +32,14 @@ fn app(state: AppState) -> Router {
         .route("/v1/health", get(health))
         .route("/v1/health/db", get(health_db))
         .route("/v1/context", get(context))
+        .route("/v1/catalog", get(catalog_handler))
+        .route("/v1/products/{id}/recipe", get(recipe_handler))
         .with_state(state)
+}
+
+#[derive(Deserialize)]
+struct CatalogQuery {
+    location_id: Uuid,
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -50,15 +60,35 @@ async fn context(
     user: AuthUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let mut tx = db::begin_tenant_tx(&state.pool, &user.claims).await?;
-    let uid: Option<uuid::Uuid> = sqlx::query_scalar("select auth.uid()")
+    let uid: Option<Uuid> = sqlx::query_scalar("select auth.uid()")
         .fetch_one(&mut *tx)
         .await?;
-    let tenant: Option<uuid::Uuid> = sqlx::query_scalar("select public.current_tenant_id()")
+    let tenant: Option<Uuid> = sqlx::query_scalar("select public.current_tenant_id()")
         .fetch_one(&mut *tx)
         .await?;
     tx.commit().await?;
 
     Ok(Json(json!({ "uid": uid, "tenant": tenant })))
+}
+
+/// Catalogo activo de una sucursal con precio, impuesto y disponibilidad.
+async fn catalog_handler(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<CatalogQuery>,
+) -> Result<Json<Vec<catalog::CatalogItem>>, ApiError> {
+    let items = catalog::catalog(&state.pool, &user.claims, query.location_id).await?;
+    Ok(Json(items))
+}
+
+/// Insumos y cantidades de la receta de un producto.
+async fn recipe_handler(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<catalog::RecipeItem>>, ApiError> {
+    let items = catalog::recipe(&state.pool, &user.claims, id).await?;
+    Ok(Json(items))
 }
 
 #[tokio::main]

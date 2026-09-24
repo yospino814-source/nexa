@@ -1,0 +1,148 @@
+use rust_decimal::Decimal;
+use serde::Serialize;
+use sqlx::PgPool;
+use uuid::Uuid;
+
+use crate::auth::Claims;
+use crate::db;
+use crate::error::{ApiError, DomainError};
+use crate::tenancy;
+
+/// Item de catalogo resuelto para una sucursal.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CatalogItem {
+    pub product_id: Uuid,
+    pub name: String,
+    pub category: Option<String>,
+    pub price: Option<Decimal>,
+    pub currency: Option<String>,
+    pub tax_code: Option<String>,
+    pub tax_rate: Option<Decimal>,
+    /// Unidades disponibles; `null` si el producto no trackea inventario.
+    pub available: Option<Decimal>,
+}
+
+/// Insumo de una receta con su cantidad.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct RecipeItem {
+    pub input_product_id: Uuid,
+    pub name: String,
+    pub qty: Decimal,
+}
+
+const CATALOG_SQL: &str = r#"
+select
+  p.id as product_id,
+  p.name,
+  c.name as category,
+  pp.price,
+  pp.currency,
+  t.code as tax_code,
+  t.rate as tax_rate,
+  case
+    when exists (select 1 from recipes rr where rr.product_id = p.id) then
+      (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
+         from recipe_items ri
+         join recipes r2 on r2.id = ri.recipe_id
+         left join stock si
+           on si.product_id = ri.input_product_id and si.location_id = $1
+        where r2.product_id = p.id)
+    when p.tracks_inventory then coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
+    else null
+  end as available
+from products p
+left join categories c on c.tenant_id = p.tenant_id and c.id = p.category_id
+left join lateral (
+  select price, currency
+    from product_prices
+   where product_id = p.id and (location_id = $1 or location_id is null)
+   order by location_id nulls last
+   limit 1
+) pp on true
+left join taxes t on t.id = p.tax_id
+left join stock s on s.product_id = p.id and s.location_id = $1
+where p.active and p.product_type <> 'supply'
+order by c.sort_order nulls first, p.name
+"#;
+
+const RECIPE_SQL: &str = r#"
+select ri.input_product_id, ip.name, ri.qty
+  from recipe_items ri
+  join recipes r on r.id = ri.recipe_id
+  join products ip on ip.id = ri.input_product_id
+ where r.product_id = $1
+ order by ip.name
+"#;
+
+/// Catalogo activo (solo vendibles) con precio por sucursal, impuesto y disponibilidad.
+pub async fn catalog(
+    pool: &PgPool,
+    claims: &Claims,
+    location_id: Uuid,
+) -> Result<Vec<CatalogItem>, ApiError> {
+    let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
+    tenancy::ensure_location_in_tenant(pool, claims, tenant, location_id).await?;
+
+    let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
+    let items = sqlx::query_as::<_, CatalogItem>(CATALOG_SQL)
+        .bind(location_id)
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(items)
+}
+
+/// Devuelve los insumos y cantidades de la receta de un producto vendible.
+pub async fn recipe(
+    pool: &PgPool,
+    claims: &Claims,
+    product_id: Uuid,
+) -> Result<Vec<RecipeItem>, ApiError> {
+    let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
+    let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
+
+    let exists: bool =
+        sqlx::query_scalar("select exists(select 1 from products where id = $1)")
+            .bind(product_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if !exists {
+        return Err(ApiError::Domain(DomainError::NotFound));
+    }
+
+    let items = sqlx::query_as::<_, RecipeItem>(RECIPE_SQL)
+        .bind(product_id)
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(items)
+}
+
+/// Aporte al total de una linea segun su tasa (o exento).
+#[allow(dead_code)]
+pub fn tax_contribution(unit_price: Decimal, qty: Decimal, tax_rate: Option<Decimal>) -> Decimal {
+    match tax_rate {
+        Some(rate) => (unit_price * qty * rate).round_dp(2),
+        None => Decimal::ZERO,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tax_contribution_applies_rate_or_exempt() {
+        let price = Decimal::from(10000);
+        let one = Decimal::from(1);
+        assert_eq!(
+            tax_contribution(price, one, Some(Decimal::new(8, 2))).normalize(),
+            Decimal::from(800)
+        );
+        assert_eq!(
+            tax_contribution(price, Decimal::from(3), Some(Decimal::new(8, 2))).normalize(),
+            Decimal::from(2400)
+        );
+        assert_eq!(tax_contribution(price, one, None).normalize(), Decimal::ZERO);
+    }
+}

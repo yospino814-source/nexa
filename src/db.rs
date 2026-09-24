@@ -1,5 +1,6 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Transaction};
+use uuid::Uuid;
 
 use crate::auth::Claims;
 
@@ -26,6 +27,15 @@ pub async fn begin_tenant_tx<'a>(
     pool: &'a PgPool,
     claims: &Claims,
 ) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
+    begin_tenant_tx_for(pool, claims, claims.tenant_id()).await
+}
+
+/// Como `begin_tenant_tx` pero con un tenant explicito (el resuelto por membresia).
+pub async fn begin_tenant_tx_for<'a>(
+    pool: &'a PgPool,
+    claims: &Claims,
+    tenant: Option<Uuid>,
+) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
     sqlx::query("set local role authenticated")
@@ -42,7 +52,7 @@ pub async fn begin_tenant_tx<'a>(
         .execute(&mut *tx)
         .await?;
 
-    if let Some(tenant) = claims.tenant_id() {
+    if let Some(tenant) = tenant {
         sqlx::query("select set_config('app.current_tenant_id', $1, true)")
             .bind(tenant.to_string())
             .execute(&mut *tx)
@@ -50,48 +60,4 @@ pub async fn begin_tenant_tx<'a>(
     }
 
     Ok(tx)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use uuid::Uuid;
-
-    fn claims(uid: Uuid, tenant: Uuid) -> Claims {
-        Claims {
-            sub: uid,
-            app_metadata: serde_json::json!({ "tenant_id": tenant.to_string() }),
-        }
-    }
-
-    /// Verifica contra la BD real que el contexto fija auth.uid() y el tenant.
-    /// Se omite si no hay DATABASE_URL.
-    #[tokio::test]
-    async fn tenant_context_sets_uid_and_tenant() {
-        dotenvy::dotenv().ok();
-        let Ok(url) = std::env::var("DATABASE_URL") else {
-            return;
-        };
-
-        let pool = connect(&url).await.expect("connect");
-        let uid = Uuid::new_v4();
-        let tenant = Uuid::new_v4();
-
-        let mut tx = begin_tenant_tx(&pool, &claims(uid, tenant))
-            .await
-            .expect("begin tx");
-
-        let got_uid: Option<Uuid> = sqlx::query_scalar("select auth.uid()")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("auth.uid()");
-        let got_tenant: Option<Uuid> = sqlx::query_scalar("select public.current_tenant_id()")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("current_tenant_id()");
-        tx.rollback().await.expect("rollback");
-
-        assert_eq!(got_uid, Some(uid));
-        assert_eq!(got_tenant, Some(tenant));
-    }
 }

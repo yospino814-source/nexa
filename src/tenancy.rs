@@ -76,77 +76,10 @@ pub fn authorize(role: &str, allowed: &[&str]) -> Result<(), ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::*;
-
-    fn database_url() -> Option<String> {
-        dotenvy::dotenv().ok();
-        std::env::var("DATABASE_URL").ok()
-    }
 
     #[test]
     fn authorize_allows_and_forbids() {
         assert!(authorize("admin_caja", &["admin_caja", "mesero"]).is_ok());
         assert!(authorize("cocina", &["admin_caja"]).is_err());
-    }
-
-    #[tokio::test]
-    async fn resolve_membership_from_claim_and_memberships() {
-        let Some(admin) = admin_pool().await else {
-            return;
-        };
-        let url = database_url().unwrap();
-        let app = db::connect(&url).await.unwrap();
-
-        let tenant = seed_tenant(&admin).await;
-        let other = seed_tenant(&admin).await;
-        let user = seed_user(&admin).await;
-        seed_membership(&admin, tenant, user, "mesero").await;
-
-        // Claim con el tenant correcto.
-        let c = claims(user, Some(tenant));
-        assert_eq!(
-            resolve_membership(&app, &c, None).await.unwrap(),
-            (tenant, "mesero".to_string())
-        );
-
-        // Tenant ajeno (sin pertenencia) -> forbidden.
-        let c_other = claims(user, Some(other));
-        assert!(resolve_membership(&app, &c_other, None).await.is_err());
-
-        // Sin tenant en el claim -> resuelve el correcto.
-        let c_none = claims(user, None);
-        assert_eq!(
-            resolve_membership(&app, &c_none, None).await.unwrap(),
-            (tenant, "mesero".to_string())
-        );
-
-        cleanup(&admin, tenant, &[user]).await;
-        cleanup(&admin, other, &[]).await;
-    }
-
-    #[tokio::test]
-    async fn ensure_location_rejects_foreign_tenant() {
-        let Some(admin) = admin_pool().await else {
-            return;
-        };
-        let url = database_url().unwrap();
-        let app = db::connect(&url).await.unwrap();
-
-        let tenant = seed_tenant(&admin).await;
-        let other = seed_tenant(&admin).await;
-        let user = seed_user(&admin).await;
-        seed_membership(&admin, tenant, user, "admin_caja").await;
-
-        let loc = seed_location(&admin, tenant).await;
-        let foreign = seed_location(&admin, other).await;
-
-        let c = claims(user, Some(tenant));
-        assert!(ensure_location_in_tenant(&app, &c, tenant, loc).await.is_ok());
-        assert!(ensure_location_in_tenant(&app, &c, tenant, foreign)
-            .await
-            .is_err());
-
-        cleanup(&admin, tenant, &[user]).await;
-        cleanup(&admin, other, &[]).await;
     }
 }
