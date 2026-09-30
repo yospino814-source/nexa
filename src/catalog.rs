@@ -9,17 +9,26 @@ use crate::error::{ApiError, DomainError};
 use crate::tenancy;
 
 /// Item de catalogo resuelto para una sucursal.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct CatalogItem {
     pub product_id: Uuid,
     pub name: String,
     pub category: Option<String>,
     pub price: Option<Decimal>,
-    pub currency: Option<String>,
     pub tax_code: Option<String>,
     pub tax_rate: Option<Decimal>,
-    /// Unidades disponibles; `null` si el producto no trackea inventario.
+    /// Unidades disponibles; `null` si no aplica.
     pub available: Option<Decimal>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CatalogRow {
+    product_id: Uuid,
+    name: String,
+    category: Option<String>,
+    price: Option<Decimal>,
+    tax_code: Option<String>,
+    available: Option<Decimal>,
 }
 
 /// Insumo de una receta con su cantidad.
@@ -35,33 +44,24 @@ select
   p.id as product_id,
   p.name,
   c.name as category,
-  pp.price,
-  pp.currency,
-  t.code as tax_code,
-  t.rate as tax_rate,
+  coalesce(bp.price, p.base_price) as price,
+  tx.tima_codigo as tax_code,
   case
-    when exists (select 1 from recipes rr where rr.product_id = p.id) then
+    when p.is_composed then
       (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
          from recipe_items ri
          join recipes r2 on r2.id = ri.recipe_id
          left join stock si
-           on si.product_id = ri.input_product_id and si.location_id = $1
+           on si.product_id = ri.input_product_id and si.branch_id = $1
         where r2.product_id = p.id)
-    when p.tracks_inventory then coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
-    else null
+    else coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
   end as available
-from products p
-left join categories c on c.tenant_id = p.tenant_id and c.id = p.category_id
-left join lateral (
-  select price, currency
-    from product_prices
-   where product_id = p.id and (location_id = $1 or location_id is null)
-   order by location_id nulls last
-   limit 1
-) pp on true
-left join taxes t on t.id = p.tax_id
-left join stock s on s.product_id = p.id and s.location_id = $1
-where p.active and p.product_type <> 'supply'
+from branch_products bp
+join products p on p.id = bp.product_id
+left join product_categories c on c.id = bp.category_id
+left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
+left join stock s on s.product_id = p.id and s.branch_id = $1
+where bp.branch_id = $1 and bp.is_available and p.active
 order by c.sort_order nulls first, p.name
 "#;
 
@@ -74,22 +74,34 @@ select ri.input_product_id, ip.name, ri.qty
  order by ip.name
 "#;
 
-/// Catalogo activo (solo vendibles) con precio por sucursal, impuesto y disponibilidad.
+/// Catalogo activo (solo surtido de la sucursal) con precio, impuesto y disponibilidad.
 pub async fn catalog(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
 ) -> Result<Vec<CatalogItem>, ApiError> {
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
-    tenancy::ensure_location_in_tenant(pool, claims, tenant, location_id).await?;
+    tenancy::ensure_branch_in_tenant(pool, claims, tenant, branch_id).await?;
 
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
-    let items = sqlx::query_as::<_, CatalogItem>(CATALOG_SQL)
-        .bind(location_id)
+    let rows = sqlx::query_as::<_, CatalogRow>(CATALOG_SQL)
+        .bind(branch_id)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(items)
+
+    Ok(rows
+        .into_iter()
+        .map(|r| CatalogItem {
+            tax_rate: tax_rate_for(r.tax_code.as_deref()),
+            product_id: r.product_id,
+            name: r.name,
+            category: r.category,
+            price: r.price,
+            tax_code: r.tax_code,
+            available: r.available,
+        })
+        .collect())
 }
 
 /// Devuelve los insumos y cantidades de la receta de un producto vendible.
@@ -118,6 +130,16 @@ pub async fn recipe(
     Ok(items)
 }
 
+/// Tasa de impuesto resuelta desde el codigo de la tabla maestra.
+pub fn tax_rate_for(code: Option<&str>) -> Option<Decimal> {
+    match code {
+        Some("IVA19") => Some(Decimal::new(19, 2)),
+        Some("IVA5") => Some(Decimal::new(5, 2)),
+        Some("INC8") => Some(Decimal::new(8, 2)),
+        _ => None,
+    }
+}
+
 /// Aporte al total de una linea segun su tasa (o exento).
 #[allow(dead_code)]
 pub fn tax_contribution(unit_price: Decimal, qty: Decimal, tax_rate: Option<Decimal>) -> Decimal {
@@ -136,13 +158,14 @@ mod tests {
         let price = Decimal::from(10000);
         let one = Decimal::from(1);
         assert_eq!(
-            tax_contribution(price, one, Some(Decimal::new(8, 2))).normalize(),
+            tax_contribution(price, one, tax_rate_for(Some("INC8"))).normalize(),
             Decimal::from(800)
         );
         assert_eq!(
-            tax_contribution(price, Decimal::from(3), Some(Decimal::new(8, 2))).normalize(),
+            tax_contribution(price, Decimal::from(3), tax_rate_for(Some("INC8"))).normalize(),
             Decimal::from(2400)
         );
         assert_eq!(tax_contribution(price, one, None).normalize(), Decimal::ZERO);
+        assert_eq!(tax_rate_for(Some("IVA19")), Some(Decimal::new(19, 2)));
     }
 }

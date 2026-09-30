@@ -21,8 +21,16 @@ pub struct Claims {
 
 impl Claims {
     pub fn tenant_id(&self) -> Option<Uuid> {
+        self.meta_uuid("tenant_id")
+    }
+
+    pub fn branch_id(&self) -> Option<Uuid> {
+        self.meta_uuid("branch_id")
+    }
+
+    fn meta_uuid(&self, key: &str) -> Option<Uuid> {
         self.app_metadata
-            .get("tenant_id")
+            .get(key)
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok())
     }

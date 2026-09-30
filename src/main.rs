@@ -44,7 +44,7 @@ fn app(state: AppState) -> Router {
 
 #[derive(Deserialize)]
 struct CatalogQuery {
-    location_id: Uuid,
+    branch_id: Uuid,
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -59,7 +59,7 @@ async fn health_db(State(state): State<AppState>) -> Result<Json<serde_json::Val
     Ok(Json(json!({ "db": "ok", "role": role })))
 }
 
-/// Devuelve la identidad y el tenant resueltos por RLS/GUC para el token recibido.
+/// Devuelve la identidad y el contexto (tenant y sucursal) resueltos por RLS/GUC.
 async fn context(
     State(state): State<AppState>,
     user: AuthUser,
@@ -71,9 +71,12 @@ async fn context(
     let tenant: Option<Uuid> = sqlx::query_scalar("select public.current_tenant_id()")
         .fetch_one(&mut *tx)
         .await?;
+    let branch: Option<Uuid> = sqlx::query_scalar("select public.current_branch_id()")
+        .fetch_one(&mut *tx)
+        .await?;
     tx.commit().await?;
 
-    Ok(Json(json!({ "uid": uid, "tenant": tenant })))
+    Ok(Json(json!({ "uid": uid, "tenant": tenant, "branch": branch })))
 }
 
 /// Catalogo activo de una sucursal con precio, impuesto y disponibilidad.
@@ -82,7 +85,7 @@ async fn catalog_handler(
     user: AuthUser,
     Query(query): Query<CatalogQuery>,
 ) -> Result<Json<Vec<catalog::CatalogItem>>, ApiError> {
-    let items = catalog::catalog(&state.pool, &user.claims, query.location_id).await?;
+    let items = catalog::catalog(&state.pool, &user.claims, query.branch_id).await?;
     Ok(Json(items))
 }
 

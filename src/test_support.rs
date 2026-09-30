@@ -35,12 +35,12 @@ pub async fn seed_tenant(pool: &PgPool) -> Uuid {
         .expect("seed tenant")
 }
 
-pub async fn seed_location(pool: &PgPool, tenant: Uuid) -> Uuid {
-    sqlx::query_scalar("insert into locations (tenant_id, name) values ($1, 'loc') returning id")
+pub async fn seed_branch(pool: &PgPool, tenant: Uuid) -> Uuid {
+    sqlx::query_scalar("insert into branches (tenant_id, name) values ($1, 'suc') returning id")
         .bind(tenant)
         .fetch_one(pool)
         .await
-        .expect("seed location")
+        .expect("seed branch")
 }
 
 pub async fn seed_user(pool: &PgPool) -> Uuid {
@@ -50,109 +50,120 @@ pub async fn seed_user(pool: &PgPool) -> Uuid {
         .bind(format!("{id}@itest.local"))
         .execute(pool)
         .await
-        .expect("seed user");
+        .expect("seed auth user");
+    sqlx::query("insert into users (id, full_name) values ($1, 'Test')")
+        .bind(id)
+        .execute(pool)
+        .await
+        .expect("seed user profile");
     id
 }
 
-pub async fn seed_membership(pool: &PgPool, tenant: Uuid, user: Uuid, role: &str) {
-    sqlx::query("insert into memberships (tenant_id, user_id, role) values ($1, $2, $3)")
-        .bind(tenant)
-        .bind(user)
-        .bind(role)
-        .execute(pool)
-        .await
-        .expect("seed membership");
-}
-
-pub async fn seed_table(pool: &PgPool, tenant: Uuid, location: Uuid, code: &str) -> Uuid {
-    sqlx::query_scalar(
-        "insert into tables (tenant_id, location_id, code) values ($1, $2, $3) returning id",
+pub async fn seed_membership(pool: &PgPool, tenant: Uuid, branch: Option<Uuid>, user: Uuid, role: &str) {
+    sqlx::query(
+        "insert into memberships (tenant_id, branch_id, user_id, role_id)
+         values ($1, $2, $3, public.tipo_id('ROL', $4))",
     )
     .bind(tenant)
-    .bind(location)
+    .bind(branch)
+    .bind(user)
+    .bind(role)
+    .execute(pool)
+    .await
+    .expect("seed membership");
+}
+
+pub async fn seed_table(pool: &PgPool, tenant: Uuid, branch: Uuid, code: &str) -> Uuid {
+    sqlx::query_scalar(
+        "insert into restaurant_tables (tenant_id, branch_id, code, status_id)
+         values ($1, $2, $3, public.tipo_id('MESA', 'LIBRE')) returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
     .bind(code)
     .fetch_one(pool)
     .await
     .expect("seed table")
 }
 
-pub async fn seed_category(pool: &PgPool, tenant: Uuid) -> Uuid {
-    sqlx::query_scalar("insert into categories (tenant_id, name) values ($1, 'cat') returning id")
-        .bind(tenant)
-        .fetch_one(pool)
-        .await
-        .expect("seed category")
-}
-
-pub async fn seed_tax(pool: &PgPool, code: &str, rate: &str) -> Uuid {
+pub async fn seed_category(pool: &PgPool, tenant: Uuid, branch: Uuid) -> Uuid {
     sqlx::query_scalar(
-        "insert into taxes (code, name, rate) values ($1, $1, $2::numeric) returning id",
+        "insert into product_categories (tenant_id, branch_id, name) values ($1, $2, 'cat') returning id",
     )
-    .bind(code)
-    .bind(rate)
+    .bind(tenant)
+    .bind(branch)
     .fetch_one(pool)
     .await
-    .expect("seed tax")
+    .expect("seed category")
 }
 
 pub async fn seed_product(
     pool: &PgPool,
     tenant: Uuid,
     name: &str,
-    category: Option<Uuid>,
-    product_type: &str,
-    tax: Option<Uuid>,
-    tracks_inventory: bool,
+    uom: &str,
+    tax_code: Option<&str>,
+    is_composed: bool,
 ) -> Uuid {
     sqlx::query_scalar(
-        "insert into products (tenant_id, name, category_id, product_type, tax_id, tracks_inventory)
-         values ($1, $2, $3, $4::product_type, $5, $6) returning id",
+        "insert into products (tenant_id, name, unit_measure_id, tax_type_id, is_composed)
+         values ($1, $2, public.tipo_id('UOM', $3), public.tipo_id('IMP', $4), $5) returning id",
     )
     .bind(tenant)
     .bind(name)
-    .bind(category)
-    .bind(product_type)
-    .bind(tax)
-    .bind(tracks_inventory)
+    .bind(uom)
+    .bind(tax_code)
+    .bind(is_composed)
     .fetch_one(pool)
     .await
     .expect("seed product")
 }
 
-pub async fn seed_product_price(
+pub async fn set_base_price(pool: &PgPool, product: Uuid, price: &str) {
+    sqlx::query("update products set base_price = $2::numeric where id = $1")
+        .bind(product)
+        .bind(price)
+        .execute(pool)
+        .await
+        .expect("set base price");
+}
+
+pub async fn seed_branch_product(
     pool: &PgPool,
     tenant: Uuid,
+    branch: Uuid,
     product: Uuid,
-    location: Option<Uuid>,
-    price: &str,
+    category: Option<Uuid>,
+    price: Option<&str>,
 ) {
     sqlx::query(
-        "insert into product_prices (tenant_id, product_id, location_id, price)
-         values ($1, $2, $3, $4::numeric)",
+        "insert into branch_products (tenant_id, branch_id, product_id, category_id, price)
+         values ($1, $2, $3, $4, $5::numeric)",
     )
     .bind(tenant)
+    .bind(branch)
     .bind(product)
-    .bind(location)
+    .bind(category)
     .bind(price)
     .execute(pool)
     .await
-    .expect("seed product price");
+    .expect("seed branch product");
 }
 
 pub async fn seed_stock(
     pool: &PgPool,
     tenant: Uuid,
-    location: Uuid,
+    branch: Uuid,
     product: Uuid,
     on_hand: &str,
     reserved: &str,
 ) {
     sqlx::query(
-        "insert into stock (tenant_id, location_id, product_id, on_hand, reserved)
+        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
          values ($1, $2, $3, $4::numeric, $5::numeric)",
     )
     .bind(tenant)
-    .bind(location)
+    .bind(branch)
     .bind(product)
     .bind(on_hand)
     .bind(reserved)
@@ -197,18 +208,12 @@ pub async fn cleanup(pool: &PgPool, tenant: Uuid, users: &[Uuid]) {
     }
 }
 
-pub async fn cleanup_tax(pool: &PgPool, tax: Uuid) {
-    let _ = sqlx::query("delete from taxes where id = $1")
-        .bind(tax)
-        .execute(pool)
-        .await;
-}
-
-pub fn claims(user: Uuid, tenant: Option<Uuid>) -> Claims {
+pub fn claims(user: Uuid, tenant: Option<Uuid>, branch: Option<Uuid>) -> Claims {
     Claims {
         sub: user,
         app_metadata: serde_json::json!({
             "tenant_id": tenant.map(|t| t.to_string()),
+            "branch_id": branch.map(|b| b.to_string()),
         }),
     }
 }

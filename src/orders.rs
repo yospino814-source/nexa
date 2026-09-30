@@ -8,14 +8,6 @@ use crate::db;
 use crate::error::{ApiError, DomainError};
 use crate::{inventory, tenancy};
 
-const CHANNELS: &[&str] = &[
-    "dine_in",
-    "qr_self_service",
-    "whatsapp",
-    "pos_counter",
-    "delivery",
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum OrderStatus {
     Creada,
@@ -30,25 +22,25 @@ pub enum OrderStatus {
 impl OrderStatus {
     pub fn as_db(&self) -> &'static str {
         match self {
-            OrderStatus::Creada => "creada",
-            OrderStatus::EnPreparacion => "en_preparacion",
-            OrderStatus::Lista => "lista",
-            OrderStatus::Entregada => "entregada",
-            OrderStatus::Cobrada => "cobrada",
-            OrderStatus::Cerrada => "cerrada",
-            OrderStatus::Cancelada => "cancelada",
+            OrderStatus::Creada => "CREADA",
+            OrderStatus::EnPreparacion => "EN_PREPARACION",
+            OrderStatus::Lista => "LISTA",
+            OrderStatus::Entregada => "ENTREGADA",
+            OrderStatus::Cobrada => "COBRADA",
+            OrderStatus::Cerrada => "CERRADA",
+            OrderStatus::Cancelada => "CANCELADA",
         }
     }
 
     pub fn from_db(value: &str) -> Option<Self> {
         Some(match value {
-            "creada" => OrderStatus::Creada,
-            "en_preparacion" => OrderStatus::EnPreparacion,
-            "lista" => OrderStatus::Lista,
-            "entregada" => OrderStatus::Entregada,
-            "cobrada" => OrderStatus::Cobrada,
-            "cerrada" => OrderStatus::Cerrada,
-            "cancelada" => OrderStatus::Cancelada,
+            "CREADA" => OrderStatus::Creada,
+            "EN_PREPARACION" => OrderStatus::EnPreparacion,
+            "LISTA" => OrderStatus::Lista,
+            "ENTREGADA" => OrderStatus::Entregada,
+            "COBRADA" => OrderStatus::Cobrada,
+            "CERRADA" => OrderStatus::Cerrada,
+            "CANCELADA" => OrderStatus::Cancelada,
             _ => return None,
         })
     }
@@ -69,72 +61,90 @@ fn can_transition(from: OrderStatus, to: OrderStatus) -> bool {
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Order {
     pub id: Uuid,
-    pub channel: String,
+    pub sale_type: String,
     pub status: String,
     pub table_id: Option<Uuid>,
-    pub location_id: Uuid,
-    pub responsible_user_id: Uuid,
+    pub branch_id: Uuid,
+    pub waiter_id: Option<Uuid>,
+    pub subtotal: Decimal,
+    pub inc_amount: Decimal,
+    pub tip_amount: Decimal,
+    pub total_amount: Decimal,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct OrderLine {
+pub struct OrderItem {
     pub id: Uuid,
     pub product_id: Uuid,
     pub qty: Decimal,
     pub unit_price: Decimal,
     pub line_total: Decimal,
+    pub station_id: Option<i32>,
+    pub status_id: Option<i32>,
 }
 
-const ORDER_COLS: &str = "id, channel::text as channel, status::text as status, \
-     table_id, location_id, responsible_user_id";
+const ORDER_COLS: &str = "o.id, st.tima_codigo as sale_type, os.tima_codigo as status, \
+     o.table_id, o.branch_id, o.waiter_id, o.subtotal, o.inc_amount, o.tip_amount, o.total_amount";
+const ORDER_FROM: &str = "orders o \
+     join tbl_tipos_maestra st on st.tima_id = o.sale_type_id \
+     join tbl_tipos_maestra os on os.tima_id = o.status_id";
 
-/// Crea una orden. `dine_in` exige mesa libre (se ocupa en la misma transaccion).
+/// Crea una orden. El tipo de venta `MESA` exige mesa libre (se ocupa en la misma transaccion).
 pub async fn create_order(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
-    channel: &str,
+    branch_id: Uuid,
+    sale_type: &str,
     table_id: Option<Uuid>,
+    waiter_id: Option<Uuid>,
     notes: Option<String>,
 ) -> Result<Order, ApiError> {
-    if !CHANNELS.contains(&channel) {
-        return Err(ApiError::Domain(DomainError::Validation(
-            "invalid channel".into(),
-        )));
-    }
-
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
-    tenancy::ensure_location_in_tenant(pool, claims, tenant, location_id).await?;
+    tenancy::ensure_branch_in_tenant(pool, claims, tenant, branch_id).await?;
 
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
 
-    match (channel, table_id) {
-        ("dine_in", Some(table)) => {
-            let status: Option<String> =
-                sqlx::query_scalar("select status::text from tables where id = $1 and location_id = $2 for update")
+    let sale_type_id: Option<i32> = sqlx::query_scalar("select public.tipo_id('VENTA', $1)")
+        .bind(sale_type)
+        .fetch_one(&mut *tx)
+        .await?;
+    let sale_type_id = sale_type_id.ok_or(ApiError::Domain(DomainError::Validation(
+        "invalid sale type".into(),
+    )))?;
+
+    match (sale_type, table_id) {
+        ("MESA", Some(table)) => {
+            let free: Option<bool> = sqlx::query_scalar(
+                "select (status_id = public.tipo_id('MESA', 'LIBRE'))
+                   from restaurant_tables
+                  where id = $1 and branch_id = $2
+                  for update",
+            )
+            .bind(table)
+            .bind(branch_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            match free {
+                Some(true) => {
+                    sqlx::query(
+                        "update restaurant_tables set status_id = public.tipo_id('MESA', 'OCUPADA') where id = $1",
+                    )
                     .bind(table)
-                    .bind(location_id)
-                    .fetch_optional(&mut *tx)
+                    .execute(&mut *tx)
                     .await?;
-            match status.as_deref() {
-                Some("libre") => {
-                    sqlx::query("update tables set status = 'ocupada' where id = $1")
-                        .bind(table)
-                        .execute(&mut *tx)
-                        .await?;
                 }
-                Some(_) => return Err(ApiError::Domain(DomainError::Conflict)),
+                Some(false) => return Err(ApiError::Domain(DomainError::Conflict)),
                 None => return Err(ApiError::Domain(DomainError::NotFound)),
             }
         }
-        ("dine_in", None) => {
+        ("MESA", None) => {
             return Err(ApiError::Domain(DomainError::Validation(
-                "dine_in requires a table".into(),
+                "MESA requires a table".into(),
             )));
         }
         (_, Some(_)) => {
             return Err(ApiError::Domain(DomainError::Validation(
-                "table is only allowed for dine_in".into(),
+                "table is only allowed for MESA".into(),
             )));
         }
         (_, None) => {}
@@ -142,15 +152,18 @@ pub async fn create_order(
 
     let order = sqlx::query_as::<_, Order>(&format!(
         "insert into orders
-           (tenant_id, location_id, table_id, channel, status, responsible_user_id, notes)
-         values ($1, $2, $3, $4::order_channel, 'creada', $5, $6)
-         returning {ORDER_COLS}"
+           (tenant_id, branch_id, table_id, sale_type_id, status_id, waiter_id, notes)
+         values ($1, $2, $3, $4, public.tipo_id('ORD', 'CREADA'), $5, $6)
+         returning id,
+           (select tima_codigo from tbl_tipos_maestra where tima_id = sale_type_id) as sale_type,
+           (select tima_codigo from tbl_tipos_maestra where tima_id = status_id) as status,
+           table_id, branch_id, waiter_id, subtotal, inc_amount, tip_amount, total_amount"
     ))
     .bind(tenant)
-    .bind(location_id)
+    .bind(branch_id)
     .bind(table_id)
-    .bind(channel)
-    .bind(claims.sub)
+    .bind(sale_type_id)
+    .bind(waiter_id)
     .bind(notes)
     .fetch_one(&mut *tx)
     .await?;
@@ -167,7 +180,7 @@ pub async fn add_line(
     product_id: Uuid,
     qty: Decimal,
     notes: Option<String>,
-) -> Result<OrderLine, ApiError> {
+) -> Result<OrderItem, ApiError> {
     if qty <= Decimal::ZERO {
         return Err(ApiError::Domain(DomainError::Validation(
             "qty must be > 0".into(),
@@ -177,36 +190,42 @@ pub async fn add_line(
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
 
-    let row: Option<(String, Uuid)> =
-        sqlx::query_as("select status::text, location_id from orders where id = $1 for update")
-            .bind(order_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let (status, location) = row.ok_or(ApiError::Domain(DomainError::NotFound))?;
-    if status != "creada" {
+    let row: Option<(String, Uuid, Uuid)> = sqlx::query_as(
+        "select os.tima_codigo, o.branch_id, o.tenant_id
+           from orders o
+           join tbl_tipos_maestra os on os.tima_id = o.status_id
+          where o.id = $1
+          for update of o",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (status, branch_id, _o_tenant) = row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    if status != "CREADA" {
         return Err(ApiError::Domain(DomainError::Conflict));
     }
 
-    let price: Option<Decimal> = sqlx::query_scalar(
-        "select price from product_prices
-          where product_id = $1 and (location_id = $2 or location_id is null)
-          order by location_id nulls last
-          limit 1",
+    let price: Option<Option<Decimal>> = sqlx::query_scalar(
+        "select coalesce(bp.price, p.base_price)
+           from branch_products bp
+           join products p on p.id = bp.product_id
+          where bp.branch_id = $1 and bp.product_id = $2",
     )
+    .bind(branch_id)
     .bind(product_id)
-    .bind(location)
     .fetch_optional(&mut *tx)
     .await?;
-    let price = price.ok_or(ApiError::Domain(DomainError::Validation(
-        "product has no price for this location".into(),
+    let price = price.flatten().ok_or(ApiError::Domain(DomainError::Validation(
+        "product is not in the branch assortment".into(),
     )))?;
 
-    let line = sqlx::query_as::<_, OrderLine>(
-        "insert into order_lines (tenant_id, order_id, product_id, qty, unit_price, notes)
-         values ($1, $2, $3, $4, $5, $6)
-         returning id, product_id, qty, unit_price, line_total",
+    let line = sqlx::query_as::<_, OrderItem>(
+        "insert into order_items (tenant_id, branch_id, order_id, product_id, qty, unit_price, notes)
+         values ($1, $2, $3, $4, $5, $6, $7)
+         returning id, product_id, qty, unit_price, line_total, station_id, status_id",
     )
     .bind(tenant)
+    .bind(branch_id)
     .bind(order_id)
     .bind(product_id)
     .bind(qty)
@@ -224,7 +243,7 @@ pub async fn order(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<Ord
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
     let found = sqlx::query_as::<_, Order>(&format!(
-        "select {ORDER_COLS} from orders where id = $1"
+        "select {ORDER_COLS} from {ORDER_FROM} where o.id = $1"
     ))
     .bind(order_id)
     .fetch_optional(&mut *tx)
@@ -234,11 +253,12 @@ pub async fn order(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<Ord
 }
 
 /// Lee una linea del tenant activo.
-pub async fn line(pool: &PgPool, claims: &Claims, line_id: Uuid) -> Result<OrderLine, ApiError> {
+pub async fn line(pool: &PgPool, claims: &Claims, line_id: Uuid) -> Result<OrderItem, ApiError> {
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
-    let found = sqlx::query_as::<_, OrderLine>(
-        "select id, product_id, qty, unit_price, line_total from order_lines where id = $1",
+    let found = sqlx::query_as::<_, OrderItem>(
+        "select id, product_id, qty, unit_price, line_total, station_id, status_id
+           from order_items where id = $1",
     )
     .bind(line_id)
     .fetch_optional(&mut *tx)
@@ -247,28 +267,31 @@ pub async fn line(pool: &PgPool, claims: &Claims, line_id: Uuid) -> Result<Order
     found.ok_or(ApiError::Domain(DomainError::NotFound))
 }
 
-/// Confirma la orden: exige lineas, reserva inventario y pasa a `en_preparacion`.
+/// Confirma la orden: exige lineas, reserva inventario y pasa a `EN_PREPARACION`.
 pub async fn confirm(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<(), ApiError> {
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
 
-    // Lectura sin lock para no bloquear la FK de reservations durante la reserva.
-    let (status, location): (String, Uuid) = {
+    let (status, branch_id): (String, Uuid) = {
         let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
-        let row: Option<(String, Uuid)> =
-            sqlx::query_as("select status::text, location_id from orders where id = $1")
-                .bind(order_id)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let row: Option<(String, Uuid)> = sqlx::query_as(
+            "select os.tima_codigo, o.branch_id
+               from orders o
+               join tbl_tipos_maestra os on os.tima_id = o.status_id
+              where o.id = $1",
+        )
+        .bind(order_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         tx.commit().await?;
         row.ok_or(ApiError::Domain(DomainError::NotFound))?
     };
-    if status != "creada" {
+    if status != "CREADA" {
         return Err(ApiError::Domain(DomainError::Conflict));
     }
 
     let lines: Vec<(Uuid, Uuid, Decimal)> = {
         let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
-        let rows = sqlx::query_as("select id, product_id, qty from order_lines where order_id = $1")
+        let rows = sqlx::query_as("select id, product_id, qty from order_items where order_id = $1")
             .bind(order_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -286,7 +309,7 @@ pub async fn confirm(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<(
         match inventory::reserve(
             pool,
             claims,
-            location,
+            branch_id,
             Some(order_id),
             Some(line_id),
             product_id,
@@ -306,7 +329,8 @@ pub async fn confirm(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<(
     let updated = {
         let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
         let affected = sqlx::query(
-            "update orders set status = 'en_preparacion' where id = $1 and status = 'creada'",
+            "update orders set status_id = public.tipo_id('ORD', 'EN_PREPARACION')
+              where id = $1 and status_id = public.tipo_id('ORD', 'CREADA')",
         )
         .bind(order_id)
         .execute(&mut *tx)
@@ -340,11 +364,16 @@ pub async fn transition(
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
 
-    let current: Option<String> =
-        sqlx::query_scalar("select status::text from orders where id = $1 for update")
-            .bind(order_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let current: Option<String> = sqlx::query_scalar(
+        "select os.tima_codigo
+           from orders o
+           join tbl_tipos_maestra os on os.tima_id = o.status_id
+          where o.id = $1
+          for update of o",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut *tx)
+    .await?;
     let current = current.ok_or(ApiError::Domain(DomainError::NotFound))?;
     let from = OrderStatus::from_db(&current)
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("unknown order status")))?;
@@ -354,12 +383,14 @@ pub async fn transition(
     }
 
     if to == OrderStatus::Cerrada {
-        sqlx::query("update orders set status = 'cerrada', closed_at = now() where id = $1")
-            .bind(order_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "update orders set status_id = public.tipo_id('ORD', 'CERRADA'), closed_at = now() where id = $1",
+        )
+        .bind(order_id)
+        .execute(&mut *tx)
+        .await?;
     } else {
-        sqlx::query("update orders set status = $2::order_status where id = $1")
+        sqlx::query("update orders set status_id = public.tipo_id('ORD', $2) where id = $1")
             .bind(order_id)
             .bind(to.as_db())
             .execute(&mut *tx)
@@ -375,16 +406,21 @@ pub async fn cancel(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<()
     let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
     let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
 
-    let row: Option<(String, Option<Uuid>)> =
-        sqlx::query_as("select status::text, table_id from orders where id = $1 for update")
-            .bind(order_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let row: Option<(String, Option<Uuid>)> = sqlx::query_as(
+        "select os.tima_codigo, o.table_id
+           from orders o
+           join tbl_tipos_maestra os on os.tima_id = o.status_id
+          where o.id = $1
+          for update of o",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut *tx)
+    .await?;
     let (status, table_id) = row.ok_or(ApiError::Domain(DomainError::NotFound))?;
 
     let cancellable = matches!(
         status.as_str(),
-        "creada" | "en_preparacion" | "lista" | "entregada"
+        "CREADA" | "EN_PREPARACION" | "LISTA" | "ENTREGADA"
     );
     if !cancellable {
         return Err(ApiError::Domain(DomainError::Conflict));
@@ -392,36 +428,40 @@ pub async fn cancel(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<()
 
     // Libera reservas activas de la orden.
     let released: Vec<(Uuid, Uuid, Decimal)> = sqlx::query_as(
-        "update reservations set status = 'liberada', updated_at = now()
-          where order_id = $1 and status = 'activa'
-          returning location_id, product_id, qty",
+        "update stock_reservations set status_id = public.tipo_id('RES', 'LIBERADA'), updated_at = now()
+          where order_id = $1 and status_id = public.tipo_id('RES', 'ACTIVA')
+          returning branch_id, product_id, qty",
     )
     .bind(order_id)
     .fetch_all(&mut *tx)
     .await?;
-    for (location_id, product_id, qty) in &released {
+    for (branch_id, product_id, qty) in &released {
         sqlx::query(
             "update stock set reserved = reserved - $1, updated_at = now()
-              where location_id = $2 and product_id = $3",
+              where branch_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .execute(&mut *tx)
         .await?;
     }
 
     if let Some(table) = table_id {
-        sqlx::query("update tables set status = 'libre' where id = $1")
-            .bind(table)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    sqlx::query("update orders set status = 'cancelada', cancelled_at = now() where id = $1")
-        .bind(order_id)
+        sqlx::query(
+            "update restaurant_tables set status_id = public.tipo_id('MESA', 'LIBRE') where id = $1",
+        )
+        .bind(table)
         .execute(&mut *tx)
         .await?;
+    }
+
+    sqlx::query(
+        "update orders set status_id = public.tipo_id('ORD', 'CANCELADA'), cancelled_at = now() where id = $1",
+    )
+    .bind(order_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(())

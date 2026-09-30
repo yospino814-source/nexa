@@ -22,7 +22,7 @@ pub async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
     Ok(pool)
 }
 
-/// Abre una transaccion con el contexto de tenant/usuario fijado para RLS.
+/// Abre una transaccion con el contexto de tenant/sucursal/usuario para RLS.
 pub async fn begin_tenant_tx<'a>(
     pool: &'a PgPool,
     claims: &Claims,
@@ -35,6 +35,16 @@ pub async fn begin_tenant_tx_for<'a>(
     pool: &'a PgPool,
     claims: &Claims,
     tenant: Option<Uuid>,
+) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
+    begin_scope_tx(pool, claims, tenant, claims.branch_id()).await
+}
+
+/// Abre una transaccion fijando rol, claims JWT y el contexto tenant+sucursal.
+pub async fn begin_scope_tx<'a>(
+    pool: &'a PgPool,
+    claims: &Claims,
+    tenant: Option<Uuid>,
+    branch: Option<Uuid>,
 ) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -55,6 +65,13 @@ pub async fn begin_tenant_tx_for<'a>(
     if let Some(tenant) = tenant {
         sqlx::query("select set_config('app.current_tenant_id', $1, true)")
             .bind(tenant.to_string())
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(branch) = branch {
+        sqlx::query("select set_config('app.current_branch_id', $1, true)")
+            .bind(branch.to_string())
             .execute(&mut *tx)
             .await?;
     }

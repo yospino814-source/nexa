@@ -16,24 +16,23 @@ pub struct Movement {
     pub movement_type: String,
     pub qty: Decimal,
     pub cause: Option<String>,
-    pub location_id: Uuid,
+    pub branch_id: Uuid,
     pub created_at: DateTime<Utc>,
 }
 
 const AVAILABLE_SQL: &str = r#"
 select case
-  when exists (select 1 from recipes rr where rr.product_id = p.id) then
+  when p.is_composed then
     (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
        from recipe_items ri
        join recipes r2 on r2.id = ri.recipe_id
        left join stock si
-         on si.product_id = ri.input_product_id and si.location_id = $1
+         on si.product_id = ri.input_product_id and si.branch_id = $1
       where r2.product_id = p.id)
-  when p.tracks_inventory then coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
-  else null
+  else coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
 end
 from products p
-left join stock s on s.product_id = p.id and s.location_id = $1
+left join stock s on s.product_id = p.id and s.branch_id = $1
 where p.id = $2
 "#;
 
@@ -46,18 +45,17 @@ async fn tenant_tx<'a>(
     Ok((tenant, tx))
 }
 
-/// Disponible de un producto en una sucursal (derivado si tiene receta).
-/// `None` si el producto no trackea inventario.
+/// Disponible de un producto en una sucursal (derivado si es compuesto).
 pub async fn available(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
     product_id: Uuid,
 ) -> Result<Option<Decimal>, ApiError> {
     let (_tenant, mut tx) = tenant_tx(pool, claims).await?;
     expire_due_tx(&mut tx).await?;
     let row: Option<Option<Decimal>> = sqlx::query_scalar(AVAILABLE_SQL)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .fetch_optional(&mut *tx)
         .await?;
@@ -85,24 +83,16 @@ async fn components(
         return Ok(items.into_iter().map(|(p, r)| (p, r * qty)).collect());
     }
 
-    let tracks: Option<bool> =
-        sqlx::query_scalar("select tracks_inventory from products where id = $1")
-            .bind(product_id)
-            .fetch_optional(&mut **tx)
-            .await?;
-    match tracks {
-        Some(true) => Ok(vec![(product_id, qty)]),
-        _ => Ok(vec![]),
-    }
+    Ok(vec![(product_id, qty)])
 }
 
 /// Valida disponibilidad y crea las reservas por insumo en una sola transaccion.
 pub async fn reserve(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
     order_id: Option<Uuid>,
-    order_line_id: Option<Uuid>,
+    order_item_id: Option<Uuid>,
     product_id: Uuid,
     qty: Decimal,
     expires_at: Option<DateTime<Utc>>,
@@ -133,10 +123,10 @@ pub async fn reserve(
     for (stock_product, need) in comps {
         let row: Option<(Decimal, Decimal)> = sqlx::query_as(
             "select on_hand, reserved from stock
-              where location_id = $1 and product_id = $2
+              where branch_id = $1 and product_id = $2
               for update",
         )
-        .bind(location_id)
+        .bind(branch_id)
         .bind(stock_product)
         .fetch_optional(&mut *tx)
         .await?;
@@ -148,24 +138,24 @@ pub async fn reserve(
 
         sqlx::query(
             "update stock set reserved = reserved + $1, updated_at = now()
-              where location_id = $2 and product_id = $3",
+              where branch_id = $2 and product_id = $3",
         )
         .bind(need)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(stock_product)
         .execute(&mut *tx)
         .await?;
 
         let id: Uuid = sqlx::query_scalar(
-            "insert into reservations
-               (tenant_id, location_id, order_id, order_line_id, product_id, qty, status, expires_at)
-             values ($1, $2, $3, $4, $5, $6, 'activa', $7)
+            "insert into stock_reservations
+               (tenant_id, branch_id, order_id, order_item_id, product_id, qty, status_id, expires_at)
+             values ($1, $2, $3, $4, $5, $6, public.tipo_id('RES', 'ACTIVA'), $7)
              returning id",
         )
         .bind(tenant)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(order_id)
-        .bind(order_line_id)
+        .bind(order_item_id)
         .bind(stock_product)
         .bind(need)
         .bind(expires_at)
@@ -188,8 +178,8 @@ pub async fn consume(
     let (tenant, mut tx) = tenant_tx(pool, claims).await?;
 
     let rows: Vec<(Uuid, Uuid, Uuid, Decimal)> = sqlx::query_as(
-        "select id, location_id, product_id, qty from reservations
-          where id = any($1) and status = 'activa'
+        "select id, branch_id, product_id, qty from stock_reservations
+          where id = any($1) and status_id = public.tipo_id('RES', 'ACTIVA')
           for update",
     )
     .bind(reservation_ids)
@@ -197,25 +187,25 @@ pub async fn consume(
     .await?;
 
     let mut count = 0u64;
-    for (id, location_id, product_id, qty) in rows {
+    for (id, branch_id, product_id, qty) in rows {
         sqlx::query(
             "update stock
                 set on_hand = on_hand - $1, reserved = reserved - $1, updated_at = now()
-              where location_id = $2 and product_id = $3",
+              where branch_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .execute(&mut *tx)
         .await?;
 
         sqlx::query(
             "insert into inventory_movements
-               (tenant_id, location_id, product_id, type, qty, cause, ref_type, ref_id, created_by)
-             values ($1, $2, $3, 'descuento', $4, 'consumo', 'reservation', $5, $6)",
+               (tenant_id, branch_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
+             values ($1, $2, $3, public.tipo_id('MOV', 'DESCUENTO'), $4, 'consumo', 'reservation', $5, $6)",
         )
         .bind(tenant)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .bind(qty)
         .bind(id)
@@ -223,10 +213,12 @@ pub async fn consume(
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("update reservations set status = 'confirmada', updated_at = now() where id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "update stock_reservations set status_id = public.tipo_id('RES', 'CONFIRMADA'), updated_at = now() where id = $1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
         count += 1;
     }
@@ -244,8 +236,8 @@ pub async fn release(
     let (_tenant, mut tx) = tenant_tx(pool, claims).await?;
 
     let rows: Vec<(Uuid, Uuid, Uuid, Decimal)> = sqlx::query_as(
-        "select id, location_id, product_id, qty from reservations
-          where id = any($1) and status = 'activa'
+        "select id, branch_id, product_id, qty from stock_reservations
+          where id = any($1) and status_id = public.tipo_id('RES', 'ACTIVA')
           for update",
     )
     .bind(reservation_ids)
@@ -253,21 +245,23 @@ pub async fn release(
     .await?;
 
     let mut count = 0u64;
-    for (id, location_id, product_id, qty) in rows {
+    for (id, branch_id, product_id, qty) in rows {
         sqlx::query(
             "update stock set reserved = reserved - $1, updated_at = now()
-              where location_id = $2 and product_id = $3",
+              where branch_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("update reservations set status = 'liberada', updated_at = now() where id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "update stock_reservations set status_id = public.tipo_id('RES', 'LIBERADA'), updated_at = now() where id = $1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
         count += 1;
     }
@@ -278,20 +272,20 @@ pub async fn release(
 
 async fn expire_due_tx(tx: &mut Transaction<'_, Postgres>) -> Result<u64, ApiError> {
     let expired: Vec<(Uuid, Uuid, Uuid, Decimal)> = sqlx::query_as(
-        "update reservations set status = 'expirada', updated_at = now()
-          where status = 'activa' and expires_at is not null and expires_at < now()
-          returning id, location_id, product_id, qty",
+        "update stock_reservations set status_id = public.tipo_id('RES', 'EXPIRADA'), updated_at = now()
+          where status_id = public.tipo_id('RES', 'ACTIVA') and expires_at is not null and expires_at < now()
+          returning id, branch_id, product_id, qty",
     )
     .fetch_all(&mut **tx)
     .await?;
 
-    for (_id, location_id, product_id, qty) in &expired {
+    for (_id, branch_id, product_id, qty) in &expired {
         sqlx::query(
             "update stock set reserved = reserved - $1, updated_at = now()
-              where location_id = $2 and product_id = $3",
+              where branch_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(location_id)
+        .bind(branch_id)
         .bind(product_id)
         .execute(&mut **tx)
         .await?;
@@ -312,7 +306,7 @@ pub async fn expire_due(pool: &PgPool, claims: &Claims) -> Result<u64, ApiError>
 pub async fn replenish(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
     product_id: Uuid,
     qty: Decimal,
     cause: &str,
@@ -326,13 +320,13 @@ pub async fn replenish(
     let (tenant, mut tx) = tenant_tx(pool, claims).await?;
 
     sqlx::query(
-        "insert into stock (tenant_id, location_id, product_id, on_hand, reserved)
+        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
          values ($1, $2, $3, $4, 0)
-         on conflict (location_id, product_id)
+         on conflict (branch_id, product_id)
          do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
     )
     .bind(tenant)
-    .bind(location_id)
+    .bind(branch_id)
     .bind(product_id)
     .bind(qty)
     .execute(&mut *tx)
@@ -340,11 +334,11 @@ pub async fn replenish(
 
     sqlx::query(
         "insert into inventory_movements
-           (tenant_id, location_id, product_id, type, qty, cause, created_by)
-         values ($1, $2, $3, 'reposicion', $4, $5, $6)",
+           (tenant_id, branch_id, product_id, movement_type_id, qty, cause, created_by)
+         values ($1, $2, $3, public.tipo_id('MOV', 'REPOSICION'), $4, $5, $6)",
     )
     .bind(tenant)
-    .bind(location_id)
+    .bind(branch_id)
     .bind(product_id)
     .bind(qty)
     .bind(cause)
@@ -360,7 +354,7 @@ pub async fn replenish(
 pub async fn adjust(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
     product_id: Uuid,
     delta: Decimal,
     cause: &str,
@@ -375,10 +369,10 @@ pub async fn adjust(
 
     let row: Option<(Decimal, Decimal)> = sqlx::query_as(
         "select on_hand, reserved from stock
-          where location_id = $1 and product_id = $2
+          where branch_id = $1 and product_id = $2
           for update",
     )
-    .bind(location_id)
+    .bind(branch_id)
     .bind(product_id)
     .fetch_optional(&mut *tx)
     .await?;
@@ -393,21 +387,21 @@ pub async fn adjust(
 
     sqlx::query(
         "update stock set on_hand = $1, updated_at = now()
-          where location_id = $2 and product_id = $3",
+          where branch_id = $2 and product_id = $3",
     )
     .bind(new_on_hand)
-    .bind(location_id)
+    .bind(branch_id)
     .bind(product_id)
     .execute(&mut *tx)
     .await?;
 
     sqlx::query(
         "insert into inventory_movements
-           (tenant_id, location_id, product_id, type, qty, cause, created_by)
-         values ($1, $2, $3, 'ajuste', $4, $5, $6)",
+           (tenant_id, branch_id, product_id, movement_type_id, qty, cause, created_by)
+         values ($1, $2, $3, public.tipo_id('MOV', 'AJUSTE'), $4, $5, $6)",
     )
     .bind(tenant)
-    .bind(location_id)
+    .bind(branch_id)
     .bind(product_id)
     .bind(delta.abs())
     .bind(cause)
@@ -423,16 +417,18 @@ pub async fn adjust(
 pub async fn movements(
     pool: &PgPool,
     claims: &Claims,
-    location_id: Uuid,
+    branch_id: Uuid,
 ) -> Result<Vec<Movement>, ApiError> {
     let (_tenant, mut tx) = tenant_tx(pool, claims).await?;
     let rows = sqlx::query_as::<_, Movement>(
-        "select product_id, \"type\"::text as movement_type, qty, cause, location_id, created_at
-           from inventory_movements
-          where location_id = $1
-          order by created_at",
+        "select im.product_id, t.tima_codigo as movement_type, im.qty, im.cause,
+                im.branch_id, im.created_at
+           from inventory_movements im
+           join tbl_tipos_maestra t on t.tima_id = im.movement_type_id
+          where im.branch_id = $1
+          order by im.created_at",
     )
-    .bind(location_id)
+    .bind(branch_id)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
