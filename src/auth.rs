@@ -2,14 +2,15 @@ use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use jsonwebtoken::jwk::JwkSet;
-use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use std::sync::{Arc, Once};
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::error::ApiError;
 use crate::AppState;
+use crate::error::ApiError;
 
 /// Claims relevantes del token de Supabase Auth.
 #[derive(Debug, Clone, Deserialize)]
@@ -46,60 +47,91 @@ pub fn init_crypto() {
     });
 }
 
+/// Minimo entre descargas del JWKS: un `kid` desconocido no puede forzar una
+/// descarga por request (amplificacion contra Supabase).
+const JWKS_REFETCH_COOLDOWN: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct JwksCache {
+    set: Option<JwkSet>,
+    fetched_at: Option<Instant>,
+}
+
 /// Valida tokens de Supabase Auth contra su JWKS.
 #[derive(Clone)]
 pub struct JwtValidator {
     jwks_url: String,
+    issuer: String,
     client: reqwest::Client,
-    keys: Arc<RwLock<Option<JwkSet>>>,
+    cache: Arc<RwLock<JwksCache>>,
 }
 
 impl JwtValidator {
     pub fn new(supabase_url: &str) -> Self {
-        let jwks_url = format!(
-            "{}/auth/v1/.well-known/jwks.json",
-            supabase_url.trim_end_matches('/')
-        );
+        let base = supabase_url.trim_end_matches('/');
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build http client");
         Self {
-            jwks_url,
-            client: reqwest::Client::new(),
-            keys: Arc::new(RwLock::new(None)),
+            jwks_url: format!("{base}/auth/v1/.well-known/jwks.json"),
+            issuer: format!("{base}/auth/v1"),
+            client,
+            cache: Arc::new(RwLock::new(JwksCache::default())),
         }
     }
 
-    async fn fetch_jwks(&self) -> Result<JwkSet, ApiError> {
-        let set: JwkSet = self
-            .client
-            .get(&self.jwks_url)
-            .send()
-            .await
-            .map_err(|_| ApiError::Unauthorized)?
-            .json()
-            .await
-            .map_err(|_| ApiError::Unauthorized)?;
-        *self.keys.write().await = Some(set.clone());
-        Ok(set)
+    /// Descarga el JWKS si no se descargo hace poco. Devuelve el conjunto vigente.
+    async fn refresh_jwks(&self) -> Result<Option<JwkSet>, ApiError> {
+        let mut cache = self.cache.write().await;
+        // Otro request pudo haberlo refrescado mientras esperabamos el lock.
+        if cache
+            .fetched_at
+            .is_some_and(|at| at.elapsed() < JWKS_REFETCH_COOLDOWN)
+        {
+            return Ok(cache.set.clone());
+        }
+        cache.fetched_at = Some(Instant::now());
+
+        let response = self.client.get(&self.jwks_url).send().await;
+        match response {
+            Ok(r) => match r.json::<JwkSet>().await {
+                Ok(set) => cache.set = Some(set),
+                Err(err) => tracing::warn!(%err, "invalid JWKS response"),
+            },
+            Err(err) => tracing::warn!(%err, "JWKS fetch failed"),
+        }
+        Ok(cache.set.clone())
     }
 
     pub async fn validate(&self, token: &str) -> Result<Claims, ApiError> {
         let header = decode_header(token).map_err(|_| ApiError::Unauthorized)?;
+        // Solo claves asimetricas del JWKS: un HS* no tiene sentido aqui.
+        if matches!(
+            header.alg,
+            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
+        ) {
+            return Err(ApiError::Unauthorized);
+        }
         let kid = header.kid.clone().ok_or(ApiError::Unauthorized)?;
 
         let cached = {
-            let guard = self.keys.read().await;
-            guard.as_ref().and_then(|set| set.find(&kid).cloned())
+            let guard = self.cache.read().await;
+            guard.set.as_ref().and_then(|set| set.find(&kid).cloned())
         };
         let jwk = match cached {
             Some(jwk) => jwk,
-            None => {
-                let set = self.fetch_jwks().await?;
-                set.find(&kid).cloned().ok_or(ApiError::Unauthorized)?
-            }
+            None => self
+                .refresh_jwks()
+                .await?
+                .and_then(|set| set.find(&kid).cloned())
+                .ok_or(ApiError::Unauthorized)?,
         };
 
         let key = DecodingKey::from_jwk(&jwk).map_err(|_| ApiError::Unauthorized)?;
         let mut validation = Validation::new(header.alg);
         validation.set_audience(&["authenticated"]);
+        validation.set_issuer(&[&self.issuer]);
         let data =
             decode::<Claims>(token, &key, &validation).map_err(|_| ApiError::Unauthorized)?;
         Ok(data.claims)

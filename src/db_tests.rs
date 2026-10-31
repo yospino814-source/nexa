@@ -8,9 +8,11 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
+use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
-use crate::{catalog, inventory, orders, tenancy};
+use crate::{cash, catalog, inventory, orders, sales, tenancy};
 
 fn dec(n: i64) -> Decimal {
     Decimal::from(n)
@@ -65,11 +67,17 @@ async fn resolve_membership_checks(app: &PgPool, admin: &PgPool) {
     );
 
     let c_other = claims(user, Some(other), None);
-    assert!(tenancy::resolve_membership(app, &c_other, None).await.is_err());
+    assert!(
+        tenancy::resolve_membership(app, &c_other, None)
+            .await
+            .is_err()
+    );
 
     let c_none = claims(user, None, None);
     assert_eq!(
-        tenancy::resolve_membership(app, &c_none, None).await.unwrap(),
+        tenancy::resolve_membership(app, &c_none, None)
+            .await
+            .unwrap(),
         (tenant, "MESERO".to_string())
     );
 
@@ -87,9 +95,11 @@ async fn ensure_branch_checks(app: &PgPool, admin: &PgPool) {
     let foreign = seed_branch(admin, other).await;
 
     let c = claims(user, Some(tenant), None);
-    assert!(tenancy::ensure_branch_in_tenant(app, &c, tenant, branch)
-        .await
-        .is_ok());
+    assert!(
+        tenancy::ensure_branch_in_tenant(app, &c, tenant, branch)
+            .await
+            .is_ok()
+    );
     assert!(
         tenancy::ensure_branch_in_tenant(app, &c, tenant, foreign)
             .await
@@ -193,7 +203,10 @@ async fn catalog_checks(app: &PgPool, admin: &PgPool) {
 
     assert!(items_a.iter().all(|i| i.product_id != inactive));
     assert!(items_a.iter().all(|i| i.product_id != supply));
-    assert_eq!(items_a.iter().filter(|i| i.product_id == limonada).count(), 1);
+    assert_eq!(
+        items_a.iter().filter(|i| i.product_id == limonada).count(),
+        1
+    );
 
     // Sucursal B: precio base y sin stock -> 0 disponible.
     let items_b = catalog::catalog(app, &c, branch_b).await.unwrap();
@@ -240,7 +253,11 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
     seed_stock(admin, tenant, branch, p, "5", "0").await;
 
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(5)
     );
 
@@ -249,7 +266,11 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(ids.len(), 1);
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(2)
     );
 
@@ -266,18 +287,26 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
         inventory::reserve(app, &c, branch, None, None, p2, dec(1), None),
         inventory::reserve(app, &c, branch, None, None, p2, dec(1), None),
     );
-    assert!(r1.is_ok() ^ r2.is_ok(), "exactly one concurrent reserve wins");
+    assert!(
+        r1.is_ok() ^ r2.is_ok(),
+        "exactly one concurrent reserve wins"
+    );
 
     // Consumacion: descuento definitivo + movimiento.
     assert_eq!(inventory::consume(app, &c, &ids).await.unwrap(), 1);
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(2)
     );
     let mv = inventory::movements(app, &c, branch).await.unwrap();
-    assert!(mv
-        .iter()
-        .any(|m| m.movement_type == "DESCUENTO" && m.qty.normalize() == dec(3)));
+    assert!(
+        mv.iter()
+            .any(|m| m.movement_type == "DESCUENTO" && m.qty.normalize() == dec(3))
+    );
 
     // Liberacion explicita.
     let r = inventory::reserve(app, &c, branch, None, None, p, dec(1), None)
@@ -285,7 +314,11 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(inventory::release(app, &c, &r).await.unwrap(), 1);
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(2)
     );
 
@@ -296,7 +329,11 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert!(inventory::expire_due(app, &c).await.unwrap() >= 1);
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(2)
     );
 
@@ -308,16 +345,40 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
         .await
         .unwrap();
     let mv = inventory::movements(app, &c, branch).await.unwrap();
-    assert!(mv
-        .iter()
-        .any(|m| m.movement_type == "REPOSICION" && m.qty.normalize() == dec(10)));
-    assert!(mv
-        .iter()
-        .any(|m| m.movement_type == "AJUSTE" && m.qty.normalize() == dec(2)));
+    assert!(
+        mv.iter()
+            .any(|m| m.movement_type == "REPOSICION" && m.qty.normalize() == dec(10))
+    );
+    // El ajuste negativo queda como salida, con delta -2 en el kardex.
+    assert!(mv.iter().any(|m| m.movement_type == "AJUSTE_SALIDA"
+        && m.qty.normalize() == dec(2)
+        && m.delta.map(|d| d.normalize()) == Some(dec(-2))));
+    assert!(
+        mv.iter()
+            .any(|m| m.movement_type == "DESCUENTO"
+                && m.delta.map(|d| d.normalize()) == Some(dec(-3)))
+    );
+    assert!(mv.iter().any(
+        |m| m.movement_type == "REPOSICION" && m.delta.map(|d| d.normalize()) == Some(dec(10))
+    ));
     // on_hand: 5 - 3 (consumo) = 2; +10 = 12; -2 = 10.
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(10)
+    );
+
+    // Ajuste positivo -> entrada con delta +1.
+    inventory::adjust(app, &c, branch, p, dec(1), "conteo")
+        .await
+        .unwrap();
+    let mv = inventory::movements(app, &c, branch).await.unwrap();
+    assert!(
+        mv.iter().any(|m| m.movement_type == "AJUSTE_ENTRADA"
+            && m.delta.map(|d| d.normalize()) == Some(dec(1)))
     );
 
     // Reserva por insumo (explosion de receta).
@@ -333,7 +394,11 @@ async fn inventory_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(ids2.len(), 1);
     // Insumo disponible 4, 2 por unidad -> 2; tras reservar 1 -> 1.
     assert_eq!(
-        inventory::available(app, &c, branch, dish).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, dish)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(1)
     );
 
@@ -356,7 +421,7 @@ async fn order_checks(app: &PgPool, admin: &PgPool) {
     let tenant = seed_tenant(admin).await;
     let branch = seed_branch(admin, tenant).await;
     let user = seed_user(admin).await;
-    seed_membership(admin, tenant, None, user, "MESERO").await;
+    seed_membership(admin, tenant, None, user, "ADMIN_CAJA").await;
     let c = claims(user, Some(tenant), None);
 
     let table = seed_table(admin, tenant, branch, "T1").await;
@@ -371,18 +436,22 @@ async fn order_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(o1.status, "CREADA");
     assert_eq!(table_status(admin, table).await, "OCUPADA");
-    assert!(orders::create_order(app, &c, branch, "MESA", Some(table), None, None)
-        .await
-        .is_err());
+    assert!(
+        orders::create_order(app, &c, branch, "MESA", Some(table), None, None)
+            .await
+            .is_err()
+    );
 
     // 5.2 MOSTRADOR sin mesa; MESA sin mesa rechazado.
     let o2 = orders::create_order(app, &c, branch, "MOSTRADOR", None, None, None)
         .await
         .unwrap();
     assert_eq!(o2.status, "CREADA");
-    assert!(orders::create_order(app, &c, branch, "MESA", None, None, None)
-        .await
-        .is_err());
+    assert!(
+        orders::create_order(app, &c, branch, "MESA", None, None, None)
+            .await
+            .is_err()
+    );
 
     // 5.6 una orden sin lineas no se confirma.
     assert!(orders::confirm(app, &c, o2.id).await.is_err());
@@ -405,37 +474,216 @@ async fn order_checks(app: &PgPool, admin: &PgPool) {
         "EN_PREPARACION"
     );
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(8)
     );
 
     // 5.4 maquina de estados + transicion invalida.
-    assert!(orders::transition(app, &c, o1.id, OrderStatus::Lista)
+    assert!(
+        orders::transition(app, &c, o1.id, OrderStatus::Lista)
+            .await
+            .is_err()
+    );
+    orders::transition(app, &c, o2.id, OrderStatus::Lista)
         .await
-        .is_err());
-    orders::transition(app, &c, o2.id, OrderStatus::Lista).await.unwrap();
-    orders::transition(app, &c, o2.id, OrderStatus::Entregada).await.unwrap();
-    orders::transition(app, &c, o2.id, OrderStatus::Cobrada).await.unwrap();
-    orders::transition(app, &c, o2.id, OrderStatus::Cerrada).await.unwrap();
-    assert_eq!(orders::order(app, &c, o2.id).await.unwrap().status, "CERRADA");
-    assert!(orders::transition(app, &c, o2.id, OrderStatus::EnPreparacion)
+        .unwrap();
+    orders::transition(app, &c, o2.id, OrderStatus::Entregada)
         .await
-        .is_err());
+        .unwrap();
+    // Antes de cobrar, las 2 unidades estan reservadas pero no descontadas.
+    assert_eq!(stock_row(admin, branch, p).await, (dec(10), dec(2)));
+    orders::transition(app, &c, o2.id, OrderStatus::Cobrada)
+        .await
+        .unwrap();
+    // Cobrar consume la reserva: el stock fisico baja de verdad.
+    assert_eq!(stock_row(admin, branch, p).await, (dec(8), dec(0)));
+    let mv = inventory::movements(app, &c, branch).await.unwrap();
+    assert!(
+        mv.iter()
+            .any(|m| m.movement_type == "DESCUENTO" && m.qty.normalize() == dec(2))
+    );
+    orders::transition(app, &c, o2.id, OrderStatus::Cerrada)
+        .await
+        .unwrap();
+    assert_eq!(
+        orders::order(app, &c, o2.id).await.unwrap().status,
+        "CERRADA"
+    );
+    assert!(
+        orders::transition(app, &c, o2.id, OrderStatus::EnPreparacion)
+            .await
+            .is_err()
+    );
 
     // 5.5 cancelacion libera reservas y mesa.
-    orders::add_line(app, &c, o1.id, p, dec(1), None).await.unwrap();
+    orders::add_line(app, &c, o1.id, p, dec(1), None)
+        .await
+        .unwrap();
     orders::confirm(app, &c, o1.id).await.unwrap();
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(7)
     );
     orders::cancel(app, &c, o1.id).await.unwrap();
-    assert_eq!(orders::order(app, &c, o1.id).await.unwrap().status, "CANCELADA");
     assert_eq!(
-        inventory::available(app, &c, branch, p).await.unwrap().unwrap().normalize(),
+        orders::order(app, &c, o1.id).await.unwrap().status,
+        "CANCELADA"
+    );
+    assert_eq!(
+        inventory::available(app, &c, branch, p)
+            .await
+            .unwrap()
+            .unwrap()
+            .normalize(),
         dec(8)
     );
     assert_eq!(table_status(admin, table).await, "LIBRE");
+
+    // Cerrar una orden de MESA libera la mesa.
+    let o3 = orders::create_order(app, &c, branch, "MESA", Some(table), None, None)
+        .await
+        .unwrap();
+    assert_eq!(table_status(admin, table).await, "OCUPADA");
+    orders::add_line(app, &c, o3.id, p, dec(1), None)
+        .await
+        .unwrap();
+    orders::confirm(app, &c, o3.id).await.unwrap();
+    for to in [
+        OrderStatus::Lista,
+        OrderStatus::Entregada,
+        OrderStatus::Cobrada,
+        OrderStatus::Cerrada,
+    ] {
+        orders::transition(app, &c, o3.id, to).await.unwrap();
+    }
+    assert_eq!(table_status(admin, table).await, "LIBRE");
+    assert_eq!(stock_row(admin, branch, p).await, (dec(7), dec(0)));
+
+    // Pasar a EN_PREPARACION por `transition` tambien reserva (no se salta confirm).
+    let o4 = orders::create_order(app, &c, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    orders::add_line(app, &c, o4.id, p, dec(1), None)
+        .await
+        .unwrap();
+    orders::transition(app, &c, o4.id, OrderStatus::EnPreparacion)
+        .await
+        .unwrap();
+    assert_eq!(stock_row(admin, branch, p).await, (dec(7), dec(1)));
+    orders::cancel(app, &c, o4.id).await.unwrap();
+    assert_eq!(stock_row(admin, branch, p).await, (dec(7), dec(0)));
+
+    cleanup(admin, tenant, &[user]).await;
+}
+
+async fn stock_row(pool: &PgPool, branch: Uuid, product: Uuid) -> (Decimal, Decimal) {
+    let (on_hand, reserved): (Decimal, Decimal) = sqlx::query_as(
+        "select on_hand, reserved from stock where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(product)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (on_hand.normalize(), reserved.normalize())
+}
+
+/// Totales con impuesto y confirmacion atomica.
+async fn order_totals_and_atomic_confirm_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let user = seed_user(admin).await;
+    seed_membership(admin, tenant, None, user, "ADMIN_CAJA").await;
+    let c = claims(user, Some(tenant), None);
+
+    // Gaseosa IVA 19% a 2500; pan exento a 1000 con poco stock.
+    let soda = seed_product(admin, tenant, "Gaseosa", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "10", "0").await;
+    let bread = seed_product(admin, tenant, "Pan", "UND", None, false).await;
+    set_base_price(admin, bread, "1000").await;
+    seed_branch_product(admin, tenant, branch, bread, None, None).await;
+    seed_stock(admin, tenant, branch, bread, "1", "0").await;
+
+    // Totales: 2 x 2500 = 5000 + IVA 950; 3 x 1000 = 3000 exento.
+    let o = orders::create_order(app, &c, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    let l1 = orders::add_line(app, &c, o.id, soda, dec(2), None)
+        .await
+        .unwrap();
+    assert_eq!(l1.tax_rate.normalize(), Decimal::new(19, 2));
+    assert_eq!(l1.tax_amount.normalize(), dec(950));
+    orders::add_line(app, &c, o.id, bread, dec(3), None)
+        .await
+        .unwrap();
+    let got = orders::order(app, &c, o.id).await.unwrap();
+    assert_eq!(got.subtotal.normalize(), dec(8000));
+    assert_eq!(got.inc_amount.normalize(), dec(950));
+    assert_eq!(got.total_amount.normalize(), dec(8950));
+
+    // Confirmacion atomica: el pan no alcanza (3 > 1), asi que tampoco queda
+    // reservada la gaseosa y la orden sigue CREADA.
+    assert!(orders::confirm(app, &c, o.id).await.is_err());
+    assert_eq!(orders::order(app, &c, o.id).await.unwrap().status, "CREADA");
+    assert_eq!(stock_row(admin, branch, soda).await, (dec(10), dec(0)));
+    assert_eq!(stock_row(admin, branch, bread).await, (dec(1), dec(0)));
+    let reservations: i64 =
+        sqlx::query_scalar("select count(*) from stock_reservations where order_id = $1")
+            .bind(o.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(reservations, 0);
+
+    // Confirmaciones concurrentes de la misma orden: solo una gana y se
+    // reserva una sola vez.
+    let o2 = orders::create_order(app, &c, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    orders::add_line(app, &c, o2.id, soda, dec(1), None)
+        .await
+        .unwrap();
+    let (r1, r2) = tokio::join!(
+        orders::confirm(app, &c, o2.id),
+        orders::confirm(app, &c, o2.id),
+    );
+    assert!(
+        r1.is_ok() ^ r2.is_ok(),
+        "exactly one concurrent confirm wins"
+    );
+    assert_eq!(stock_row(admin, branch, soda).await, (dec(10), dec(1)));
+
+    // No se pueden agregar lineas a una orden ya confirmada.
+    assert!(
+        orders::add_line(app, &c, o2.id, soda, dec(1), None)
+            .await
+            .is_err()
+    );
+
+    // Un producto inactivo no se puede vender.
+    let o3 = orders::create_order(app, &c, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    sqlx::query("update products set active = false where id = $1")
+        .bind(bread)
+        .execute(admin)
+        .await
+        .unwrap();
+    assert!(
+        orders::add_line(app, &c, o3.id, bread, dec(1), None)
+            .await
+            .is_err()
+    );
 
     cleanup(admin, tenant, &[user]).await;
 }
@@ -444,13 +692,15 @@ async fn hook_checks(admin: &PgPool) {
     let tenant = seed_tenant(admin).await;
     let branch = seed_branch(admin, tenant).await;
     let user = seed_user(admin).await;
-    sqlx::query("insert into user_active_context (user_id, tenant_id, branch_id) values ($1, $2, $3)")
-        .bind(user)
-        .bind(tenant)
-        .bind(branch)
-        .execute(admin)
-        .await
-        .unwrap();
+    sqlx::query(
+        "insert into user_active_context (user_id, tenant_id, branch_id) values ($1, $2, $3)",
+    )
+    .bind(user)
+    .bind(tenant)
+    .bind(branch)
+    .execute(admin)
+    .await
+    .unwrap();
 
     let event = serde_json::json!({
         "user_id": user.to_string(),
@@ -493,4 +743,511 @@ async fn database_integration() {
     recipe_checks(&app, &admin).await;
     inventory_checks(&app, &admin).await;
     order_checks(&app, &admin).await;
+    order_totals_and_atomic_confirm_checks(&app, &admin).await;
+    branch_access_checks(&app, &admin).await;
+    role_checks(&app, &admin).await;
+    sales_and_cash_checks(&app, &admin).await;
+    stock_levels_and_transfer_checks(&app, &admin).await;
+}
+
+/// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
+async fn stock_levels_and_transfer_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let main = seed_branch(admin, tenant).await;
+    let annex = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let clerk = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    // Administra solo la sede principal.
+    seed_membership(admin, tenant, Some(main), clerk, "ADMIN_CAJA").await;
+    let c = claims(owner, Some(tenant), None);
+
+    let rice = seed_product(admin, tenant, "Arroz", "UND", None, false).await;
+    seed_branch_product(admin, tenant, main, rice, None, None).await;
+    seed_stock(admin, tenant, main, rice, "10", "0").await;
+    // En surtido pero nunca tuvo stock: aparece agotado.
+    let oil = seed_product(admin, tenant, "Aceite", "UND", None, false).await;
+    seed_branch_product(admin, tenant, main, oil, None, None).await;
+
+    let levels = inventory::stock_levels(app, &c, main).await.unwrap();
+    let row = |levels: &[inventory::StockLevel], p: Uuid| {
+        let r = levels.iter().find(|l| l.product_id == p).unwrap();
+        (r.available.normalize(), r.status.clone())
+    };
+    assert_eq!(levels.len(), 2);
+    assert_eq!(row(&levels, rice), (dec(10), "OK".to_string()));
+    assert_eq!(row(&levels, oil), (dec(0), "AGOTADO".to_string()));
+
+    // Punto de reorden 10 -> el arroz queda en stock bajo.
+    inventory::set_min_qty(app, &c, main, rice, dec(10))
+        .await
+        .unwrap();
+    let levels = inventory::stock_levels(app, &c, main).await.unwrap();
+    assert_eq!(row(&levels, rice).1, "BAJO");
+
+    // Conteo fisico: 7 contadas -> salida de 3; mismo conteo no registra nada.
+    assert_eq!(
+        inventory::count(app, &c, main, rice, dec(7), "conteo")
+            .await
+            .unwrap()
+            .normalize(),
+        dec(-3)
+    );
+    assert_eq!(
+        inventory::count(app, &c, main, rice, dec(7), "conteo")
+            .await
+            .unwrap()
+            .normalize(),
+        dec(0)
+    );
+    // Conteo de un producto sin fila de stock: la crea y registra la entrada.
+    inventory::count(app, &c, main, oil, dec(4), "llego")
+        .await
+        .unwrap();
+    assert_eq!(stock_row(admin, main, oil).await, (dec(4), dec(0)));
+
+    // Traslado de 5 a la sede anexa (sin fila previa alla).
+    inventory::transfer(app, &c, main, annex, rice, dec(5), "surtir anexo")
+        .await
+        .unwrap();
+    assert_eq!(stock_row(admin, main, rice).await, (dec(2), dec(0)));
+    assert_eq!(stock_row(admin, annex, rice).await, (dec(5), dec(0)));
+    // No se traslada mas de lo disponible, ni a la misma sede.
+    assert!(is_state(
+        &inventory::transfer(app, &c, main, annex, rice, dec(3), "x").await
+    ));
+    assert!(matches!(
+        inventory::transfer(app, &c, main, main, rice, dec(1), "x").await,
+        Err(ApiError::Domain(DomainError::Validation(_)))
+    ));
+    // Quien solo administra la principal no puede mandar a la anexa.
+    let k = claims(clerk, Some(tenant), Some(main));
+    assert!(is_forbidden(
+        &inventory::transfer(app, &k, main, annex, rice, dec(1), "x").await
+    ));
+
+    // Kardex del arroz en la principal: mas reciente primero y saldo correcto.
+    let kx = inventory::kardex(app, &c, main, Some(rice), 50)
+        .await
+        .unwrap();
+    let seq: Vec<(String, Decimal)> = kx
+        .iter()
+        .map(|m| {
+            (
+                m.movement_type.clone(),
+                m.balance_after.unwrap().normalize(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seq,
+        vec![
+            ("TRASLADO_SALIDA".to_string(), dec(2)),
+            ("AJUSTE_SALIDA".to_string(), dec(7)),
+        ]
+    );
+    assert_eq!(kx[0].product_name, "Arroz");
+    let annex_kx = inventory::kardex(app, &c, annex, None, 50).await.unwrap();
+    assert_eq!(annex_kx.len(), 1);
+    assert_eq!(annex_kx[0].movement_type, "TRASLADO_ENTRADA");
+    assert_eq!(annex_kx[0].ref_id, kx[0].ref_id);
+
+    cleanup(admin, tenant, &[owner, clerk]).await;
+}
+
+fn is_forbidden<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
+    matches!(r, Err(ApiError::Domain(DomainError::Forbidden)))
+}
+
+fn is_state<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
+    matches!(r, Err(ApiError::Domain(DomainError::State(_))))
+}
+
+/// Una membresia de sucursal solo ve y opera su sucursal, aunque el JWT pida otra.
+async fn branch_access_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch_a = seed_branch(admin, tenant).await;
+    let branch_b = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch_a), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+
+    let p = seed_product(admin, tenant, "Agua", "UND", None, false).await;
+    set_base_price(admin, p, "1000").await;
+    seed_branch_product(admin, tenant, branch_a, p, None, None).await;
+    seed_branch_product(admin, tenant, branch_b, p, None, None).await;
+
+    let c = claims(cashier, Some(tenant), None);
+    assert_eq!(catalog::catalog(app, &c, branch_a).await.unwrap().len(), 1);
+    assert!(is_forbidden(&catalog::catalog(app, &c, branch_b).await));
+
+    // Aunque el JWT diga sucursal B, la membresia es de A.
+    let c_jwt_b = claims(cashier, Some(tenant), Some(branch_b));
+    assert!(is_forbidden(
+        &catalog::catalog(app, &c_jwt_b, branch_b).await
+    ));
+
+    // Sin sucursal pedida, RLS queda limitado a la de la membresia.
+    let (scope, tx) = tenancy::begin(app, &c).await.unwrap();
+    tx.rollback().await.unwrap();
+    assert_eq!(scope.branch, Some(branch_a));
+
+    // El dueño (todo el tenant) ve ambas; una orden de B es invisible para el cajero de A.
+    let o = owner_claims(owner, tenant);
+    assert_eq!(catalog::catalog(app, &o, branch_b).await.unwrap().len(), 1);
+    let order_b = orders::create_order(app, &o, branch_b, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    assert!(matches!(
+        orders::order(app, &c, order_b.id).await,
+        Err(ApiError::Domain(DomainError::NotFound))
+    ));
+    assert!(orders::order(app, &o, order_b.id).await.is_ok());
+
+    // Sucursales visibles con el rol en cada una.
+    let mine = tenancy::branches(app, &c).await.unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!((mine[0].id, mine[0].role.as_str()), (branch_a, "CAJERO"));
+    let all = tenancy::branches(app, &o).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert!(all.iter().all(|b| b.role == "DUENO"));
+
+    // Rol de todo el negocio + rol especifico en B: en B gana el especifico.
+    let mixed = seed_user(admin).await;
+    seed_membership(admin, tenant, None, mixed, "MESERO").await;
+    seed_membership(admin, tenant, Some(branch_b), mixed, "ADMIN_CAJA").await;
+    let m = claims(mixed, Some(tenant), None);
+    let roles: Vec<(Uuid, String)> = tenancy::branches(app, &m)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| (b.id, b.role))
+        .collect();
+    assert!(roles.contains(&(branch_a, "MESERO".to_string())));
+    assert!(roles.contains(&(branch_b, "ADMIN_CAJA".to_string())));
+    // Y las operaciones en B usan ese rol.
+    let (scope_b, tx) = tenancy::begin_in_branch(app, &m, branch_b).await.unwrap();
+    tx.rollback().await.unwrap();
+    assert_eq!(scope_b.role, "ADMIN_CAJA");
+
+    cleanup(admin, tenant, &[cashier, owner, mixed]).await;
+}
+
+fn owner_claims(user: Uuid, tenant: Uuid) -> crate::auth::Claims {
+    claims(user, Some(tenant), None)
+}
+
+/// Matriz de permisos aplicada en las operaciones.
+async fn role_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let waiter = seed_user(admin).await;
+    let cook = seed_user(admin).await;
+    seed_membership(admin, tenant, None, waiter, "MESERO").await;
+    seed_membership(admin, tenant, None, cook, "COCINA").await;
+    let w = claims(waiter, Some(tenant), None);
+    let k = claims(cook, Some(tenant), None);
+
+    let p = seed_product(admin, tenant, "Plato", "UND", None, false).await;
+    set_base_price(admin, p, "100").await;
+    seed_branch_product(admin, tenant, branch, p, None, None).await;
+    seed_stock(admin, tenant, branch, p, "10", "0").await;
+
+    // El mesero toma y confirma la orden; la cocina no puede crearla.
+    assert!(is_forbidden(
+        &orders::create_order(app, &k, branch, "MOSTRADOR", None, None, None).await
+    ));
+    let order = orders::create_order(app, &w, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    orders::add_line(app, &w, order.id, p, dec(1), None)
+        .await
+        .unwrap();
+    orders::confirm(app, &w, order.id).await.unwrap();
+
+    // Solo cocina (o admin) marca LISTA; el mesero entrega pero no cobra.
+    assert!(is_forbidden(
+        &orders::transition(app, &w, order.id, OrderStatus::Lista).await
+    ));
+    orders::transition(app, &k, order.id, OrderStatus::Lista)
+        .await
+        .unwrap();
+    orders::transition(app, &w, order.id, OrderStatus::Entregada)
+        .await
+        .unwrap();
+    assert!(is_forbidden(
+        &orders::transition(app, &w, order.id, OrderStatus::Cobrada).await
+    ));
+    assert!(is_forbidden(&orders::cancel(app, &w, order.id).await));
+
+    // Inventario y caja quedan fuera del mesero.
+    assert!(is_forbidden(
+        &inventory::replenish(app, &w, branch, p, dec(1), "x").await
+    ));
+    assert!(is_forbidden(&inventory::movements(app, &w, branch).await));
+    assert!(is_forbidden(&cash::open(app, &w, branch, dec(0)).await));
+
+    cleanup(admin, tenant, &[waiter, cook]).await;
+}
+
+fn sale(
+    id: Uuid,
+    branch: Uuid,
+    items: &[(Uuid, i64)],
+    payments: &[(PaymentMethod, i64)],
+) -> SaleRequest {
+    SaleRequest {
+        id,
+        branch_id: branch,
+        items: items
+            .iter()
+            .map(|(product_id, qty)| SaleItem {
+                product_id: *product_id,
+                qty: dec(*qty),
+            })
+            .collect(),
+        payments: payments
+            .iter()
+            .map(|(method, amount)| SalePayment {
+                method: *method,
+                amount: dec(*amount),
+                reference: None,
+            })
+            .collect(),
+        tip_amount: None,
+    }
+}
+
+fn created(r: Checkout) -> sales::SaleResponse {
+    match r {
+        Checkout::Created(s) => s,
+        Checkout::Replayed(_) => panic!("expected a new sale, got a replay"),
+    }
+}
+
+/// Venta de mostrador: turno obligatorio, totales, stock, pagos, consecutivo,
+/// outbox fiscal, idempotencia y arqueo.
+async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
+    use PaymentMethod::*;
+
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let waiter = seed_user(admin).await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, waiter, "MESERO").await;
+    let c = claims(cashier, Some(tenant), None);
+
+    // Gaseosa 2500 + IVA 19%; pan exento 1000 con 1 unidad.
+    let soda = seed_product(admin, tenant, "Gaseosa", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "10", "0").await;
+    let bread = seed_product(admin, tenant, "Pan", "UND", None, false).await;
+    set_base_price(admin, bread, "1000").await;
+    seed_branch_product(admin, tenant, branch, bread, None, None).await;
+    seed_stock(admin, tenant, branch, bread, "1", "0").await;
+
+    let first = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 2), (bread, 1)],
+        &[(Efectivo, 10000)],
+    );
+
+    // Sin turno abierto no se vende; el mesero no puede vender.
+    assert!(is_state(&sales::checkout(app, &c, first.clone()).await));
+    let w = claims(waiter, Some(tenant), None);
+    assert!(is_forbidden(&sales::checkout(app, &w, first.clone()).await));
+
+    // Apertura de turno (uno por cajero y sucursal).
+    let session = cash::open(app, &c, branch, dec(50000)).await.unwrap();
+    assert!(is_state(&cash::open(app, &c, branch, dec(0)).await));
+
+    // Venta 1: 2 x 2500 + 950 IVA + 1000 = 6950; paga 10000 -> vuelto 3050.
+    let s1 = created(sales::checkout(app, &c, first.clone()).await.unwrap());
+    assert_eq!(s1.order.status, "COBRADA");
+    assert_eq!(s1.order.subtotal.normalize(), dec(6000));
+    assert_eq!(s1.order.inc_amount.normalize(), dec(950));
+    assert_eq!(s1.order.total_amount.normalize(), dec(6950));
+    assert_eq!(s1.change_due.normalize(), dec(3050));
+    assert_eq!(s1.receipt_number, "POS-000001");
+    assert_eq!(s1.fiscal_status, "PENDIENTE");
+    assert_eq!(s1.items.len(), 2);
+    assert_eq!(s1.payments.len(), 1);
+    assert_eq!(s1.payments[0].amount.normalize(), dec(6950));
+    assert_eq!(
+        s1.payments[0].tendered.map(|t| t.normalize()),
+        Some(dec(10000))
+    );
+    // Descuento directo, sin reservas colgadas.
+    assert_eq!(stock_row(admin, branch, soda).await, (dec(8), dec(0)));
+    assert_eq!(stock_row(admin, branch, bread).await, (dec(0), dec(0)));
+
+    // Reintento con el mismo cuerpo: misma venta, nada se cobra dos veces.
+    match sales::checkout(app, &c, first.clone()).await.unwrap() {
+        Checkout::Replayed(r) => {
+            assert_eq!(r.order.id, s1.order.id);
+            assert_eq!(r.receipt_number, "POS-000001");
+        }
+        Checkout::Created(_) => panic!("replay must not create a new sale"),
+    }
+    assert_eq!(stock_row(admin, branch, soda).await, (dec(8), dec(0)));
+    let payments: i64 = sqlx::query_scalar("select count(*) from payments where order_id = $1")
+        .bind(s1.order.id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert_eq!(payments, 1);
+
+    // Mismo id con otro cuerpo -> 409.
+    let mut tampered = first.clone();
+    tampered.items[0].qty = dec(3);
+    assert!(is_state(&sales::checkout(app, &c, tampered).await));
+
+    // Doble clic: dos requests identicos a la vez -> una venta, un descuento.
+    let twin = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    let (r1, r2) = tokio::join!(
+        sales::checkout(app, &c, twin.clone()),
+        sales::checkout(app, &c, twin.clone()),
+    );
+    let outcomes = [r1.unwrap(), r2.unwrap()];
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|o| matches!(o, Checkout::Created(_)))
+            .count(),
+        1
+    );
+    assert_eq!(stock_row(admin, branch, soda).await, (dec(7), dec(0)));
+
+    // Sin stock: la venta se revierte entera y no consume consecutivo.
+    let no_stock = sale(Uuid::new_v4(), branch, &[(bread, 1)], &[(Efectivo, 1000)]);
+    assert!(is_state(&sales::checkout(app, &c, no_stock).await));
+
+    // Pago mixto: 2975 = 1000 datafono + 2000 efectivo -> vuelto 25.
+    let mixed = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(Datafono, 1000), (Efectivo, 2000)],
+    );
+    let s3 = created(sales::checkout(app, &c, mixed).await.unwrap());
+    assert_eq!(s3.receipt_number, "POS-000003");
+    assert_eq!(s3.change_due.normalize(), dec(25));
+
+    // Pagos que no cubren el total.
+    let short = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Datafono, 100)]);
+    assert!(matches!(
+        sales::checkout(app, &c, short).await,
+        Err(ApiError::Domain(DomainError::Validation(_)))
+    ));
+
+    // Rango DIAN agotado: la venta se rechaza.
+    sqlx::query("update document_sequences set range_to = 3 where branch_id = $1")
+        .bind(branch)
+        .execute(admin)
+        .await
+        .unwrap();
+    let over = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    assert!(is_state(&sales::checkout(app, &c, over).await));
+    sqlx::query("update document_sequences set range_to = null where branch_id = $1")
+        .bind(branch)
+        .execute(admin)
+        .await
+        .unwrap();
+    // Sin huecos: las ventas revertidas no consumieron numero.
+    let next: i64 =
+        sqlx::query_scalar("select next_number from document_sequences where branch_id = $1")
+            .bind(branch)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(next, 4);
+
+    // Resumen del turno: 3 ventas; efectivo esperado = 50000 + 6950 + 1975.
+    let summary = cash::current(app, &c, branch).await.unwrap().unwrap();
+    assert_eq!(summary.session.id, session.id);
+    assert_eq!(summary.sales_count, 3);
+    assert_eq!(summary.sales_total.normalize(), dec(12900));
+    assert_eq!(summary.expected_cash.normalize(), dec(58925));
+    let by = |m: &str| {
+        summary
+            .by_method
+            .iter()
+            .find(|t| t.method == m)
+            .map(|t| t.amount.normalize())
+    };
+    assert_eq!(by("EFECTIVO"), Some(dec(8925)));
+    assert_eq!(by("DATAFONO"), Some(dec(1000)));
+    assert_eq!(by("QR"), Some(dec(2975)));
+
+    // Ingreso y retiro de efectivo: mueven el esperado, no las ventas.
+    use cash::CashMovementKind::{Ingreso, Retiro};
+    let after_in = cash::add_movement(app, &c, session.id, Ingreso, dec(10000), "sencillo")
+        .await
+        .unwrap();
+    assert_eq!(after_in.cash_in.normalize(), dec(10000));
+    assert_eq!(after_in.expected_cash.normalize(), dec(68925));
+    // No se puede retirar mas de lo que hay en la gaveta, ni sin motivo.
+    assert!(is_state(
+        &cash::add_movement(app, &c, session.id, Retiro, dec(70000), "banco").await
+    ));
+    assert!(matches!(
+        cash::add_movement(app, &c, session.id, Retiro, dec(1), "  ").await,
+        Err(ApiError::Domain(DomainError::Validation(_)))
+    ));
+    let after_out = cash::add_movement(app, &c, session.id, Retiro, dec(5000), "hielo")
+        .await
+        .unwrap();
+    assert_eq!(after_out.cash_out.normalize(), dec(5000));
+    assert_eq!(after_out.sales_count, 3);
+    assert_eq!(after_out.expected_cash.normalize(), dec(63925));
+    // El mesero no maneja caja.
+    assert!(is_forbidden(
+        &cash::add_movement(app, &w, session.id, Ingreso, dec(1), "x").await
+    ));
+
+    // Bitacora: apertura, 3 ventas, ingreso y retiro, la mas reciente primero.
+    let log = cash::activity(app, &c, session.id).await.unwrap();
+    let kinds = |k: &str| log.iter().filter(|e| e.kind == k).count();
+    assert_eq!(kinds("APERTURA"), 1);
+    assert_eq!(kinds("VENTA"), 3);
+    assert_eq!(kinds("INGRESO"), 1);
+    assert_eq!(kinds("RETIRO"), 1);
+    assert_eq!(log.last().unwrap().kind, "APERTURA");
+    assert!(log.iter().any(|e| e.kind == "VENTA"
+        && e.detail.as_deref() == Some("POS-000001")
+        && e.methods.as_deref() == Some("EFECTIVO")));
+
+    // Cierre con arqueo: faltan 25.
+    let closed = cash::close(app, &c, session.id, dec(63900), Some("faltante".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        closed.session.difference.map(|d| d.normalize()),
+        Some(dec(-25))
+    );
+    assert!(is_state(
+        &cash::close(app, &c, session.id, dec(0), None).await
+    ));
+    assert!(cash::current(app, &c, branch).await.unwrap().is_none());
+
+    // Con el turno cerrado ya no se vende ni se mueve efectivo.
+    let late = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    assert!(is_state(&sales::checkout(app, &c, late).await));
+    assert!(is_state(
+        &cash::add_movement(app, &c, session.id, Ingreso, dec(1), "tarde").await
+    ));
+
+    // Historial: el turno cerrado con su arqueo y ventas; la bitacora incluye el cierre.
+    let history = cash::history(app, &c, branch, 10).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].sales_count, 3);
+    assert_eq!(history[0].difference.map(|d| d.normalize()), Some(dec(-25)));
+    let log = cash::activity(app, &c, session.id).await.unwrap();
+    assert_eq!(log.first().unwrap().kind, "CIERRE");
+
+    cleanup(admin, tenant, &[cashier, waiter]).await;
 }

@@ -4,9 +4,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::db;
 use crate::error::{ApiError, DomainError};
-use crate::tenancy;
+use crate::tenancy::{self, Action};
 
 /// Item de catalogo resuelto para una sucursal.
 #[derive(Debug, Serialize)]
@@ -80,10 +79,9 @@ pub async fn catalog(
     claims: &Claims,
     branch_id: Uuid,
 ) -> Result<Vec<CatalogItem>, ApiError> {
-    let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
-    tenancy::ensure_branch_in_tenant(pool, claims, tenant, branch_id).await?;
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
+    scope.require(Action::Read)?;
 
-    let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
     let rows = sqlx::query_as::<_, CatalogRow>(CATALOG_SQL)
         .bind(branch_id)
         .fetch_all(&mut *tx)
@@ -110,14 +108,13 @@ pub async fn recipe(
     claims: &Claims,
     product_id: Uuid,
 ) -> Result<Vec<RecipeItem>, ApiError> {
-    let (tenant, _role) = tenancy::resolve_membership(pool, claims, None).await?;
-    let mut tx = db::begin_tenant_tx_for(pool, claims, Some(tenant)).await?;
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require(Action::Read)?;
 
-    let exists: bool =
-        sqlx::query_scalar("select exists(select 1 from products where id = $1)")
-            .bind(product_id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let exists: bool = sqlx::query_scalar("select exists(select 1 from products where id = $1)")
+        .bind(product_id)
+        .fetch_one(&mut *tx)
+        .await?;
     if !exists {
         return Err(ApiError::Domain(DomainError::NotFound));
     }
@@ -140,32 +137,16 @@ pub fn tax_rate_for(code: Option<&str>) -> Option<Decimal> {
     }
 }
 
-/// Aporte al total de una linea segun su tasa (o exento).
-#[allow(dead_code)]
-pub fn tax_contribution(unit_price: Decimal, qty: Decimal, tax_rate: Option<Decimal>) -> Decimal {
-    match tax_rate {
-        Some(rate) => (unit_price * qty * rate).round_dp(2),
-        None => Decimal::ZERO,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn tax_contribution_applies_rate_or_exempt() {
-        let price = Decimal::from(10000);
-        let one = Decimal::from(1);
-        assert_eq!(
-            tax_contribution(price, one, tax_rate_for(Some("INC8"))).normalize(),
-            Decimal::from(800)
-        );
-        assert_eq!(
-            tax_contribution(price, Decimal::from(3), tax_rate_for(Some("INC8"))).normalize(),
-            Decimal::from(2400)
-        );
-        assert_eq!(tax_contribution(price, one, None).normalize(), Decimal::ZERO);
+    fn tax_rate_resolves_known_codes() {
         assert_eq!(tax_rate_for(Some("IVA19")), Some(Decimal::new(19, 2)));
+        assert_eq!(tax_rate_for(Some("IVA5")), Some(Decimal::new(5, 2)));
+        assert_eq!(tax_rate_for(Some("INC8")), Some(Decimal::new(8, 2)));
+        assert_eq!(tax_rate_for(Some("OTRO")), None);
+        assert_eq!(tax_rate_for(None), None);
     }
 }

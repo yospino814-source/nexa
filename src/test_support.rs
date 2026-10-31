@@ -1,8 +1,8 @@
 //! Utilidades de apoyo para los tests de integracion contra la BD real.
 //! Solo se compila en tests.
 
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 use crate::auth::Claims;
@@ -25,7 +25,7 @@ pub async fn admin_pool() -> Option<PgPool> {
 /// Pool de la aplicacion (rol `authenticated`).
 pub async fn app_pool() -> Option<PgPool> {
     let url = database_url()?;
-    crate::db::connect(&url).await.ok()
+    crate::db::connect(&url, 5).await.ok()
 }
 
 pub async fn seed_tenant(pool: &PgPool) -> Uuid {
@@ -59,7 +59,13 @@ pub async fn seed_user(pool: &PgPool) -> Uuid {
     id
 }
 
-pub async fn seed_membership(pool: &PgPool, tenant: Uuid, branch: Option<Uuid>, user: Uuid, role: &str) {
+pub async fn seed_membership(
+    pool: &PgPool,
+    tenant: Uuid,
+    branch: Option<Uuid>,
+    user: Uuid,
+    role: &str,
+) {
     sqlx::query(
         "insert into memberships (tenant_id, branch_id, user_id, role_id)
          values ($1, $2, $3, public.tipo_id('ROL', $4))",
