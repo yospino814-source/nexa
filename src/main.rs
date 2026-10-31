@@ -5,6 +5,7 @@ mod db;
 mod error;
 mod inventory;
 mod orders;
+mod procurement;
 mod routes;
 mod sales;
 mod tenancy;
@@ -182,6 +183,10 @@ mod tests {
                 "GET",
                 "/v1/inventory/movements?branch_id=00000000-0000-0000-0000-000000000000",
             ),
+            ("GET", "/v1/suppliers"),
+            ("POST", "/v1/suppliers"),
+            ("GET", "/v1/purchases"),
+            ("POST", "/v1/purchases"),
         ] {
             let response = test_router()
                 .oneshot(

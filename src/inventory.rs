@@ -542,6 +542,18 @@ pub async fn replenish_tx(
     qty: Decimal,
     cause: &str,
 ) -> Result<(), ApiError> {
+    replenish_ref_tx(tx, scope, branch_id, product_id, qty, cause, None).await
+}
+
+pub async fn replenish_ref_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    product_id: Uuid,
+    qty: Decimal,
+    cause: &str,
+    reference: Option<(&str, Uuid)>,
+) -> Result<(), ApiError> {
     scope.require(Action::ManageInventory)?;
     tenancy::ensure_branch_tx(tx, scope, branch_id).await?;
     positive(qty)?;
@@ -559,7 +571,17 @@ pub async fn replenish_tx(
     .execute(&mut **tx)
     .await?;
 
-    record_movement(tx, scope, branch_id, product_id, "REPOSICION", qty, cause).await
+    record_movement_ref(
+        tx,
+        scope,
+        branch_id,
+        product_id,
+        "REPOSICION",
+        qty,
+        cause,
+        reference,
+    )
+    .await
 }
 
 /// Ajusta inventario (delta con signo) y registra el movimiento.

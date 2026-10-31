@@ -103,6 +103,15 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | POST | `/v1/inventory/count` | Conteo físico `{branch_id, product_id, counted, cause}`; registra la diferencia |
 | POST | `/v1/inventory/transfer` | Traslado entre sucursales `{from_branch_id, to_branch_id, product_id, qty, cause}`; exige permiso en ambas |
 | PUT | `/v1/inventory/min-qty` | Punto de reorden `{branch_id, product_id, min_qty}` |
+| GET | `/v1/suppliers?q=&include_inactive=` | Lista de proveedores del negocio |
+| POST | `/v1/suppliers` | Crear proveedor `{name, tax_id?, contact_name?, phone?, email?, address?, notes?}` |
+| PUT | `/v1/suppliers/{id}` | Editar proveedor, incluido `active` |
+| GET | `/v1/purchases?branch_id=&from=&to=&supplier_id=&status=&limit=` | Historial de compras con número de ítems y total |
+| POST | `/v1/purchases` | Crear compra en estado `PENDIENTE` (idempotente) |
+| GET | `/v1/purchases/summary?branch_id=&month=YYYY-MM` | Total comprado en el mes (solo `RECIBIDA`) y proveedores activos |
+| GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto y SKU |
+| POST | `/v1/purchases/{id}/receive` | Pasa compra a `RECIBIDA`, suma stock, registra kardex y actualiza `cost_price` |
+| POST | `/v1/purchases/{id}/cancel` | Anula compra (solo desde `PENDIENTE`) |
 
 ### `POST /v1/sales`
 

@@ -15,7 +15,7 @@ use crate::auth::AuthUser;
 use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
-use crate::{AppState, cash, catalog, inventory, orders, sales, tenancy};
+use crate::{AppState, cash, catalog, inventory, orders, procurement, sales, tenancy};
 
 // Extractores que rechazan entradas invalidas con el mismo formato
 // `{ "error": .. }` que el resto de la API (los de axum responden texto plano).
@@ -90,6 +90,15 @@ pub fn router() -> Router<AppState> {
         .route("/v1/inventory/transfer", post(transfer))
         .route("/v1/inventory/stock", get(stock_levels))
         .route("/v1/inventory/min-qty", put(set_min_qty))
+        // Proveedores
+        .route("/v1/suppliers", get(list_suppliers).post(create_supplier))
+        .route("/v1/suppliers/{id}", put(update_supplier))
+        // Compras
+        .route("/v1/purchases", get(list_purchases).post(create_purchase))
+        .route("/v1/purchases/summary", get(purchases_summary))
+        .route("/v1/purchases/{id}", get(get_purchase))
+        .route("/v1/purchases/{id}/receive", post(receive_purchase))
+        .route("/v1/purchases/{id}/cancel", post(cancel_purchase))
 }
 
 #[derive(Deserialize)]
@@ -557,4 +566,111 @@ async fn adjust(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------- proveedores
+
+#[derive(Deserialize, Default)]
+struct SuppliersQuery {
+    q: Option<String>,
+    #[serde(default)]
+    include_inactive: Option<bool>,
+}
+
+async fn list_suppliers(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<SuppliersQuery>,
+) -> ApiResult<Json<Vec<procurement::Supplier>>> {
+    let rows = procurement::list_suppliers(
+        &state.pool,
+        &user.claims,
+        query.q,
+        query.include_inactive.unwrap_or(false),
+    )
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn create_supplier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(body): Body<procurement::CreateSupplierRequest>,
+) -> ApiResult<(StatusCode, Json<procurement::Supplier>)> {
+    let supplier = procurement::create_supplier(&state.pool, &user.claims, body).await?;
+    Ok((StatusCode::CREATED, Json(supplier)))
+}
+
+async fn update_supplier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<procurement::UpdateSupplierRequest>,
+) -> ApiResult<Json<procurement::Supplier>> {
+    let supplier = procurement::update_supplier(&state.pool, &user.claims, id, body).await?;
+    Ok(Json(supplier))
+}
+
+// -------------------------------------------------------------------- compras
+
+async fn list_purchases(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<procurement::PurchaseFilter>,
+) -> ApiResult<Json<Vec<procurement::PurchaseRow>>> {
+    let rows = procurement::list_purchases(&state.pool, &user.claims, query).await?;
+    Ok(Json(rows))
+}
+
+async fn create_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(body): Body<procurement::CreatePurchaseRequest>,
+) -> ApiResult<(StatusCode, Json<procurement::PurchaseDetail>)> {
+    let detail = procurement::create_purchase(&state.pool, &user.claims, body).await?;
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+#[derive(Deserialize, Default)]
+struct PurchasesSummaryQuery {
+    branch_id: Option<Uuid>,
+    month: Option<String>,
+}
+
+async fn purchases_summary(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<PurchasesSummaryQuery>,
+) -> ApiResult<Json<procurement::PurchaseSummary>> {
+    let summary =
+        procurement::purchase_summary(&state.pool, &user.claims, query.branch_id, query.month)
+            .await?;
+    Ok(Json(summary))
+}
+
+async fn get_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<procurement::PurchaseDetail>> {
+    let detail = procurement::get_purchase(&state.pool, &user.claims, id).await?;
+    Ok(Json(detail))
+}
+
+async fn receive_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<procurement::PurchaseDetail>> {
+    let detail = procurement::receive_purchase(&state.pool, &user.claims, id).await?;
+    Ok(Json(detail))
+}
+
+async fn cancel_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<procurement::PurchaseDetail>> {
+    let detail = procurement::cancel_purchase(&state.pool, &user.claims, id).await?;
+    Ok(Json(detail))
 }

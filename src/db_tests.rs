@@ -12,7 +12,7 @@ use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
-use crate::{cash, catalog, inventory, orders, sales, tenancy};
+use crate::{cash, catalog, inventory, orders, procurement, sales, tenancy};
 
 fn dec(n: i64) -> Decimal {
     Decimal::from(n)
@@ -748,6 +748,8 @@ async fn database_integration() {
     role_checks(&app, &admin).await;
     sales_and_cash_checks(&app, &admin).await;
     stock_levels_and_transfer_checks(&app, &admin).await;
+    supplier_checks(&app, &admin).await;
+    purchase_checks(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -861,6 +863,13 @@ fn is_forbidden<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
 
 fn is_state<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
     matches!(r, Err(ApiError::Domain(DomainError::State(_))))
+}
+
+fn is_conflict<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
+    match r {
+        Err(e) => e.status() == axum::http::StatusCode::CONFLICT,
+        Ok(_) => false,
+    }
 }
 
 /// Una membresia de sucursal solo ve y opera su sucursal, aunque el JWT pida otra.
@@ -1250,4 +1259,315 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(log.first().unwrap().kind, "CIERRE");
 
     cleanup(admin, tenant, &[cashier, waiter]).await;
+}
+
+/// Proveedores: crear, NIT duplicado (409), RLS por tenant y permisos (cajero 403).
+async fn supplier_checks(app: &PgPool, admin: &PgPool) {
+    let tenant_a = seed_tenant(admin).await;
+    let tenant_b = seed_tenant(admin).await;
+    let owner_a = seed_user(admin).await;
+    let cashier_a = seed_user(admin).await;
+    let owner_b = seed_user(admin).await;
+
+    seed_membership(admin, tenant_a, None, owner_a, "DUENO").await;
+    seed_membership(admin, tenant_a, None, cashier_a, "CAJERO").await;
+    seed_membership(admin, tenant_b, None, owner_b, "DUENO").await;
+
+    let c_owner_a = claims(owner_a, Some(tenant_a), None);
+    let c_cashier_a = claims(cashier_a, Some(tenant_a), None);
+    let c_owner_b = claims(owner_b, Some(tenant_b), None);
+
+    // 1. Cajero no puede crear proveedor (403)
+    let req = procurement::CreateSupplierRequest {
+        name: "Distribuidora Los Alpes".into(),
+        tax_id: Some("900123456-1".into()),
+        contact_name: Some("Carlos".into()),
+        phone: Some("3001234567".into()),
+        email: Some("alpes@test.com".into()),
+        address: Some("Calle 10 # 20-30".into()),
+        notes: None,
+    };
+    assert!(is_forbidden(
+        &procurement::create_supplier(app, &c_cashier_a, req.clone()).await
+    ));
+
+    // 2. Dueño crea proveedor exitosamente
+    let sup1 = procurement::create_supplier(app, &c_owner_a, req.clone())
+        .await
+        .unwrap();
+    assert_eq!(sup1.name, "Distribuidora Los Alpes");
+    assert_eq!(sup1.tax_id.as_deref(), Some("900123456-1"));
+    assert!(sup1.active);
+
+    // 3. NIT duplicado en el mismo tenant da 409
+    let req_dup = procurement::CreateSupplierRequest {
+        name: "Otro Alpes".into(),
+        tax_id: Some("900123456-1".into()),
+        contact_name: None,
+        phone: None,
+        email: None,
+        address: None,
+        notes: None,
+    };
+    assert!(is_conflict(
+        &procurement::create_supplier(app, &c_owner_a, req_dup).await
+    ));
+
+    // 4. Mismo NIT en otro tenant (tenant_b) se permite (aislamiento por tenant)
+    let sup_b = procurement::create_supplier(app, &c_owner_b, req.clone())
+        .await
+        .unwrap();
+    assert_eq!(sup_b.tax_id.as_deref(), Some("900123456-1"));
+
+    // 5. Tenant B no ve los proveedores de Tenant A (aislamiento RLS)
+    let list_b = procurement::list_suppliers(app, &c_owner_b, None, false)
+        .await
+        .unwrap();
+    assert_eq!(list_b.len(), 1);
+    assert_eq!(list_b[0].id, sup_b.id);
+
+    let list_a = procurement::list_suppliers(app, &c_owner_a, None, false)
+        .await
+        .unwrap();
+    assert_eq!(list_a.len(), 1);
+    assert_eq!(list_a[0].id, sup1.id);
+
+    // 6. Editar proveedor (incluido active)
+    let update_req = procurement::UpdateSupplierRequest {
+        name: "Distribuidora Los Alpes SAS".into(),
+        tax_id: Some("900123456-1".into()),
+        contact_name: Some("Carlos Gomez".into()),
+        phone: Some("3111111111".into()),
+        email: Some("alpes_sas@test.com".into()),
+        address: Some("Cra 15 # 45-67".into()),
+        notes: Some("Excelente proveedor".into()),
+        active: Some(false),
+    };
+    let updated = procurement::update_supplier(app, &c_owner_a, sup1.id, update_req)
+        .await
+        .unwrap();
+    assert_eq!(updated.name, "Distribuidora Los Alpes SAS");
+    assert!(!updated.active);
+
+    let list_active = procurement::list_suppliers(app, &c_owner_a, None, false)
+        .await
+        .unwrap();
+    assert!(list_active.is_empty());
+    let list_all = procurement::list_suppliers(app, &c_owner_a, None, true)
+        .await
+        .unwrap();
+    assert_eq!(list_all.len(), 1);
+
+    cleanup(admin, tenant_a, &[owner_a, cashier_a]).await;
+    cleanup(admin, tenant_b, &[owner_b]).await;
+}
+
+/// Compras: creacion, impuestos, kardex, regla de ultimo costo, idempotencia y estados.
+async fn purchase_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let sup = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Distribuidora Central".into(),
+            tax_id: Some("800999888-1".into()),
+            contact_name: None,
+            phone: None,
+            email: None,
+            address: None,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let prod_iva = seed_product(admin, tenant, "Gaseosa 350ml", "UND", Some("IVA19"), false).await;
+    let prod_exento = seed_product(admin, tenant, "Pan tajado", "UND", None, false).await;
+    let prod_compuesto = seed_product(admin, tenant, "Combo Hamburguesa", "UND", None, true).await;
+
+    // 1. Cajero no puede crear compra (403)
+    let purchase_id = Uuid::new_v4();
+    let req_cajero = procurement::CreatePurchaseRequest {
+        id: purchase_id,
+        branch_id: branch,
+        supplier_id: sup.id,
+        document_number: Some("FAC-001".into()),
+        supplier_invoice_date: None,
+        notes: None,
+        items: vec![procurement::PurchaseItemRequest {
+            product_id: prod_iva,
+            qty: dec(10),
+            unit_cost: dec(2000),
+        }],
+    };
+    assert!(is_forbidden(
+        &procurement::create_purchase(app, &c_cashier, req_cajero).await
+    ));
+
+    // 2. Producto compuesto es rechazado con 422
+    let req_compuesto = procurement::CreatePurchaseRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        supplier_id: sup.id,
+        document_number: Some("FAC-002".into()),
+        supplier_invoice_date: None,
+        notes: None,
+        items: vec![procurement::PurchaseItemRequest {
+            product_id: prod_compuesto,
+            qty: dec(1),
+            unit_cost: dec(5000),
+        }],
+    };
+    assert!(matches!(
+        procurement::create_purchase(app, &c_owner, req_compuesto).await,
+        Err(ApiError::Domain(DomainError::Validation(_)))
+    ));
+
+    // 3. Crear compra con IVA 19% y exento
+    let req_valida = procurement::CreatePurchaseRequest {
+        id: purchase_id,
+        branch_id: branch,
+        supplier_id: sup.id,
+        document_number: Some("FAC-100".into()),
+        supplier_invoice_date: None,
+        notes: Some("Compra semanal".into()),
+        items: vec![
+            procurement::PurchaseItemRequest {
+                product_id: prod_iva,
+                qty: dec(10),
+                unit_cost: dec(2000),
+            },
+            procurement::PurchaseItemRequest {
+                product_id: prod_exento,
+                qty: dec(5),
+                unit_cost: dec(4000),
+            },
+        ],
+    };
+    let created = procurement::create_purchase(app, &c_owner, req_valida.clone())
+        .await
+        .unwrap();
+    assert_eq!(created.purchase.status, "PENDIENTE");
+    assert_eq!(created.purchase.subtotal.normalize(), dec(40000));
+    assert_eq!(created.purchase.tax_amount.normalize(), dec(3800));
+    assert_eq!(created.purchase.total_amount.normalize(), dec(43800));
+    assert_eq!(created.purchase.items_count, 2);
+
+    // 4. Idempotencia: mismo ID y cuerpo devuelve 200 con la compra existente
+    let replayed = procurement::create_purchase(app, &c_owner, req_valida.clone())
+        .await
+        .unwrap();
+    assert_eq!(replayed.purchase.id, purchase_id);
+    assert_eq!(replayed.purchase.total_amount.normalize(), dec(43800));
+
+    // Mismo ID pero cuerpo distinto da 409
+    let mut diff_req = req_valida.clone();
+    diff_req.notes = Some("Nota distinta".into());
+    assert!(is_conflict(
+        &procurement::create_purchase(app, &c_owner, diff_req).await
+    ));
+
+    // 5. Cajero no puede recibir compra (403)
+    assert!(is_forbidden(
+        &procurement::receive_purchase(app, &c_cashier, purchase_id).await
+    ));
+
+    // 6. Recibir compra pasa a RECIBIDA, suma stock, kàrdex y actualiza cost_price
+    let received = procurement::receive_purchase(app, &c_owner, purchase_id)
+        .await
+        .unwrap();
+    assert_eq!(received.purchase.status, "RECIBIDA");
+    assert!(received.purchase.received_at.is_some());
+
+    let stock_iva = inventory::available(app, &c_owner, branch, prod_iva)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_iva.normalize(), dec(10));
+    let stock_exento = inventory::available(app, &c_owner, branch, prod_exento)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_exento.normalize(), dec(5));
+
+    let kardex = inventory::movements(app, &c_owner, branch).await.unwrap();
+    let compra_moves: Vec<_> = kardex
+        .iter()
+        .filter(|m| m.ref_type.as_deref() == Some("COMPRA") && m.ref_id == Some(purchase_id))
+        .collect();
+    assert_eq!(compra_moves.len(), 2);
+    assert!(compra_moves.iter().all(|m| m.movement_type == "REPOSICION"));
+    assert!(
+        compra_moves
+            .iter()
+            .all(|m| m.cause.as_deref() == Some("Compra FAC-100"))
+    );
+
+    let cost_iva: Option<Decimal> =
+        sqlx::query_scalar("select cost_price from products where id = $1")
+            .bind(prod_iva)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(cost_iva.map(|d| d.normalize()), Some(dec(2000)));
+
+    let cost_exento: Option<Decimal> =
+        sqlx::query_scalar("select cost_price from products where id = $1")
+            .bind(prod_exento)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(cost_exento.map(|d| d.normalize()), Some(dec(4000)));
+
+    // 7. Recibir dos veces da 409
+    assert!(is_conflict(
+        &procurement::receive_purchase(app, &c_owner, purchase_id).await
+    ));
+
+    // 8. No se puede anular una compra ya recibida (409)
+    assert!(is_conflict(
+        &procurement::cancel_purchase(app, &c_owner, purchase_id).await
+    ));
+
+    // 9. Anular una compra desde PENDIENTE
+    let cancel_id = Uuid::new_v4();
+    let req_cancel = procurement::CreatePurchaseRequest {
+        id: cancel_id,
+        branch_id: branch,
+        supplier_id: sup.id,
+        document_number: Some("FAC-CANCEL".into()),
+        supplier_invoice_date: None,
+        notes: None,
+        items: vec![procurement::PurchaseItemRequest {
+            product_id: prod_iva,
+            qty: dec(1),
+            unit_cost: dec(2000),
+        }],
+    };
+    procurement::create_purchase(app, &c_owner, req_cancel)
+        .await
+        .unwrap();
+    let cancelled = procurement::cancel_purchase(app, &c_owner, cancel_id)
+        .await
+        .unwrap();
+    assert_eq!(cancelled.purchase.status, "ANULADA");
+
+    // 10. Summary de compras
+    let summary = procurement::purchase_summary(app, &c_owner, Some(branch), None)
+        .await
+        .unwrap();
+    assert_eq!(summary.total_purchased_month.normalize(), dec(43800));
+    assert_eq!(summary.active_suppliers, 1);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }
