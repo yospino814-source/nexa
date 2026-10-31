@@ -247,6 +247,107 @@ export type StockLevel = {
   updated_at: string | null;
 };
 
+// ------------------------------------------------------------- compras y proveedores
+
+export type PurchaseStatus = "PENDIENTE" | "RECIBIDA" | "ANULADA";
+
+/** src/procurement.rs::Supplier */
+export type Supplier = {
+  id: Uuid;
+  name: string;
+  tax_id: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreateSupplierInput = {
+  name: string;
+  tax_id?: string | null;
+  contact_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  notes?: string | null;
+};
+
+export type UpdateSupplierInput = {
+  name: string;
+  tax_id?: string | null;
+  contact_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active?: boolean;
+};
+
+/** src/procurement.rs::PurchaseItemDetail */
+export type PurchaseItem = {
+  id: Uuid;
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  qty: Decimal;
+  unit_cost: Decimal;
+  line_total: Decimal;
+  tax_code: TaxCode | null;
+  tax_rate: Decimal | null;
+  notes?: string | null;
+};
+
+/** src/procurement.rs::PurchaseRow / PurchaseDetail */
+export type Purchase = {
+  id: Uuid;
+  branch_id: Uuid;
+  supplier_id: Uuid;
+  supplier_name: string;
+  document_number: string | null;
+  supplier_invoice_date: string | null;
+  status: PurchaseStatus;
+  subtotal: Decimal;
+  tax_amount: Decimal;
+  total_amount: Decimal;
+  items_count: number;
+  received_at: string | null;
+  notes: string | null;
+  created_at: string;
+  items?: PurchaseItem[];
+};
+
+export type CreatePurchaseInput = {
+  id: Uuid;
+  branch_id: Uuid;
+  supplier_id: Uuid;
+  document_number?: string | null;
+  supplier_invoice_date?: string | null;
+  notes?: string | null;
+  items: {
+    product_id: Uuid;
+    qty: Decimal;
+    unit_cost: Decimal;
+  }[];
+};
+
+export type PurchaseFilter = {
+  branch_id?: Uuid;
+  from?: string;
+  to?: string;
+  supplier_id?: Uuid;
+  status?: PurchaseStatus;
+  limit?: number;
+};
+
+/** src/procurement.rs::PurchaseSummary */
+export type PurchaseSummary = {
+  total_purchased_month: Decimal;
+  active_suppliers: number;
+};
+
 // ---------------------------------------------------------------- PROPUESTOS
 
 /** PROPUESTO — GET /v1/reports/dashboard?branch_id=&period=today */

@@ -15,6 +15,17 @@ import {
   mockSetMinQty,
   mockStockLevels,
 } from "./mock-inventory";
+import {
+  mockPurchaseCancel,
+  mockPurchaseCreate,
+  mockPurchaseGet,
+  mockPurchaseReceive,
+  mockPurchasesList,
+  mockPurchaseSummary,
+  mockSupplierCreate,
+  mockSuppliersList,
+  mockSupplierUpdate,
+} from "./mock-procurement";
 import type {
   BranchAccess,
   CashActivity,
@@ -25,13 +36,20 @@ import type {
   CatalogItem,
   CheckoutRequest,
   CheckoutResponse,
+  CreatePurchaseInput,
+  CreateSupplierInput,
   DashboardSummary,
   Decimal,
   Movement,
   OrderItem,
   Payment,
+  Purchase,
+  PurchaseFilter,
+  PurchaseSummary,
   SessionContext,
   StockLevel,
+  Supplier,
+  UpdateSupplierInput,
   Uuid,
 } from "./types";
 
@@ -480,6 +498,107 @@ export const api = {
     },
   },
 
+  suppliers: {
+    /** GET /v1/suppliers?q=&include_inactive= */
+    async list(q?: string, includeInactive?: boolean): Promise<Supplier[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSuppliersList(q, includeInactive);
+      }
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (includeInactive) params.set("include_inactive", "true");
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/suppliers${qs}`);
+    },
+
+    /** POST /v1/suppliers */
+    async create(body: CreateSupplierInput): Promise<Supplier> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSupplierCreate(body);
+      }
+      return request("/v1/suppliers", { method: "POST", body: JSON.stringify(body) });
+    },
+
+    /** PUT /v1/suppliers/{id} */
+    async update(id: Uuid, body: UpdateSupplierInput): Promise<Supplier> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSupplierUpdate(id, body);
+      }
+      return request(`/v1/suppliers/${id}`, { method: "PUT", body: JSON.stringify(body) });
+    },
+  },
+
+  purchases: {
+    /** GET /v1/purchases?branch_id=&from=&to=&supplier_id=&status=&limit= */
+    async list(filter?: PurchaseFilter): Promise<Purchase[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchasesList(filter);
+      }
+      const params = new URLSearchParams();
+      if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+      if (filter?.from) params.set("from", filter.from);
+      if (filter?.to) params.set("to", filter.to);
+      if (filter?.supplier_id) params.set("supplier_id", filter.supplier_id);
+      if (filter?.status) params.set("status", filter.status);
+      if (filter?.limit) params.set("limit", String(filter.limit));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/purchases${qs}`);
+    },
+
+    /** GET /v1/purchases/{id} */
+    async get(id: Uuid): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseGet(id);
+      }
+      return request(`/v1/purchases/${id}`);
+    },
+
+    /** POST /v1/purchases */
+    async create(body: CreatePurchaseInput): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseCreate(body);
+      }
+      return request("/v1/purchases", { method: "POST", body: JSON.stringify(body) });
+    },
+
+    /** POST /v1/purchases/{id}/receive */
+    async receive(id: Uuid): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseReceive(id);
+      }
+      return request(`/v1/purchases/${id}/receive`, { method: "POST" });
+    },
+
+    /** POST /v1/purchases/{id}/cancel */
+    async cancel(id: Uuid): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseCancel(id);
+      }
+      return request(`/v1/purchases/${id}/cancel`, { method: "POST" });
+    },
+
+    /** GET /v1/purchases/summary?branch_id=&month= */
+    async summary(branchId?: Uuid, month?: string): Promise<PurchaseSummary> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseSummary(branchId, month);
+      }
+      const params = new URLSearchParams();
+      if (branchId) params.set("branch_id", branchId);
+      if (month) params.set("month", month);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/purchases/summary${qs}`);
+    },
+  },
+
   reports: {
     /** Backend: GET /v1/reports/dashboard (PROPUESTO, aun sin implementar). */
     async dashboard(branchId: Uuid): Promise<DashboardSummary> {
@@ -510,6 +629,13 @@ export function friendlyError(error: unknown): string {
   if (m.includes("insufficient stock for transfer")) return "No hay stock disponible suficiente para trasladar.";
   if (m.includes("branches must differ")) return "Elegí una sucursal de destino distinta.";
   if (m.includes("adjustment violates stock")) return "El ajuste dejaría el stock en negativo o por debajo de lo reservado.";
+  if (m.includes("name must not be empty")) return "Escribí el nombre del proveedor.";
+  if (m.includes("conflict: duplicated record")) return "Ya existe un registro con ese documento o NIT en este negocio.";
+  if (m.includes("purchase has no items")) return "Agregá al menos un producto a la compra.";
+  if (m.includes("purchase is already received")) return "Esta compra ya fue recibida.";
+  if (m.includes("cannot cancel an already received purchase")) return "No se puede anular una compra ya recibida.";
+  if (m.includes("purchase is already cancelled")) return "Esta compra ya está anulada.";
+  if (m.includes("composed product")) return "Los productos compuestos (recetas) no se pueden comprar directamente.";
   if (error.status === 401) return "Tu sesión expiró. Iniciá sesión de nuevo.";
   if (error.status === 403) return "No tenés permiso para esta operación.";
   return m;
