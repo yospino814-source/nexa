@@ -108,6 +108,32 @@ export function PurchaseForm({
           setSuppliers(supList);
           setCatalogItems(catList);
           setStockLevels(stkList);
+
+          const isSample = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sample");
+          if (isSample && supList.length > 0 && catList.length > 1) {
+            setSelectedSupplierId(supList[0].id);
+            setDocumentNumber("FAC-10492");
+            setLines([
+              {
+                productId: catList[0].product_id,
+                name: catList[0].name,
+                sku: null,
+                taxCode: catList[0].tax_code,
+                taxRate: catList[0].tax_code === "IVA19" ? 0.19 : 0,
+                qty: 24,
+                unitCost: 2150,
+              },
+              {
+                productId: catList[1].product_id,
+                name: catList[1].name,
+                sku: null,
+                taxCode: catList[1].tax_code,
+                taxRate: catList[1].tax_code === "IVA19" ? 0.19 : 0,
+                qty: 50,
+                unitCost: 1980,
+              },
+            ]);
+          }
         }
       })
       .catch((err) => {

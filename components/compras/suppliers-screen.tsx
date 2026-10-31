@@ -32,7 +32,9 @@ export function SuppliersScreen() {
 
   const [includeInactive, setIncludeInactive] = useState(true);
   const [query, setQuery] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(
+    () => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dialog") === "new"),
+  );
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 

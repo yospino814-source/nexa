@@ -68,8 +68,12 @@ export function PurchasesScreen() {
   const [toDate, setToDate] = useState("");
 
   // Dialogs
-  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("detail") : null),
+  );
+  const [isFormOpen, setIsFormOpen] = useState(
+    () => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dialog") === "new"),
+  );
   const [toast, setToast] = useState<string | null>(null);
 
   const purchases = useMemo(() => purchasesData ?? [], [purchasesData]);
