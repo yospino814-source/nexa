@@ -1,3 +1,4 @@
+mod audit;
 mod auth;
 mod cash;
 mod catalog;
@@ -5,10 +6,15 @@ mod db;
 mod error;
 mod inventory;
 mod orders;
+pub mod outbox;
+pub mod permissions;
 mod procurement;
 mod routes;
 mod sales;
+pub mod sequences;
+pub mod settings;
 mod tenancy;
+pub mod users;
 
 #[cfg(test)]
 mod db_tests;
@@ -187,6 +193,13 @@ mod tests {
             ("POST", "/v1/suppliers"),
             ("GET", "/v1/purchases"),
             ("POST", "/v1/purchases"),
+            ("GET", "/v1/permissions"),
+            (
+                "GET",
+                "/v1/settings?branch_id=00000000-0000-0000-0000-000000000000",
+            ),
+            ("GET", "/v1/audit"),
+            ("GET", "/v1/users"),
         ] {
             let response = test_router()
                 .oneshot(

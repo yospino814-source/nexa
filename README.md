@@ -112,6 +112,16 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto y SKU |
 | POST | `/v1/purchases/{id}/receive` | Pasa compra a `RECIBIDA`, suma stock, registra kardex y actualiza `cost_price` |
 | POST | `/v1/purchases/{id}/cancel` | Anula compra (solo desde `PENDIENTE`) |
+| GET | `/v1/permissions` | Catálogo de permisos del sistema y roles |
+| GET | `/v1/permissions/roles/{role_id}` | Permisos efectivos de un rol (base + overrides de tenant) |
+| PUT | `/v1/permissions/roles/{role_id}` | Actualizar overrides de permisos de un rol (solo `DUENO`) |
+| GET | `/v1/settings?branch_id=` | Ajustes operativos de sucursal (POS, caja, inventario, propinas, impresión) |
+| PUT | `/v1/settings?branch_id=` | Modificar ajustes operativos de sucursal |
+| GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
+| GET | `/v1/users` | Lista de usuarios y membresías del negocio |
+| POST | `/v1/users/invite` | Invitar usuario por email con rol y sucursales asignadas |
+| PUT | `/v1/users/{id}/role` | Modificar rol de usuario (protege al dueño de auto-degradarse) |
+| PUT | `/v1/users/{id}/status` | Activar o desactivar acceso de un usuario |
 
 ### `POST /v1/sales`
 

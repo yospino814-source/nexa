@@ -43,6 +43,10 @@ impl PaymentMethod {
 pub struct SaleItem {
     pub product_id: Uuid,
     pub qty: Decimal,
+    #[serde(default)]
+    pub unit_price_override: Option<Decimal>,
+    #[serde(default)]
+    pub discount_pct: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +123,17 @@ fn validate(req: &SaleRequest) -> Result<(), ApiError> {
     }
     if req.tip_amount.is_some_and(|t| t < Decimal::ZERO) {
         return Err(validation("tip_amount must be >= 0"));
+    }
+    for item in &req.items {
+        if item.unit_price_override.is_some_and(|p| p < Decimal::ZERO) {
+            return Err(validation("unit_price_override must be >= 0"));
+        }
+        if item
+            .discount_pct
+            .is_some_and(|d| d < Decimal::ZERO || d > Decimal::new(100, 0))
+        {
+            return Err(validation("discount_pct must be between 0 and 100"));
+        }
     }
     Ok(())
 }
@@ -217,14 +232,41 @@ pub async fn checkout_tx(
         };
     }
 
-    // 2. Turno de caja abierto del cajero.
-    let session = cash::open_session_tx(tx, scope, branch)
-        .await?
-        .ok_or_else(|| state("no open cash session for this cashier"))?;
+    // Cargar ajustes de la sucursal para validar reglas de venta y caja
+    let settings = crate::settings::load_tx(tx, branch).await?;
 
-    // 3. Lineas con precio e impuesto del servidor (el cliente solo manda qty).
     for item in &req.items {
-        let (price, tax_rate) = orders::sellable_price(tx, branch, item.product_id).await?;
+        if item.unit_price_override.is_some() && !settings.pos.allow_price_override {
+            return Err(validation("price override is not allowed in this branch"));
+        }
+        if let Some(disc) = item.discount_pct
+            && disc > settings.pos.max_discount_pct
+        {
+            return Err(validation("discount exceeds maximum allowed"));
+        }
+    }
+
+    // 2. Turno de caja del cajero (si la sucursal lo exige)
+    let session = if settings.cash.require_session {
+        let s = cash::open_session_tx(tx, scope, branch)
+            .await?
+            .ok_or_else(|| state("no open cash session for this cashier"))?;
+        Some(s)
+    } else {
+        cash::open_session_tx(tx, scope, branch).await?
+    };
+
+    // 3. Lineas con precio e impuesto del servidor (con posibles overrides y descuentos).
+    for item in &req.items {
+        let (catalog_price, tax_rate) = orders::sellable_price(tx, branch, item.product_id).await?;
+        let base_price = item.unit_price_override.unwrap_or(catalog_price);
+        let final_price = match item.discount_pct {
+            Some(disc) if disc > Decimal::ZERO => {
+                let factor = Decimal::ONE - (disc / Decimal::new(100, 0));
+                base_price * factor
+            }
+            _ => base_price,
+        };
         sqlx::query(
             "insert into order_items
                (tenant_id, branch_id, order_id, product_id, qty, unit_price, tax_rate)
@@ -235,7 +277,7 @@ pub async fn checkout_tx(
         .bind(req.id)
         .bind(item.product_id)
         .bind(item.qty)
-        .bind(price)
+        .bind(final_price)
         .bind(tax_rate)
         .execute(&mut **tx)
         .await?;
@@ -466,6 +508,8 @@ mod tests {
             items: vec![SaleItem {
                 product_id: Uuid::new_v4(),
                 qty: Decimal::ONE,
+                unit_price_override: None,
+                discount_pct: None,
             }],
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             tip_amount: None,

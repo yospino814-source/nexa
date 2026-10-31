@@ -21,6 +21,8 @@ pub struct Scope {
     pub branch: Option<Uuid>,
     /// Codigo del rol en la tabla maestra (p. ej. `ADMIN_CAJA`).
     pub role: String,
+    /// Permisos granulares efectivos (base + overrides por tenant).
+    pub permissions: std::collections::HashSet<String>,
 }
 
 /// Acciones protegidas por rol.
@@ -64,11 +66,34 @@ impl Scope {
         }
     }
 
+    /// Comprueba si el rol u overrides otorgan un permiso por codigo.
+    pub fn has_permission(&self, code: &str) -> bool {
+        if self.role == "DUENO" {
+            return true;
+        }
+        self.permissions.contains(code)
+    }
+
+    /// Exige un permiso por codigo granular.
+    pub fn require_permission(&self, code: &str) -> Result<(), ApiError> {
+        if self.has_permission(code) {
+            Ok(())
+        } else {
+            Err(ApiError::Domain(DomainError::Forbidden))
+        }
+    }
+
     /// Si el usuario puede administrar recursos de otros (p. ej. cerrar el
     /// turno de otro cajero).
     pub fn is_admin(&self) -> bool {
         matches!(self.role.as_str(), "DUENO" | "ADMIN_CAJA")
     }
+}
+
+/// Helper para exigir un permiso granular `modulo:recurso:accion`.
+#[allow(dead_code)]
+pub fn require(scope: &Scope, code: &str) -> Result<(), ApiError> {
+    scope.require_permission(code)
 }
 
 /// Abre una transaccion, resuelve la membresia del usuario y fija el contexto.
@@ -111,12 +136,16 @@ pub async fn begin_for<'a>(
     let branch = branch.or(membership_branch);
     db::set_scope(&mut tx, tenant, branch).await?;
 
+    let permissions =
+        crate::permissions::load_effective_permissions_tx(&mut tx, tenant, &role).await?;
+
     Ok((
         Scope {
             user: claims.sub,
             tenant,
             branch,
             role,
+            permissions,
         },
         tx,
     ))

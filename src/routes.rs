@@ -15,7 +15,10 @@ use crate::auth::AuthUser;
 use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
-use crate::{AppState, cash, catalog, inventory, orders, procurement, sales, tenancy};
+use crate::{
+    AppState, audit, cash, catalog, inventory, orders, permissions, procurement, sales, settings,
+    tenancy, users,
+};
 
 // Extractores que rechazan entradas invalidas con el mismo formato
 // `{ "error": .. }` que el resto de la API (los de axum responden texto plano).
@@ -99,6 +102,21 @@ pub fn router() -> Router<AppState> {
         .route("/v1/purchases/{id}", get(get_purchase))
         .route("/v1/purchases/{id}/receive", post(receive_purchase))
         .route("/v1/purchases/{id}/cancel", post(cancel_purchase))
+        // Permisos y roles
+        .route("/v1/permissions", get(list_permissions))
+        .route(
+            "/v1/roles/{code}/permissions",
+            get(get_role_permissions).put(update_role_permissions),
+        )
+        // Ajustes
+        .route("/v1/settings", get(get_settings).put(update_settings))
+        // Auditoria
+        .route("/v1/audit", get(list_audit))
+        // Usuarios y roles
+        .route("/v1/users", get(list_users))
+        .route("/v1/users/invite", post(invite_user))
+        .route("/v1/users/{id}/role", put(update_user_role))
+        .route("/v1/users/{id}/status", put(update_user_status))
 }
 
 #[derive(Deserialize)]
@@ -673,4 +691,103 @@ async fn cancel_purchase(
 ) -> ApiResult<Json<procurement::PurchaseDetail>> {
     let detail = procurement::cancel_purchase(&state.pool, &user.claims, id).await?;
     Ok(Json(detail))
+}
+
+// ------------------------------------------------------------- permisos y roles
+
+async fn list_permissions(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<permissions::Permission>>> {
+    let perms = permissions::list_permissions(&state.pool, &user.claims).await?;
+    Ok(Json(perms))
+}
+
+async fn get_role_permissions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+) -> ApiResult<Json<permissions::RolePermissionsResponse>> {
+    let resp = permissions::get_role_permissions(&state.pool, &user.claims, &code).await?;
+    Ok(Json(resp))
+}
+
+async fn update_role_permissions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+    Body(req): Body<permissions::UpdateRolePermissionsRequest>,
+) -> ApiResult<Json<permissions::RolePermissionsResponse>> {
+    let resp = permissions::update_role_permissions(&state.pool, &user.claims, &code, req).await?;
+    Ok(Json(resp))
+}
+
+// -------------------------------------------------------------------- ajustes
+
+async fn get_settings(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<BranchQuery>,
+) -> ApiResult<Json<settings::BranchSettings>> {
+    let s = settings::get_settings(&state.pool, &user.claims, q.branch_id).await?;
+    Ok(Json(s))
+}
+
+async fn update_settings(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<settings::UpdateSettingsRequest>,
+) -> ApiResult<Json<settings::BranchSettings>> {
+    let s = settings::update_settings(&state.pool, &user.claims, req).await?;
+    Ok(Json(s))
+}
+
+// ------------------------------------------------------------------ auditoria
+
+async fn list_audit(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<audit::AuditFilter>,
+) -> ApiResult<Json<Vec<audit::AuditEntry>>> {
+    let entries = audit::list_audit_entries(&state.pool, &user.claims, filter).await?;
+    Ok(Json(entries))
+}
+
+// ------------------------------------------------------------------- usuarios
+
+async fn list_users(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<users::UsersListResponse>> {
+    let resp = users::list_users(&state.pool, &user.claims).await?;
+    Ok(Json(resp))
+}
+
+async fn invite_user(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<users::InviteUserRequest>,
+) -> ApiResult<(StatusCode, Json<users::Invitation>)> {
+    let inv = users::invite_user(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(inv)))
+}
+
+async fn update_user_role(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<users::UpdateUserRoleRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    users::update_user_role(&state.pool, &user.claims, id, req).await?;
+    Ok(Json(json!({ "status": "ok" })))
+}
+
+async fn update_user_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<users::UpdateUserStatusRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    users::update_user_status(&state.pool, &user.claims, id, req).await?;
+    Ok(Json(json!({ "status": "ok" })))
 }

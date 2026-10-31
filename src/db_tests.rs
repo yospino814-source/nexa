@@ -12,7 +12,10 @@ use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
-use crate::{cash, catalog, inventory, orders, procurement, sales, tenancy};
+use crate::{
+    cash, catalog, inventory, orders, outbox, permissions, procurement, sales, sequences, settings,
+    tenancy, users,
+};
 
 fn dec(n: i64) -> Decimal {
     Decimal::from(n)
@@ -750,6 +753,7 @@ async fn database_integration() {
     stock_levels_and_transfer_checks(&app, &admin).await;
     supplier_checks(&app, &admin).await;
     purchase_checks(&app, &admin).await;
+    platform_checks(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -870,6 +874,10 @@ fn is_conflict<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
         Err(e) => e.status() == axum::http::StatusCode::CONFLICT,
         Ok(_) => false,
     }
+}
+
+fn is_validation<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
+    matches!(r, Err(ApiError::Domain(DomainError::Validation(_))))
 }
 
 /// Una membresia de sucursal solo ve y opera su sucursal, aunque el JWT pida otra.
@@ -1014,6 +1022,8 @@ fn sale(
             .map(|(product_id, qty)| SaleItem {
                 product_id: *product_id,
                 qty: dec(*qty),
+                unit_price_override: None,
+                discount_pct: None,
             })
             .collect(),
         payments: payments
@@ -1568,6 +1578,307 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(summary.total_purchased_month.normalize(), dec(43800));
     assert_eq!(summary.active_suppliers, 1);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn platform_checks(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // 1. Permisos granulares
+    let all_perms = permissions::list_permissions(app, &c_owner).await.unwrap();
+    assert!(all_perms.iter().any(|p| p.code == "pos:sell"));
+    assert!(all_perms.iter().any(|p| p.code == "pos:price_override"));
+
+    // [P] PUT /v1/roles/{code}/permissions: solo DUENO, y nunca sobre DUENO
+    let cashier_try_override = permissions::update_role_permissions(
+        app,
+        &c_cashier,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await;
+    assert!(is_forbidden(&cashier_try_override));
+
+    let owner_try_override_owner = permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "DUENO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:sell".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await;
+    assert!(is_conflict(&owner_try_override_owner) || is_state(&owner_try_override_owner));
+
+    // Dueño desactiva pos:discount para CAJERO
+    let updated_cajero = permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let disc_perm = updated_cajero
+        .permissions
+        .iter()
+        .find(|p| p.code == "pos:discount")
+        .unwrap();
+    assert!(!disc_perm.allowed);
+    assert!(disc_perm.is_override);
+
+    // 2. Usuarios y roles
+    // [P] El dueño no puede quitarse su propio rol
+    let owner_membership_id: Uuid =
+        sqlx::query_scalar("select id from memberships where tenant_id = $1 and user_id = $2")
+            .bind(tenant)
+            .bind(owner)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let try_remove_owner_role = users::update_user_role(
+        app,
+        &c_owner,
+        owner_membership_id,
+        users::UpdateUserRoleRequest {
+            role: "CAJERO".into(),
+        },
+    )
+    .await;
+    assert!(is_conflict(&try_remove_owner_role) || is_state(&try_remove_owner_role));
+
+    // Invitar usuario nuevo
+    let invited = users::invite_user(
+        app,
+        &c_owner,
+        users::InviteUserRequest {
+            email: "nuevo.empleado@ejemplo.com".into(),
+            full_name: "Nuevo Empleado".into(),
+            role: "MESERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(invited.email, "nuevo.empleado@ejemplo.com");
+    assert_eq!(invited.status, "PENDIENTE");
+
+    // 3. Ajustes por sucursal
+    // [P] pos.allow_price_override (false por defecto) y pos.max_discount_pct (15)
+    let prod = seed_product(admin, tenant, "Gaseosa Ajustes", "UND", None, false).await;
+    seed_branch_product(admin, tenant, branch, prod, None, Some("5000")).await;
+    seed_stock(admin, tenant, branch, prod, "50", "0").await;
+
+    // Abrir turno de caja
+    cash::open(app, &c_cashier, branch, dec(50000))
+        .await
+        .unwrap();
+
+    // [P] cash.one_session_per_user (true): abrir segundo turno da conflicto/estado
+    let second_session = cash::open(app, &c_cashier, branch, dec(20000)).await;
+    assert!(is_conflict(&second_session) || is_state(&second_session));
+
+    // [P] pos.allow_price_override: venta con price override rechazada porque está en false
+    let sale_override_req = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: prod,
+            qty: dec(1),
+            unit_price_override: Some(dec(4500)),
+            discount_pct: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5000),
+            reference: None,
+        }],
+        tip_amount: None,
+    };
+    let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req).await;
+    assert!(is_validation(&try_override_sale));
+
+    // [P] pos.max_discount_pct (15): venta con 20% de descuento rechazada
+    let sale_disc_req = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: prod,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: Some(dec(20)),
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5000),
+            reference: None,
+        }],
+        tip_amount: None,
+    };
+    let try_high_disc = sales::checkout(app, &c_cashier, sale_disc_req).await;
+    assert!(is_validation(&try_high_disc));
+
+    // Venta con 10% de descuento es aceptada (10 <= 15)
+    let valid_sale_id = Uuid::new_v4();
+    let valid_sale_req = SaleRequest {
+        id: valid_sale_id,
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: prod,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: Some(dec(10)),
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5000),
+            reference: None,
+        }],
+        tip_amount: None,
+    };
+    let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req)
+        .await
+        .unwrap()
+    {
+        Checkout::Created(r) => r,
+        Checkout::Replayed(r) => r,
+    };
+    assert!(ok_sale.receipt_number.starts_with("POS-"));
+
+    // [P] pos.refund_requires_approval (true): cajero no puede cancelar sin aprobacion admin
+    let unbilled_order =
+        orders::create_order(app, &c_cashier, branch, "MOSTRADOR", None, None, None)
+            .await
+            .unwrap();
+    let try_cashier_cancel_unbilled = orders::cancel(app, &c_cashier, unbilled_order.id).await;
+    assert!(is_conflict(&try_cashier_cancel_unbilled) || is_state(&try_cashier_cancel_unbilled));
+
+    // [P] cash.close_tolerance: cerrar caja con diferencia sin nota obligatoria si supera tolerancia
+    // Configuramos close_tolerance = 1000
+    let mut custom_settings = settings::BranchSettings::default();
+    custom_settings.cash.close_tolerance = dec(1000);
+    settings::update_settings(
+        app,
+        &c_owner,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: custom_settings,
+        },
+    )
+    .await
+    .unwrap();
+
+    let cur_session = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    // Diferencia esperada: contado 40000 vs esperado (50000 base + 4500 venta = 54500)
+    // Diferencia ~14500 > 1000 de tolerancia, sin notas -> validation error
+    let try_close_no_notes =
+        cash::close(app, &c_cashier, cur_session.session.id, dec(40000), None).await;
+    assert!(is_validation(&try_close_no_notes));
+
+    // Cerrando con nota -> éxito
+    let ok_close = cash::close(
+        app,
+        &c_cashier,
+        cur_session.session.id,
+        dec(40000),
+        Some("Faltante justificado por pago de flete menor".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok_close.session.counted_cash, Some(dec(40000)));
+
+    // [P] inventory.allow_negative_stock (false): ajuste negativo que deja existencia < 0 es rechazado
+    let try_neg_adjust =
+        inventory::adjust(app, &c_owner, branch, prod, dec(-100), "Ajuste excesivo").await;
+    assert!(is_validation(&try_neg_adjust));
+
+    // [P] F0.5 Auditoría: solo insert y select. UPDATE o DELETE fallan por trigger
+    let update_audit_try =
+        sqlx::query("update audit_log set action = 'MODIFICADO' where tenant_id = $1")
+            .bind(tenant)
+            .execute(admin)
+            .await;
+    assert!(update_audit_try.is_err());
+
+    let delete_audit_try = sqlx::query("delete from audit_log where tenant_id = $1")
+        .bind(tenant)
+        .execute(admin)
+        .await;
+    assert!(delete_audit_try.is_err());
+
+    // [P] F0.6 Numeración unificada: 20 llamadas concurrentes a next_tx no repiten números
+    let mut tasks = Vec::new();
+    for _ in 0..20 {
+        let app_clone = app.clone();
+        let c_clone = c_owner.clone();
+        tasks.push(tokio::spawn(async move {
+            let (scope, mut tx) = tenancy::begin_in_branch(&app_clone, &c_clone, branch)
+                .await
+                .unwrap();
+            let (prefix, num) = sequences::next_tx(&mut tx, &scope, branch, "COTIZACION")
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            (prefix, num)
+        }));
+    }
+
+    let mut numbers = Vec::new();
+    for t in tasks {
+        let (prefix, num) = t.await.unwrap();
+        assert_eq!(prefix, "COT");
+        numbers.push(num);
+    }
+    numbers.sort();
+    assert_eq!(numbers.len(), 20);
+    for (i, num) in numbers.iter().enumerate() {
+        assert_eq!(*num, (i + 1) as i64);
+    }
+
+    // F0.7 Outbox
+    let mut outbox_tx = crate::db::begin_tenant_tx(app, &c_owner).await.unwrap();
+    let outbox_id = outbox::enqueue_tx(
+        &mut outbox_tx,
+        tenant,
+        "CORREO",
+        serde_json::json!({ "to": "cliente@test.com", "subject": "Factura" }),
+    )
+    .await
+    .unwrap();
+    outbox_tx.commit().await.unwrap();
+
+    let outbox_status: String = sqlx::query_scalar("select status from outbox where id = $1")
+        .bind(outbox_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert_eq!(outbox_status, "PENDIENTE");
 
     cleanup(admin, tenant, &[owner, cashier]).await;
 }

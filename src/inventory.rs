@@ -619,6 +619,18 @@ pub async fn adjust_tx(
     apply_delta_tx(
         tx, scope, branch_id, product_id, on_hand, reserved, delta, cause,
     )
+    .await?;
+
+    crate::audit::record_tx(
+        tx,
+        scope,
+        "AJUSTE_INVENTARIO",
+        "stock",
+        product_id,
+        Some(serde_json::json!({ "on_hand": on_hand })),
+        Some(serde_json::json!({ "delta": delta, "new_on_hand": on_hand + delta, "cause": cause })),
+        None,
+    )
     .await
 }
 
@@ -695,8 +707,11 @@ async fn apply_delta_tx(
     delta: Decimal,
     cause: &str,
 ) -> Result<(), ApiError> {
+    let settings = crate::settings::load_tx(tx, branch_id).await?;
     let new_on_hand = on_hand + delta;
-    if new_on_hand < reserved || new_on_hand < Decimal::ZERO {
+    if (!settings.inventory.allow_negative_stock && new_on_hand < Decimal::ZERO)
+        || new_on_hand < reserved
+    {
         return Err(ApiError::Domain(DomainError::Validation(
             "adjustment violates stock".into(),
         )));

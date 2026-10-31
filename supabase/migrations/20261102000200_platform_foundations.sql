@@ -251,3 +251,4 @@ create policy outbox_isolation on public.outbox for all
 grant select on public.permissions, public.role_permissions to authenticated;
 grant select, insert, update, delete on public.tenant_role_overrides, public.invitations, public.branch_settings, public.outbox to authenticated;
 grant select, insert on public.audit_log, public.login_attempts to authenticated;
+

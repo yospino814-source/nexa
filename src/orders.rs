@@ -10,7 +10,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{ApiError, DomainError};
+use crate::error::{ApiError, DomainError, state};
 use crate::tenancy::{self, Action, Scope};
 use crate::{catalog, inventory};
 
@@ -523,14 +523,32 @@ pub async fn cancel(pool: &PgPool, claims: &Claims, order_id: Uuid) -> Result<()
 
 pub async fn cancel_tx(tx: &mut Tx<'_>, scope: &Scope, order_id: Uuid) -> Result<(), ApiError> {
     scope.require(Action::CancelOrder)?;
-    let (status, _branch, table_id) = lock_order(tx, order_id).await?;
+    let (status, branch_id, table_id) = lock_order(tx, order_id).await?;
+    let settings = crate::settings::load_tx(tx, branch_id).await?;
+    if settings.pos.refund_requires_approval && !scope.is_admin() {
+        return Err(state("refund/cancellation requires admin approval"));
+    }
     if !can_transition(status, OrderStatus::Cancelada) {
         return Err(ApiError::Domain(DomainError::Conflict));
     }
 
     inventory::release_order_tx(tx, order_id).await?;
     free_table(tx, table_id).await?;
-    set_status(tx, order_id, OrderStatus::Cancelada).await
+    set_status(tx, order_id, OrderStatus::Cancelada).await?;
+
+    crate::audit::record_tx(
+        tx,
+        scope,
+        "CANCELAR_ORDEN",
+        "orders",
+        order_id,
+        Some(serde_json::json!({ "previous_status": format!("{status:?}") })),
+        Some(serde_json::json!({ "status": "CANCELADA" })),
+        None,
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[cfg(test)]

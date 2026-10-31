@@ -116,7 +116,10 @@ pub async fn open(
     if opening_amount < Decimal::ZERO {
         return Err(validation("opening_amount must be >= 0"));
     }
-    if open_session_tx(&mut tx, &scope, branch_id).await?.is_some() {
+    let settings = crate::settings::load_tx(&mut tx, branch_id).await?;
+    if settings.cash.one_session_per_user
+        && open_session_tx(&mut tx, &scope, branch_id).await?.is_some()
+    {
         return Err(state("there is already an open cash session"));
     }
 
@@ -302,6 +305,24 @@ pub async fn add_movement(
     .execute(&mut *tx)
     .await?;
 
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        match kind {
+            CashMovementKind::Ingreso => "INGRESO_CAJA",
+            CashMovementKind::Retiro => "RETIRO_CAJA",
+        },
+        "cash_movements",
+        session_id,
+        None,
+        Some(serde_json::json!({
+            "amount": amount,
+            "reason": reason
+        })),
+        None,
+    )
+    .await?;
+
     let summary = summary_tx(&mut tx, session_id).await?;
     tx.commit().await?;
     Ok(summary)
@@ -423,9 +444,17 @@ pub async fn close(
     }
 
     // Bloqueo exclusivo: espera a que terminen las ventas en curso del turno.
-    lock_open_session_tx(&mut tx, &scope, session_id).await?;
+    let branch_id = lock_open_session_tx(&mut tx, &scope, session_id).await?;
+    let settings = crate::settings::load_tx(&mut tx, branch_id).await?;
 
     let expected = summary_tx(&mut tx, session_id).await?.expected_cash;
+    let diff = (counted_cash - expected).abs();
+    if diff > settings.cash.close_tolerance && notes.as_ref().is_none_or(|n| n.trim().is_empty()) {
+        return Err(validation(
+            "notes are required when cash difference exceeds tolerance",
+        ));
+    }
+
     sqlx::query(
         "update cash_sessions
             set closed_at = now(), closed_by = $2, expected_cash = $3,
@@ -436,8 +465,24 @@ pub async fn close(
     .bind(scope.user)
     .bind(expected)
     .bind(counted_cash)
-    .bind(notes)
+    .bind(&notes)
     .execute(&mut *tx)
+    .await?;
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "CIERRE_CAJA",
+        "cash_sessions",
+        session_id,
+        None,
+        Some(serde_json::json!({
+            "expected_cash": expected,
+            "counted_cash": counted_cash,
+            "difference": counted_cash - expected
+        })),
+        None,
+    )
     .await?;
 
     let summary = summary_tx(&mut tx, session_id).await?;
