@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Gestión Omnicanal de Órdenes</title>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with Container Queries & Forms -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration strictly mapped to brand & guidelines -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            teal: {
+              700: '#0F6E6E',
+              800: '#0B5252',
+              900: '#073939'
+            },
+            slate: {
+              850: '#151e2e'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-body antialiased min-h-screen flex flex-col">
+<!-- ========================================================
+       SHARED COMPONENT 1: SideNavBar (Rail Desktop 72px)
+       ======================================================== -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-4 z-40 bg-slate-900 border-r border-slate-800 shadow-none">
+<div class="w-[72px] h-full flex flex-col justify-between items-center py-5">
+<!-- Brand Logo / Identity -->
+<div class="flex flex-col items-center gap-1">
+<div class="w-10 h-10 rounded-xl bg-teal-700 text-white font-headline font-bold flex items-center justify-center text-lg shadow-sm" title="Nexa POS">
+          N
+        </div>
+<span class="text-[10px] font-medium tracking-wider text-slate-400 font-headline uppercase mt-1">Nexa POS</span>
+</div>
+<!-- Main Navigation Tabs -->
+<nav aria-label="Navegación principal" class="flex flex-col items-center gap-3 w-full px-2">
+<!-- 0: Panel -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#panel" title="Panel">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="absolute left-16 bg-slate-800 text-slate-100 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Panel</span>
+</a>
+<!-- 1: Ventas (Active - Órdenes / Pedidos context) -->
+<a aria-current="page" class="text-teal-400 bg-slate-800/80 rounded-xl p-3 flex items-center justify-center relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-teal-500 before:rounded-r group shadow-inner" href="#ventas" title="Ventas">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">point_of_sale</span>
+<span class="absolute left-16 bg-slate-800 text-teal-300 font-medium text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Ventas</span>
+</a>
+<!-- 2: Inventario -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#inventario" title="Inventario">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="absolute left-16 bg-slate-800 text-slate-100 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Inventario</span>
+</a>
+<!-- 3: Reportes -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#reportes" title="Reportes">
+<span class="material-symbols-outlined">analytics</span>
+<span class="absolute left-16 bg-slate-800 text-slate-100 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Reportes</span>
+</a>
+<!-- 4: Ajustes -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#ajustes" title="Ajustes">
+<span class="material-symbols-outlined">settings</span>
+<span class="absolute left-16 bg-slate-800 text-slate-100 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Ajustes</span>
+</a>
+</nav>
+<!-- Footer Rail Tabs -->
+<div class="flex flex-col items-center gap-2 w-full px-2 pt-3 border-t border-slate-800">
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#ayuda" title="Ayuda">
+<span class="material-symbols-outlined">help</span>
+<span class="absolute left-16 bg-slate-800 text-slate-100 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Ayuda</span>
+</a>
+<a class="text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-xl p-3 flex items-center justify-center transition-colors group relative" href="#cerrar-sesion" title="Cerrar Sesión">
+<span class="material-symbols-outlined">logout</span>
+<span class="absolute left-16 bg-slate-800 text-rose-300 text-xs px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">Cerrar Sesión</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- ========================================================
+       SHARED COMPONENT 2: TopNavBar (Standard Sticky Header)
+       ======================================================== -->
+<header class="sticky top-0 right-0 h-16 w-[calc(100%-72px)] ml-[72px] z-30 bg-white border-b border-slate-200/60 shadow-sm flex items-center justify-between px-8">
+<!-- Breadcrumb Hierarchy -->
+<div class="flex items-center gap-2 text-sm">
+<span class="font-headline font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
+<span class="material-symbols-outlined text-teal-700 text-lg">storefront</span>
+        Nexa POS
+      </span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="text-slate-500 font-medium hover:text-slate-700 cursor-pointer">Panel Administrativo</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="text-slate-500 font-medium hover:text-slate-700 cursor-pointer">Ventas</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="text-teal-700 font-semibold bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-100">Gestión de Órdenes</span>
+</div>
+<!-- Trailing Actions & User Profile -->
+<div class="flex items-center gap-4">
+<!-- Sucursal Selector -->
+<button class="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all shadow-sm" type="button">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span>Sucursal Principal</span>
+<span class="material-symbols-outlined text-slate-400 text-base">expand_more</span>
+</button>
+<!-- Notification Action with Badge -->
+<button class="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Notificaciones" type="button">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 bg-rose-500 text-white font-bold text-[10px] w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">3</span>
+</button>
+<div class="h-6 w-px bg-slate-200"></div>
+<!-- User Profile Pill -->
+<div class="flex items-center gap-3 pl-1">
+<div class="w-9 h-9 rounded-xl bg-teal-700/10 text-teal-800 border border-teal-700/20 font-bold flex items-center justify-center text-xs tracking-wider" title="Avatar de Administrador Propietario">
+          AP
+        </div>
+<div class="flex flex-col text-left">
+<span class="text-xs font-bold text-slate-900 leading-tight">Admin Propietario</span>
+<span class="text-[11px] text-teal-700 font-medium">Propietario general</span>
+</div>
+</div>
+</div>
+</header>
+<!-- ========================================================
+       MAIN WORKSPACE (Canvas)
+       ======================================================== -->
+<main class="w-[calc(100%-72px)] ml-[72px] flex-1 p-8 bg-slate-50 flex flex-col gap-6">
+<!-- 1. Encabezado principal & Contadores en Vivo -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div class="flex items-center gap-3">
+<h1 class="text-2xl font-bold tracking-tight text-slate-900 font-headline">Gestión de Órdenes</h1>
+<div class="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-semibold shadow-xs">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+<span>42 órdenes hoy</span>
+</div>
+</div>
+<!-- Resumen Operativo Rápido -->
+<div class="flex items-center gap-3 text-xs text-slate-500 bg-white border border-slate-200/70 px-4 py-2 rounded-xl shadow-xs">
+<div class="flex items-center gap-1.5">
+<span class="text-slate-400">Total Facturado Hoy:</span>
+<span class="font-bold text-slate-900 font-headline">$2.840.500 COP</span>
+</div>
+<span class="text-slate-200">|</span>
+<div class="flex items-center gap-1.5">
+<span class="text-slate-400">Tiempo prom. cocina:</span>
+<span class="font-semibold text-slate-800">14 min</span>
+</div>
+</div>
+</div>
+<!-- 2. Tabs Horizontales de Estado de la Orden -->
+<div class="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-medium no-scrollbar">
+<!-- Tab 1: Todas (Activa) -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-700 text-white font-semibold shadow-sm transition-all" type="button">
+<span>Todas</span>
+<span class="bg-white/20 text-white text-[11px] px-2 py-0.5 rounded-full font-bold">42</span>
+</button>
+<!-- Tab 2: Creada -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 transition-all shadow-2xs" type="button">
+<span>Creada</span>
+<span class="bg-slate-100 text-slate-700 border border-slate-200 text-[11px] px-2 py-0.5 rounded-full font-bold">5</span>
+</button>
+<!-- Tab 3: En preparación -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-800 border border-slate-200/80 hover:border-sky-200 transition-all shadow-2xs" type="button">
+<span>En preparación</span>
+<span class="bg-sky-50 text-sky-700 border border-sky-200 text-[11px] px-2 py-0.5 rounded-full font-bold">12</span>
+</button>
+<!-- Tab 4: Lista para entrega -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200/80 hover:border-amber-200 transition-all shadow-2xs" type="button">
+<span>Lista para entrega</span>
+<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[11px] px-2 py-0.5 rounded-full font-bold">8</span>
+</button>
+<!-- Tab 5: Despachada / Entregada -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200/80 hover:border-emerald-200 transition-all shadow-2xs" type="button">
+<span>Despachada / Entregada</span>
+<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] px-2 py-0.5 rounded-full font-bold">14</span>
+</button>
+<!-- Tab 6: Cancelada -->
+<button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-800 border border-slate-200/80 hover:border-rose-200 transition-all shadow-2xs" type="button">
+<span>Cancelada</span>
+<span class="bg-rose-50 text-rose-700 border border-rose-200 text-[11px] px-2 py-0.5 rounded-full font-bold">3</span>
+</button>
+</div>
+<!-- 3. Barra de Filtros Omnicanal -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-4 shadow-sm flex flex-col xl:flex-row items-center justify-between gap-4">
+<!-- Input de búsqueda -->
+<div class="relative w-full xl:w-96">
+<span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-slate-50 focus:bg-white text-slate-800 placeholder-slate-400 text-xs rounded-xl border border-slate-200 focus:border-teal-700 focus:ring-1 focus:ring-teal-700 transition-all outline-none" placeholder="Buscar por N° orden, cliente o teléfono..." type="text"/>
+</div>
+<!-- Chips de Canales Omnicanal -->
+<div class="flex items-center gap-2 overflow-x-auto w-full xl:w-auto">
+<!-- Todos los canales (Activo) -->
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-xs" type="button">
+          Todos los canales
+        </button>
+<!-- Mostrador POS -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-800 border border-sky-200/70 text-xs font-medium hover:bg-sky-100 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-sky-600">shopping_bag</span>
+<span>Mostrador POS</span>
+</button>
+<!-- WhatsApp -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200/70 text-xs font-medium hover:bg-emerald-100 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-[#25D366]">chat</span>
+<span>WhatsApp</span>
+</button>
+<!-- Tienda Online -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 text-purple-800 border border-purple-200/70 text-xs font-medium hover:bg-purple-100 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-purple-600">shopping_cart</span>
+<span>Tienda Online</span>
+</button>
+</div>
+<!-- Selector de Fecha & CTA Nueva Orden -->
+<div class="flex items-center gap-3 w-full xl:w-auto justify-end">
+<button class="flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-medium transition-colors" type="button">
+<span class="material-symbols-outlined text-slate-400 text-base">calendar_today</span>
+<span>Hoy: 26 Oct</span>
+<span class="material-symbols-outlined text-slate-400 text-base">expand_more</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-all hover:shadow active:scale-98" type="button">
+<span class="material-symbols-outlined text-base">add</span>
+<span>+ Nueva orden manual</span>
+</button>
+</div>
+</div>
+<!-- 4. Layout Principal: Grilla de Tarjetas + Drawer Lateral de Detalle -->
+<div class="flex flex-col lg:flex-row items-start gap-6 relative">
+<!-- ==============================================
+           COLUMNA IZQUIERDA: Tarjetas de Órdenes (6 activas)
+           ============================================== -->
+<div class="flex-1 w-full grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
+<!-- CARD 1: #NX-1048 (WhatsApp - SELECCIONADA / ACTIVA) -->
+<article class="bg-white rounded-2xl border-2 border-teal-600 shadow-md ring-4 ring-teal-500/10 p-5 flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer">
+<div class="absolute top-0 right-0 left-0 h-1 bg-teal-600"></div>
+<div>
+<!-- Header Card -->
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-900 text-base">#NX-1048</span>
+<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-[#25D366]">chat</span>
+                  WhatsApp
+                </span>
+</div>
+<span class="bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                En preparación
+              </span>
+</div>
+<!-- Datos Cliente -->
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-900 font-headline">María Camila Restrepo</h2>
+<span class="text-[11px] text-slate-400">Hace 18 min</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">phone_iphone</span>
+<span>310 458 9201</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-600 truncate">
+<span class="material-symbols-outlined text-slate-400 text-sm">location_on</span>
+<span class="truncate">Cra 43A #12-45 Apto 302</span>
+</div>
+</div>
+<!-- Resumen de ítems -->
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-800">5 ítems solicitados:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 2x Coca-Cola 400 ml</li>
+<li>• 1x Café Sello 250 g</li>
+<li>• 1x Tostada Aguacate + 2 otros</li>
+</ul>
+</div>
+</div>
+<!-- Total y Estado de Pago -->
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-900">$42.500</span>
+</div>
+<span class="text-[11px] font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">pending</span> Nequi / Por verificar
+            </span>
+</div>
+</article>
+<!-- CARD 2: #NX-1049 (Mostrador POS) -->
+<article class="bg-white rounded-2xl border border-slate-200/70 hover:border-slate-300 shadow-xs hover:shadow-sm p-5 flex flex-col justify-between transition-all cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-900 text-base">#NX-1049</span>
+<span class="inline-flex items-center gap-1 bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-sky-600">shopping_bag</span>
+                  Mostrador POS
+                </span>
+</div>
+<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                Lista para entrega
+              </span>
+</div>
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-900 font-headline">Consumidor Final</h2>
+<span class="text-[11px] text-slate-400">Hace 26 min</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">table_restaurant</span>
+<span class="font-medium text-slate-700">Mesa 4 • Salón Principal</span>
+</div>
+<div class="text-xs text-slate-400">Atendido por: Cajero 01</div>
+</div>
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-800">3 ítems solicitados:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 1x Sándwich Roast Beef</li>
+<li>• 2x Jugo Natural Maracuyá</li>
+</ul>
+</div>
+</div>
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-900">$18.400</span>
+</div>
+<span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">check_circle</span> Efectivo Pagado
+            </span>
+</div>
+</article>
+<!-- CARD 3: #NX-1050 (Tienda Online) -->
+<article class="bg-white rounded-2xl border border-slate-200/70 hover:border-slate-300 shadow-xs hover:shadow-sm p-5 flex flex-col justify-between transition-all cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-900 text-base">#NX-1050</span>
+<span class="inline-flex items-center gap-1 bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-purple-600">shopping_cart</span>
+                  Tienda Online
+                </span>
+</div>
+<span class="bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                Creada
+              </span>
+</div>
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-900 font-headline">Carlos Andrés Vélez</h2>
+<span class="text-[11px] text-slate-400">Hace 3 min</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">local_shipping</span>
+<span class="font-medium text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded text-[10px]">Envío Express</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-600 truncate">
+<span class="material-symbols-outlined text-slate-400 text-sm">location_on</span>
+<span class="truncate">Calle 10 sur #34-89 Casa 12</span>
+</div>
+</div>
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-800">4 ítems solicitados:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 1x Combo Desayuno Gourmet</li>
+<li>• 1x Torta de Chocolate 500g</li>
+<li>• 2x Capuchino Vainilla</li>
+</ul>
+</div>
+</div>
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-900">$68.900</span>
+</div>
+<span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">verified</span> Pasarela Aprobada
+            </span>
+</div>
+</article>
+<!-- CARD 4: #NX-1047 (WhatsApp - Despachada / En ruta) -->
+<article class="bg-white rounded-2xl border border-slate-200/70 hover:border-slate-300 shadow-xs hover:shadow-sm p-5 flex flex-col justify-between transition-all cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-900 text-base">#NX-1047</span>
+<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-[#25D366]">chat</span>
+                  WhatsApp
+                </span>
+</div>
+<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                Despachada / En ruta
+              </span>
+</div>
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-900 font-headline">Laura Gómez</h2>
+<span class="text-[11px] text-slate-400">Hace 41 min</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">phone_iphone</span>
+<span>315 890 1122</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-600 truncate">
+<span class="material-symbols-outlined text-slate-400 text-sm">two_wheeler</span>
+<span>Repartidor: Wilson R. (Moto 02)</span>
+</div>
+</div>
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-800">2 ítems solicitados:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 1x Pizza Personal 4 Quesos</li>
+<li>• 1x Cerveza Corona 355 ml</li>
+</ul>
+</div>
+</div>
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-900">$31.200</span>
+</div>
+<span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">check_circle</span> Transferencia Bancolombia
+            </span>
+</div>
+</article>
+<!-- CARD 5: #NX-1046 (Mostrador POS - Entregada) -->
+<article class="bg-white/80 rounded-2xl border border-slate-200/60 p-5 flex flex-col justify-between transition-all opacity-85 hover:opacity-100 cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-700 text-base">#NX-1046</span>
+<span class="inline-flex items-center gap-1 bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-sky-600">shopping_bag</span>
+                  Mostrador POS
+                </span>
+</div>
+<span class="bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                Entregada
+              </span>
+</div>
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-800 font-headline">Juan Diego Peña</h2>
+<span class="text-[11px] text-slate-400">Hace 1 h</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">store</span>
+<span>Para llevar</span>
+</div>
+<div class="text-xs text-slate-400">Caja Principal • Factura #F-4412</div>
+</div>
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-700">1 ítem:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 1x Desayuno Tradicional Paisa</li>
+</ul>
+</div>
+</div>
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-700">$12.500</span>
+</div>
+<span class="text-[11px] font-medium text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">credit_card</span> Tarjeta Débito
+            </span>
+</div>
+</article>
+<!-- CARD 6: #NX-1045 (Tienda Online - En preparación) -->
+<article class="bg-white rounded-2xl border border-slate-200/70 hover:border-slate-300 shadow-xs hover:shadow-sm p-5 flex flex-col justify-between transition-all cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-2 mb-3">
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-slate-900 text-base">#NX-1045</span>
+<span class="inline-flex items-center gap-1 bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px] text-purple-600">shopping_cart</span>
+                  Tienda Online
+                </span>
+</div>
+<span class="bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+                En preparación
+              </span>
+</div>
+<div class="space-y-1 mb-3 pb-3 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<h2 class="text-sm font-bold text-slate-900 font-headline">Sofía Restrepo</h2>
+<span class="text-[11px] text-slate-400">Hace 52 min</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-500">
+<span class="material-symbols-outlined text-slate-400 text-sm">phone_iphone</span>
+<span>300 214 7890</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-600 truncate">
+<span class="material-symbols-outlined text-slate-400 text-sm">location_on</span>
+<span class="truncate">Circular 4 #73-10 Laureles</span>
+</div>
+</div>
+<div class="text-xs text-slate-600 space-y-1 mb-4">
+<p class="font-medium text-slate-800">3 ítems solicitados:</p>
+<ul class="text-[11px] text-slate-500 space-y-0.5 pl-2 border-l border-slate-200">
+<li>• 2x Bowl Acai Saludable</li>
+<li>• 1x Jugo Verde Detox 500ml</li>
+</ul>
+</div>
+</div>
+<div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Total COP</span>
+<span class="font-headline font-bold text-base text-slate-900">$55.000</span>
+</div>
+<span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">verified</span> Tarjeta Crédito Wompi
+            </span>
+</div>
+</article>
+</div>
+<!-- ==============================================
+           COLUMNA DERECHA: Drawer Lateral de Detalle Abierto
+           (Inspección de Orden Seleccionada: #NX-1048)
+           ============================================== -->
+<aside class="w-full lg:w-[420px] shrink-0 bg-white border border-slate-200/60 rounded-2xl shadow-lg p-6 flex flex-col gap-5 sticky top-24 self-start">
+<!-- Header del Drawer -->
+<div class="flex items-start justify-between pb-4 border-b border-slate-100">
+<div>
+<div class="flex items-center gap-2 mb-1.5">
+<h2 class="text-xl font-bold font-headline text-slate-900 tracking-tight">#NX-1048</h2>
+<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-sm text-[#25D366]">chat</span>
+                WhatsApp
+              </span>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-sky-50 text-sky-700 border border-sky-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                En preparación
+              </span>
+<span class="text-xs text-slate-400">Recibida a las 11:42 AM</span>
+</div>
+</div>
+<button class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors" title="Cerrar panel de detalle" type="button">
+<span class="material-symbols-outlined text-xl">close</span>
+</button>
+</div>
+<!-- Información de Cliente & Acción Rápida -->
+<div class="bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col gap-3">
+<div class="flex items-start justify-between">
+<div>
+<p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Cliente</p>
+<h3 class="text-sm font-bold text-slate-900 font-headline mt-0.5">María Camila Restrepo</h3>
+<p class="text-xs text-slate-600 font-medium">Tel: 310 458 9201</p>
+</div>
+<span class="px-2 py-0.5 bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold rounded-md">
+              Cliente Frecuente
+            </span>
+</div>
+<div class="pt-2 border-t border-slate-200/60 flex items-start gap-2 text-xs text-slate-600">
+<span class="material-symbols-outlined text-slate-400 text-base shrink-0 mt-0.5">location_on</span>
+<div class="flex-1">
+<span class="font-medium text-slate-800">Cra 43A #12-45 Apto 302, El Poblado</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-xs">moped</span> Domicilio propio
+                </span>
+<span class="text-[11px] text-slate-400">Instrucción: Tocar citófono</span>
+</div>
+</div>
+</div>
+<!-- Botón de Acción WhatsApp -->
+<a class="mt-1 flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-semibold shadow-sm transition-all text-center" href="https://wa.me/573104589201" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">chat</span>
+<span>Chatear por WhatsApp con el cliente</span>
+</a>
+</div>
+<!-- Desglose de Productos (Items) -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Ítems de la orden (5)</h4>
+<span class="text-[11px] text-slate-400">Cocina &amp; Bar</span>
+</div>
+<div class="space-y-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+<!-- Item 1 -->
+<div class="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 border border-slate-100 text-xs">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center font-bold text-xs">
+                  2x
+                </div>
+<div>
+<p class="font-semibold text-slate-800">Coca-Cola 400 ml</p>
+<p class="text-[10px] text-slate-400">Bebidas frías • $3.500 c/u</p>
+</div>
+</div>
+<span class="font-bold text-slate-900">$7.000 COP</span>
+</div>
+<!-- Item 2 -->
+<div class="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 border border-slate-100 text-xs">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center font-bold text-xs">
+                  1x
+                </div>
+<div>
+<p class="font-semibold text-slate-800">Café Sello 250 g</p>
+<p class="text-[10px] text-slate-400">Grano molido especial</p>
+</div>
+</div>
+<span class="font-bold text-slate-900">$9.500 COP</span>
+</div>
+<!-- Item 3 -->
+<div class="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 border border-slate-100 text-xs">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center font-bold text-xs">
+                  1x
+                </div>
+<div>
+<p class="font-semibold text-slate-800">Pan Tajado Bimbo</p>
+<p class="text-[10px] text-slate-400">Panadería tradicional</p>
+</div>
+</div>
+<span class="font-bold text-slate-900">$6.900 COP</span>
+</div>
+<!-- Item 4 -->
+<div class="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 border border-slate-100 text-xs">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center font-bold text-xs">
+                  2x
+                </div>
+<div>
+<p class="font-semibold text-slate-800">Empanada de Carne</p>
+<p class="text-[10px] text-slate-400">Frito típico • Con ají casero</p>
+</div>
+</div>
+<span class="font-bold text-slate-900">$8.000 COP</span>
+</div>
+<!-- Item 5 -->
+<div class="flex items-center justify-between p-2 rounded-xl bg-slate-50/70 border border-slate-100 text-xs">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center font-bold text-xs">
+                  1x
+                </div>
+<div>
+<p class="font-semibold text-slate-800">Tostada Aguacate</p>
+<p class="text-[10px] text-slate-400">Especialidad de la casa</p>
+</div>
+</div>
+<span class="font-bold text-slate-900">$11.100 COP</span>
+</div>
+</div>
+</div>
+<!-- Resumen de Pago y Totales -->
+<div class="border-t border-slate-100 pt-3 flex flex-col gap-2">
+<div class="flex justify-between text-xs text-slate-500">
+<span>Subtotal productos</span>
+<span>$36.500 COP</span>
+</div>
+<div class="flex justify-between text-xs text-slate-500">
+<span class="flex items-center gap-1">
+<span>Tarifa Domicilio</span>
+<span class="material-symbols-outlined text-[14px] text-slate-400">info</span>
+</span>
+<span>$6.000 COP</span>
+</div>
+<div class="flex justify-between text-base font-bold text-slate-900 font-headline pt-2 border-t border-slate-100">
+<span>Total a Cobrar</span>
+<span class="text-teal-700 text-lg">$42.500 COP</span>
+</div>
+<!-- Método de pago -->
+<div class="mt-2 bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 flex items-center justify-between text-xs">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-amber-600 text-base">receipt_long</span>
+<div>
+<span class="font-bold text-slate-800 block text-[11px]">Nequi / Daviplata</span>
+<span class="text-amber-800 text-[10px]">Comprobante adjunto / Por verificar</span>
+</div>
+</div>
+<button class="text-teal-700 hover:text-teal-800 font-bold text-[11px] underline" type="button">
+              Ver recibo
+            </button>
+</div>
+</div>
+<!-- Acciones Operativas del Flujo -->
+<div class="flex flex-col gap-2.5 pt-2 border-t border-slate-100">
+<!-- Botón de avance principal -->
+<button class="w-full py-3 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all active:scale-98" type="button">
+<span class="material-symbols-outlined text-base">task_alt</span>
+<span>Marcar como Lista (Avanzar estado)</span>
+</button>
+<!-- Acciones Secundarias -->
+<div class="grid grid-cols-2 gap-2">
+<button class="py-2.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-slate-500">two_wheeler</span>
+<span>Asignar repartidor</span>
+</button>
+<button class="py-2.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-slate-500">print</span>
+<span>Comanda (F8)</span>
+</button>
+</div>
+<!-- Botón Rechazar / Cancelar -->
+<button class="w-full py-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 mt-1" type="button">
+<span class="material-symbols-outlined text-sm">cancel</span>
+<span>Cancelar orden o rechazar pedido</span>
+</button>
+</div>
+</aside>
+</div>
+</main>
+<script>
+    // Lightweight micro-interaction for active states
+    document.addEventListener('DOMContentLoaded', () => {
+      // Allow clicking order cards to demonstrate focus
+      const cards = document.querySelectorAll('article');
+      cards.forEach(card => {
+        card.addEventListener('click', () => {
+          cards.forEach(c => {
+            c.classList.remove('border-2', 'border-teal-600', 'shadow-md', 'ring-4', 'ring-teal-500/10');
+            c.classList.add('border-slate-200/70');
+          });
+          card.classList.remove('border-slate-200/70');
+          card.classList.add('border-2', 'border-teal-600', 'shadow-md', 'ring-4', 'ring-teal-500/10');
+        });
+      });
+    });
+  </script>
+</body></html>

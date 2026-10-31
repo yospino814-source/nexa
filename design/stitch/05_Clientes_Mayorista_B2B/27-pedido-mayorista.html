@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Pedido Mayorista B2B</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with forms and container-queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              700: "#0F6E6E",
+              800: "#0c5959",
+              50: "#f0fdfa",
+              100: "#ccfbf1",
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Custom scrollbar for subtle dashboard feeling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="h-full font-body text-slate-900 antialiased bg-slate-50 selection:bg-teal-100 selection:text-teal-900">
+<!-- ================= SIDEBAR RAIL (72px) ================= -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] z-40 flex flex-col justify-between py-4 items-center bg-slate-900 dark:bg-slate-950 border-r border-slate-800 shadow-none">
+<!-- Brand Anchor Logo -->
+<div class="flex flex-col items-center gap-1">
+<div class="w-10 h-10 rounded-xl bg-teal-700 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+        N
+      </div>
+<span class="text-base font-bold text-white tracking-wider font-headline">Nexa</span>
+<span class="text-[10px] uppercase font-semibold text-teal-400 tracking-wider">POS B2B</span>
+</div>
+<!-- Main Navigation Icons -->
+<nav aria-label="Navegación Lateral" class="flex flex-col items-center gap-3 w-full px-2">
+<!-- Inicio -->
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors duration-150 active:scale-95" href="#" title="Inicio">
+<span class="material-symbols-outlined text-[22px]">dashboard</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Inicio</span>
+</a>
+<!-- Preventa (Active State from Shared Components) -->
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-teal-700 text-white transition-colors duration-150 active:scale-95 shadow-md shadow-teal-950/40" href="#" title="Preventa">
+<span class="material-symbols-outlined text-[22px]">point_of_sale</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Preventa</span>
+</a>
+<!-- Catálogo -->
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors duration-150 active:scale-95" href="#" title="Catálogo">
+<span class="material-symbols-outlined text-[22px]">inventory_2</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Catálogo</span>
+</a>
+<!-- Clientes -->
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors duration-150 active:scale-95" href="#" title="Clientes">
+<span class="material-symbols-outlined text-[22px]">group</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Clientes</span>
+</a>
+<!-- Reportes -->
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors duration-150 active:scale-95" href="#" title="Reportes">
+<span class="material-symbols-outlined text-[22px]">bar_chart</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Reportes</span>
+</a>
+</nav>
+<!-- Footer Settings -->
+<div class="flex flex-col items-center gap-2">
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors duration-150 active:scale-95" href="#" title="Ajustes">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+<span class="text-[9px] mt-0.5 font-medium tracking-tight">Ajustes</span>
+</a>
+</div>
+</aside>
+<!-- ================= TOP APP BAR (h-14 / 56px) ================= -->
+<header class="fixed top-0 left-[72px] right-0 h-14 z-30 bg-white dark:bg-slate-900 border-b border-slate-200/60 dark:border-slate-800 shadow-sm flex items-center justify-between px-6">
+<!-- Breadcrumb & Route Status -->
+<div class="flex items-center gap-3 font-body text-sm">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="font-medium text-slate-500">Ventas Mayoristas</span>
+<span class="text-slate-300">/</span>
+<span class="font-semibold text-slate-900 dark:text-white">Nuevo Pedido B2B</span>
+</div>
+<div class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        Ruta Norte · En Línea
+      </div>
+</div>
+<!-- Right Actions / User Profile -->
+<div class="flex items-center gap-4">
+<!-- Sync Status Indicator -->
+<div class="hidden lg:flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+<span class="material-symbols-outlined text-slate-400 text-base">cloud_done</span>
+<span>Sincronizado</span>
+</div>
+<!-- Action Icons -->
+<div class="flex items-center gap-1 border-r border-slate-200 pr-3">
+<button aria-label="Notificaciones" class="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors relative" type="button">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full"></span>
+</button>
+<button aria-label="Ayuda" class="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" type="button">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<!-- Preventista Carlos M. Identity -->
+<div class="flex items-center gap-3">
+<div class="text-right hidden md:block">
+<p class="text-xs font-bold text-slate-900 leading-tight">Carlos M.</p>
+<p class="text-[11px] text-slate-500">Preventista Ruta Norte</p>
+</div>
+<div class="w-9 h-9 rounded-xl bg-teal-800 text-teal-100 flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-teal-600/20">
+          CM
+        </div>
+</div>
+</div>
+</header>
+<!-- ================= MAIN CONTENT WRAPPER ================= -->
+<main class="ml-[72px] pt-14 min-h-screen flex flex-col bg-slate-50">
+<!-- STEPPER INTERACTIVO (Centered Top Navigation Header) -->
+<section class="bg-white border-b border-slate-200/80 px-6 py-3.5 shadow-xs">
+<div class="max-w-6xl mx-auto flex items-center justify-between">
+<!-- Step 1: Completed -->
+<div class="flex items-center gap-3 flex-1">
+<div class="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-emerald-700">Paso 1: Cliente Seleccionado</span>
+<span class="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[10px] font-medium">Validado</span>
+</div>
+<p class="text-xs text-slate-600 font-medium">Minimercado El Triunfo</p>
+</div>
+</div>
+<!-- Divider 1 -->
+<div class="h-0.5 w-12 sm:w-20 bg-emerald-300 mx-2"></div>
+<!-- Step 2: Active B2B -->
+<div class="flex items-center gap-3 flex-1 justify-center">
+<div class="w-8 h-8 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs ring-4 ring-teal-100 shadow-sm">
+            2
+          </div>
+<div>
+<span class="text-xs font-bold text-teal-800">Paso 2: Productos B2B</span>
+<p class="text-xs text-slate-500">Selección de empaque mayorista</p>
+</div>
+</div>
+<!-- Divider 2 -->
+<div class="h-0.5 w-12 sm:w-20 bg-slate-200 mx-2"></div>
+<!-- Step 3: Pending -->
+<div class="flex items-center gap-3 flex-1 justify-end opacity-70">
+<div class="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs">
+            3
+          </div>
+<div>
+<span class="text-xs font-medium text-slate-600">Paso 3: Condiciones y Despacho</span>
+<p class="text-xs text-slate-400">Cupo de crédito y transporte</p>
+</div>
+</div>
+</div>
+</section>
+<!-- CONTENT WORKSPACE: SPLIT 60 / 40 -->
+<div class="p-6 max-w-[1600px] w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+<!-- ================= LEFT COLUMN: CATÁLOGO MAYORISTA (60%) ================= -->
+<section class="lg:col-span-7 flex flex-col gap-5">
+<!-- Search and Quick Category Filters Header -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
+<!-- Search Bar -->
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+<input class="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-teal-700 focus:ring-1 focus:ring-teal-700 text-sm text-slate-900 placeholder:text-slate-400 bg-slate-50/50" placeholder="Buscar por producto, SKU mayorista o código de barras..." type="text"/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+<span class="text-[11px] bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-400 font-mono">⌘K</span>
+</div>
+</div>
+<!-- Category Chips -->
+<div class="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+<button class="px-3.5 py-1.5 rounded-xl bg-teal-700 text-white font-medium whitespace-nowrap shadow-xs hover:bg-teal-800 transition">
+              Todos
+            </button>
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 font-medium whitespace-nowrap transition">
+              Bebidas por caja
+            </button>
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 font-medium whitespace-nowrap transition">
+              Granos por paca
+            </button>
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 font-medium whitespace-nowrap transition">
+              Aceites por caja
+            </button>
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 font-medium whitespace-nowrap transition">
+              Aseo institucional
+            </button>
+<button class="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 font-medium whitespace-nowrap transition">
+              Golosinas por display
+            </button>
+</div>
+</div>
+<!-- 2-Column Responsive Grid of Wholesale Catalog Items -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<!-- Card 1: Arroz Diana -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                  Granos y Alimentos
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">PAC-ARR-01</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Arroz Diana</h3>
+<p class="text-xs text-slate-500 mt-0.5">Paca x 25 bolsas de 1kg</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$87.500 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ paca</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium">140 pacas</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+<!-- Card 2: Gaseosa Postobón -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-teal-50 text-teal-700 border border-teal-100">
+                  Bebidas Pet
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">BEB-POS-24</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Gaseosa Postobón Manzana</h3>
+<p class="text-xs text-slate-500 mt-0.5">Caja x 24 botellas pet 500ml</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$42.000 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ caja</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium">95 cajas</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+<!-- Card 3: Aceite Vegetal Premier -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-100">
+                  Aceites y Grasas
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">ACE-PRE-12</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Aceite Vegetal Premier</h3>
+<p class="text-xs text-slate-500 mt-0.5">Caja x 12 botellas 1.000ml</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$108.000 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ caja</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium">60 cajas</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+<!-- Card 4: Jabón Rey -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                  Aseo Hogar
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">ASE-REY-48</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Jabón Rey</h3>
+<p class="text-xs text-slate-500 mt-0.5">Paca x 48 barras 300g</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$124.000 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ paca</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-amber-500"></span>
+<span class="font-medium">45 pacas</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+<!-- Card 5: Galletas Festival Surtidas -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                  Confitería
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">GAL-FES-24</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Galletas Festival Surtidas</h3>
+<p class="text-xs text-slate-500 mt-0.5">Display x 24 paquetes</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$28.000 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ display</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium">80 displays</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+<!-- Card 6: Harina Pan Blanca -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                  Harinas y Maíz
+                </span>
+<span class="text-[11px] font-mono font-medium text-slate-400">HAR-PAN-20</span>
+</div>
+<div>
+<h3 class="font-bold text-slate-900 text-base leading-snug">Harina Pan Blanca</h3>
+<p class="text-xs text-slate-500 mt-0.5">Paca x 20 bolsas 1kg</p>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-lg font-bold text-slate-900 font-headline">$72.000 COP</span>
+<span class="text-[11px] text-slate-400 ml-1">/ paca</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium">110 pacas</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 active:scale-98" type="button">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+                + Añadir al pedido B2B
+              </button>
+</div>
+</div>
+</div>
+</section>
+<!-- ================= RIGHT COLUMN: CARRITO B2B & VALIDACIÓN CARTERA (40%) ================= -->
+<section class="lg:col-span-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 flex flex-col gap-5 sticky top-20">
+<!-- CLIENTE & WIDGET DE CARTERA (From Step 1) -->
+<div class="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col gap-3">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-1.5">
+<h2 class="font-bold text-slate-900 text-sm">Minimercado El Triunfo</h2>
+<span class="text-xs text-slate-500 font-normal">(Carlos Restrepo)</span>
+</div>
+<p class="text-xs text-slate-500 font-mono mt-0.5">NIT 900.842.115-3</p>
+<p class="text-xs text-slate-600 mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-slate-400">location_on</span>
+                Barrio Chapinero, Cl. 57 #13-24
+              </p>
+</div>
+<button class="text-xs text-teal-700 hover:underline font-semibold" title="Cambiar Cliente">
+              Cambiar
+            </button>
+</div>
+<!-- Credit Limit / Cartera Progress Widget -->
+<div class="border-t border-slate-200 pt-3 flex flex-col gap-2">
+<div class="flex items-center justify-between text-xs">
+<span class="font-medium text-slate-600">Cupo Disponible:</span>
+<span class="font-bold text-teal-800">$1.200.000 COP <span class="font-normal text-slate-400">/ $2.000.000 COP</span></span>
+</div>
+<!-- Progress Bar: 40% used ($800k), 60% available ($1.2M) -->
+<div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
+<div class="bg-slate-400 h-2" style="width: 40%" title="Usado: $800.000 COP"></div>
+<div class="bg-emerald-500 h-2" style="width: 60%" title="Disponible: $1.200.000 COP"></div>
+</div>
+<div class="flex items-center justify-between text-[11px]">
+<span class="text-emerald-700 font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                Cliente al día · Sin facturas vencidas
+              </span>
+<span class="text-slate-400">Usado: $800.000</span>
+</div>
+</div>
+</div>
+<!-- LISTA DE ÍTEMS EN EL CARRITO B2B -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<h3 class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+<span>Artículos en Pedido</span>
+<span class="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-semibold">4 líneas</span>
+</h3>
+<button class="text-xs text-rose-500 hover:text-rose-700 font-medium">Vaciar</button>
+</div>
+<!-- Items list container -->
+<div class="flex flex-col divide-y divide-slate-100 max-h-[260px] overflow-y-auto pr-1">
+<!-- Item 1: Arroz Diana -->
+<div class="py-2.5 flex items-center justify-between gap-3">
+<div class="flex-1 min-w-0">
+<p class="font-medium text-xs text-slate-900 truncate">Arroz Diana 1kg</p>
+<p class="text-[11px] text-slate-400">Paca x 25 bolsas · $87.500 c/u</p>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">-</button>
+<input class="w-9 text-center text-xs font-bold border-none p-0 bg-transparent text-slate-800 focus:ring-0" type="text" value="4"/>
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">+</button>
+</div>
+<div class="text-right w-20">
+<p class="text-xs font-bold text-slate-900">$350.000</p>
+</div>
+<button class="text-slate-300 hover:text-rose-500 transition-colors">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Item 2: Postobon -->
+<div class="py-2.5 flex items-center justify-between gap-3">
+<div class="flex-1 min-w-0">
+<p class="font-medium text-xs text-slate-900 truncate">Gaseosa Postobón 500ml</p>
+<p class="text-[11px] text-slate-400">Caja x 24 un · $42.000 c/u</p>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">-</button>
+<input class="w-9 text-center text-xs font-bold border-none p-0 bg-transparent text-slate-800 focus:ring-0" type="text" value="5"/>
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">+</button>
+</div>
+<div class="text-right w-20">
+<p class="text-xs font-bold text-slate-900">$210.000</p>
+</div>
+<button class="text-slate-300 hover:text-rose-500 transition-colors">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Item 3: Aceite Premier -->
+<div class="py-2.5 flex items-center justify-between gap-3">
+<div class="flex-1 min-w-0">
+<p class="font-medium text-xs text-slate-900 truncate">Aceite Premier 1L</p>
+<p class="text-[11px] text-slate-400">Caja x 12 un · $108.000 c/u</p>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">-</button>
+<input class="w-9 text-center text-xs font-bold border-none p-0 bg-transparent text-slate-800 focus:ring-0" type="text" value="2"/>
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">+</button>
+</div>
+<div class="text-right w-20">
+<p class="text-xs font-bold text-slate-900">$216.000</p>
+</div>
+<button class="text-slate-300 hover:text-rose-500 transition-colors">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Item 4: Festival -->
+<div class="py-2.5 flex items-center justify-between gap-3">
+<div class="flex-1 min-w-0">
+<p class="font-medium text-xs text-slate-900 truncate">Galletas Festival</p>
+<p class="text-[11px] text-slate-400">Display x 24 un · $28.000 c/u</p>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">-</button>
+<input class="w-9 text-center text-xs font-bold border-none p-0 bg-transparent text-slate-800 focus:ring-0" type="text" value="3"/>
+<button class="px-2 py-1 text-slate-500 hover:bg-slate-200 text-xs font-bold">+</button>
+</div>
+<div class="text-right w-20">
+<p class="text-xs font-bold text-slate-900">$84.000</p>
+</div>
+<button class="text-slate-300 hover:text-rose-500 transition-colors">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- CONDICIONES COMERCIALES Y LOGÍSTICA -->
+<div class="border-t border-slate-100 pt-4 flex flex-col gap-3">
+<!-- Modalidad de Pago Selector -->
+<div>
+<label class="block text-xs font-semibold text-slate-700 mb-1.5">Modalidad de Pago Comercial</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="py-2 px-3 text-xs font-medium rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition text-center" type="button">
+                Contado
+              </button>
+<button class="py-2 px-3 text-xs font-bold rounded-xl border-2 border-teal-700 bg-teal-50/50 text-teal-800 transition text-center flex items-center justify-center gap-1" type="button">
+<span class="material-symbols-outlined text-[15px] text-teal-700">task_alt</span>
+                Crédito a 30 días
+              </button>
+</div>
+</div>
+<!-- Real-Time Credit Validation Badge -->
+<div class="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald-600 text-[18px]">verified</span>
+<div>
+<p class="text-xs font-bold text-emerald-800 leading-tight">Crédito Aprobado</p>
+<p class="text-[11px] text-emerald-700">Resta $340.000 COP de cupo post-pedido</p>
+</div>
+</div>
+<span class="text-xs font-semibold text-emerald-800">$860.000 &lt; $1.2M</span>
+</div>
+<!-- Logistics & Delivery Date -->
+<div class="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/60 text-xs">
+<div class="flex items-center justify-between">
+<span class="text-slate-500 font-medium">Entrega programada:</span>
+<span class="font-bold text-slate-800">Jueves 29 Octubre</span>
+</div>
+<div class="flex items-center gap-1.5 text-slate-600">
+<span class="material-symbols-outlined text-slate-400 text-[16px]">local_shipping</span>
+<span>Ruta Norte Despachos (Camión NPR #1)</span>
+</div>
+<!-- Delivery Note -->
+<div class="mt-1">
+<input class="w-full text-[11px] bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:border-teal-700 focus:ring-0" placeholder="Nota para el despachador..." type="text" value="Entregar antes de las 11:00 am por callejón de descargue"/>
+</div>
+</div>
+</div>
+<!-- RESUMEN ECONÓMICO Y BOTÓN PRINCIPAL -->
+<div class="border-t border-slate-200 pt-4 flex flex-col gap-3">
+<div class="flex flex-col gap-1.5 text-xs text-slate-600">
+<div class="flex justify-between">
+<span>Subtotal neto:</span>
+<span class="font-medium text-slate-800">$722.689 COP</span>
+</div>
+<div class="flex justify-between">
+<span>IVA (19% discriminado):</span>
+<span class="font-medium text-slate-800">$137.311 COP</span>
+</div>
+<div class="flex justify-between items-baseline pt-2 border-t border-slate-100 text-slate-900">
+<span class="text-sm font-bold">TOTAL A PAGAR:</span>
+<span class="text-2xl font-bold font-headline text-slate-900">$860.000 COP</span>
+</div>
+</div>
+<!-- Primary Submit Action -->
+<button class="w-full py-3.5 px-4 rounded-xl bg-teal-700 hover:bg-[#0c5959] active:scale-98 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition duration-150" type="button">
+<span class="material-symbols-outlined text-[20px]">send</span>
+<span>Confirmar y Enviar Pedido B2B</span>
+</button>
+<p class="text-center text-[10px] text-slate-400">
+            Al confirmar, se reserva el stock y se emite la orden de despacho a bodega central.
+          </p>
+</div>
+</section>
+</div>
+</main>
+</body></html>

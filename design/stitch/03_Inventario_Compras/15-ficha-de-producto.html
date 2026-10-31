@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Ficha de Producto: Café Sello 250 g</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {},
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          spacing: {},
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          },
+          fontSize: {}
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      line-height: 1;
+      text-transform: none;
+      letter-spacing: normal;
+      word-wrap: normal;
+      white-space: nowrap;
+      direction: ltr;
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-900 font-body antialiased selection:bg-teal-100 selection:text-teal-900">
+<!-- Shared Component: SideNavBar (rail layout 72px) -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-4 z-40 bg-slate-900 dark:bg-slate-950 border-r border-slate-800 dark:border-slate-800 shadow-none font-body text-xs font-medium justify-between">
+<!-- Top Brand Logo & Tabs -->
+<div class="flex flex-col items-center gap-6 w-full">
+<!-- Logo N -->
+<a class="w-10 h-10 rounded-xl bg-teal-700 text-white font-headline font-bold flex items-center justify-center text-lg active:scale-95 transition-transform duration-150 shadow-sm" href="#" title="Nexa POS">
+        N
+      </a>
+<!-- Primary Tabs List -->
+<nav aria-label="Navegación principal" class="flex flex-col items-center gap-2 w-full px-2">
+<!-- Tab 1: Panel (Inactive) -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150 group relative" href="#" title="Panel">
+<span class="material-symbols-outlined text-xl">dashboard</span>
+</a>
+<!-- Tab 2: Ventas (Inactive) -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150 group relative" href="#" title="Ventas">
+<span class="material-symbols-outlined text-xl">point_of_sale</span>
+</a>
+<!-- Tab 3: Inventario (ACTIVE MANDATE) -->
+<a aria-current="page" class="text-teal-400 bg-slate-800/80 rounded-xl p-3 flex items-center justify-center relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-teal-500 before:rounded-r active:scale-95 transition-transform duration-150" href="#" title="Inventario">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+</a>
+<!-- Tab 4: Reportes (Inactive) -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150 group relative" href="#" title="Reportes">
+<span class="material-symbols-outlined text-xl">analytics</span>
+</a>
+<!-- Tab 5: Ajustes (Inactive) -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150 group relative" href="#" title="Ajustes">
+<span class="material-symbols-outlined text-xl">settings</span>
+</a>
+</nav>
+</div>
+<!-- Bottom Actions / Footer Tabs -->
+<div class="flex flex-col items-center gap-2 w-full px-2 border-t border-slate-800/80 pt-4">
+<!-- Ayuda -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150" href="#" title="Ayuda">
+<span class="material-symbols-outlined text-xl">help</span>
+</a>
+<!-- Cerrar Sesión -->
+<a class="text-slate-400 hover:text-rose-400 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 duration-150" href="#" title="Cerrar Sesión">
+<span class="material-symbols-outlined text-xl">logout</span>
+</a>
+</div>
+</aside>
+<!-- Shared Component: TopNavBar (sticky top bar) -->
+<header class="sticky top-0 right-0 h-16 w-[calc(100%-72px)] ml-[72px] z-30 bg-white border-b border-slate-200/60 shadow-sm font-body text-sm text-slate-600">
+<div class="flex justify-between items-center px-8 h-full w-full">
+<!-- Breadcrumb Exact Trail -->
+<nav aria-label="Miga de pan" class="flex items-center gap-2 text-sm text-slate-500 font-medium">
+<span class="text-slate-400">Panel Administrativo</span>
+<span class="text-slate-300">/</span>
+<span class="text-slate-400">Inventario</span>
+<span class="text-slate-300">/</span>
+<span class="text-slate-400">Productos</span>
+<span class="text-slate-300">/</span>
+<span class="text-slate-900 font-semibold">Café Sello 250 g</span>
+</nav>
+<!-- Trailing Controls Cluster -->
+<div class="flex items-center gap-4">
+<!-- Sucursal Selector Badge -->
+<div class="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-xs font-medium text-slate-700">
+<span class="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-100"></span>
+<span>Sucursal Principal</span>
+<span class="material-symbols-outlined text-sm text-slate-400">expand_more</span>
+</div>
+<!-- Notification Bell with Counter -->
+<button aria-label="Notificaciones" class="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors focus:outline-none" type="button">
+<span class="material-symbols-outlined text-xl">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white">3</span>
+</button>
+<!-- Divider -->
+<div class="h-6 w-px bg-slate-200"></div>
+<!-- Profile Avatar Cluster -->
+<div class="flex items-center gap-2.5 cursor-pointer pl-1">
+<div class="w-8 h-8 rounded-full bg-teal-800 text-teal-100 font-semibold text-xs flex items-center justify-center ring-2 ring-teal-600/20">
+            AP
+          </div>
+<div class="hidden lg:flex flex-col text-left">
+<span class="text-xs font-semibold text-slate-900 leading-tight">Admin Propietario</span>
+<span class="text-[11px] text-slate-500 leading-tight">admin@nexapos.co</span>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- Main View Content Area -->
+<main class="ml-[72px] min-h-[calc(100vh-64px)] p-8">
+<div class="max-w-7xl mx-auto">
+<!-- 1. Encabezado superior de la vista -->
+<section class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+<!-- Titular izquierdo, switch y SKU -->
+<div class="flex flex-wrap items-center gap-3.5">
+<h1 class="text-2xl font-bold font-headline text-slate-900 tracking-tight">Café Sello 250 g</h1>
+<!-- Badge SKU Neutro estilo shadcn -->
+<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
+            SKU: CAF-250
+          </span>
+<!-- Switch Toggle Activo -->
+<label class="inline-flex items-center gap-2 cursor-pointer select-none pl-2">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="relative w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+<span class="text-xs font-medium text-slate-600">Producto activo</span>
+</label>
+</div>
+<!-- Botones de Acción Superior -->
+<div class="flex items-center gap-3">
+<button class="h-11 px-5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 font-medium text-sm transition-colors shadow-sm active:scale-98" type="button">
+            Cancelar
+          </button>
+<button class="h-11 px-6 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm transition-all shadow-sm flex items-center gap-2 active:scale-98" type="button">
+<span class="material-symbols-outlined text-lg">check</span>
+<span>Guardar cambios</span>
+</button>
+</div>
+</section>
+<!-- 2. Distribución en 2 columnas (grid-cols-12: 8 cols y 4 cols) -->
+<div class="grid grid-cols-12 gap-6">
+<!-- 3. Columna Principal Izquierda (8 cols) -->
+<section class="col-span-12 lg:col-span-8 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 lg:p-7">
+<!-- Tabs de Navegación estilo shadcn -->
+<div class="border-b border-slate-200 pb-px mb-7 flex gap-6 text-sm font-medium">
+<button class="pb-3 border-b-2 border-teal-700 text-teal-700 font-semibold flex items-center gap-1.5 transition-colors" type="button">
+<span>Datos generales</span>
+</button>
+<button class="pb-3 text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition-colors" type="button">
+<span>Precio y margen</span>
+</button>
+<button class="pb-3 text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition-colors" type="button">
+<span>Impuestos</span>
+</button>
+<button class="pb-3 text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition-colors" type="button">
+<span>Receta / Insumos</span>
+</button>
+</div>
+<!-- SECCIÓN 1: Datos Generales del Producto -->
+<div class="space-y-5">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Nombre del Producto -->
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5" for="product_name">Nombre del producto</label>
+<input class="w-full h-11 px-3.5 rounded-xl border border-slate-200 text-slate-900 text-sm focus:border-teal-700 focus:ring-1 focus:ring-teal-700 outline-none transition shadow-sm font-normal" id="product_name" type="text" value="Café Sello 250 g"/>
+</div>
+<!-- Categoría Dropdown -->
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5" for="product_category">Categoría</label>
+<div class="relative">
+<select class="w-full h-11 px-3.5 pr-10 rounded-xl border border-slate-200 text-slate-900 text-sm focus:border-teal-700 focus:ring-1 focus:ring-teal-700 outline-none transition appearance-none bg-white shadow-sm font-normal cursor-pointer" id="product_category">
+<option selected="">Abarrotes</option>
+<option>Bebidas Calientes</option>
+<option>Lácteos</option>
+<option>Snacks</option>
+</select>
+<span class="material-symbols-outlined text-slate-400 absolute right-3 top-3 pointer-events-none text-lg">unfold_more</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Código de Barras con botón lector integrado -->
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5" for="product_barcode">Código de barras</label>
+<div class="relative flex items-center">
+<input class="w-full h-11 pl-3.5 pr-11 rounded-xl border border-slate-200 text-slate-900 text-sm focus:border-teal-700 focus:ring-1 focus:ring-teal-700 outline-none transition shadow-sm font-mono" id="product_barcode" type="text" value="7702001004521"/>
+<button class="absolute right-1.5 top-1.5 w-8 h-8 rounded-lg text-slate-400 hover:text-teal-700 hover:bg-slate-100 flex items-center justify-center transition-colors" title="Escanear código de barras" type="button">
+<span class="material-symbols-outlined text-lg">barcode_scanner</span>
+</button>
+</div>
+</div>
+<!-- Unidad de Medida (Segmented Pills) -->
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5">Unidad de medida</label>
+<div class="flex h-11 p-1 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-medium">
+<button class="flex-1 bg-white text-teal-800 rounded-lg shadow-xs font-semibold py-1.5 transition-all text-center flex items-center justify-center" type="button">
+                    Unidad
+                  </button>
+<button class="flex-1 text-slate-600 hover:text-slate-900 rounded-lg py-1.5 transition-colors text-center flex items-center justify-center" type="button">
+                    Gramo
+                  </button>
+<button class="flex-1 text-slate-600 hover:text-slate-900 rounded-lg py-1.5 transition-colors text-center flex items-center justify-center" type="button">
+                    Mililitro
+                  </button>
+</div>
+</div>
+</div>
+<!-- Switch Interactivo Compuesto -->
+<div class="pt-2">
+<label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="relative w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-700 mt-0.5 shrink-0"></div>
+<div class="flex flex-col select-none">
+<span class="text-sm font-medium text-slate-800">Producto compuesto (requiere receta / insumos)</span>
+<span class="text-xs text-slate-500 mt-0.5">Activa la deducción automática de materias primas e insumos al vender</span>
+</div>
+</label>
+</div>
+</div>
+<!-- Separador fino -->
+<hr class="border-t border-slate-100 my-7"/>
+<!-- SECCIÓN 2: Precio de Venta y Margen de Utilidad -->
+<div class="space-y-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-teal-700 text-xl">monetization_on</span>
+<h2 class="text-base font-semibold text-slate-900">Estructura de Precios y Rentabilidad</h2>
+</div>
+<!-- Formulario de 2 Columnas -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5" for="purchase_cost">Costo unitario de compra</label>
+<div class="relative">
+<span class="absolute left-3.5 top-3 text-xs font-semibold text-slate-400">COP</span>
+<input class="w-full h-11 pl-12 pr-3.5 rounded-xl border border-slate-200 text-slate-900 text-sm font-medium focus:border-teal-700 focus:ring-1 focus:ring-teal-700 outline-none transition shadow-sm" id="purchase_cost" type="text" value="$ 6.200 COP"/>
+</div>
+</div>
+<div>
+<label class="block font-medium text-slate-700 text-sm mb-1.5" for="sale_price">Precio de venta base</label>
+<div class="relative">
+<span class="absolute left-3.5 top-3 text-xs font-semibold text-slate-400">COP</span>
+<input class="w-full h-11 pl-12 pr-3.5 rounded-xl border border-slate-200 text-slate-900 text-sm font-medium focus:border-teal-700 focus:ring-1 focus:ring-teal-700 outline-none transition shadow-sm" id="sale_price" type="text" value="$ 9.500 COP"/>
+</div>
+</div>
+</div>
+<!-- Tarjeta Destacada de Margen Bruto -->
+<div class="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 mb-5">
+<div class="flex flex-col">
+<span class="text-xs font-medium text-emerald-800">Margen de ganancia calculado</span>
+<span class="text-2xl font-bold font-headline text-emerald-700 tracking-tight">34.7% de margen</span>
+</div>
+<div class="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 font-semibold px-3 py-1.5 rounded-lg text-sm self-start sm:self-auto">
+<span class="material-symbols-outlined text-base">trending_up</span>
+<span>+$3.300 ganancia neta / unidad</span>
+</div>
+</div>
+<!-- Tabla de Precios diferenciados por sucursal -->
+<div class="border border-slate-200/70 rounded-xl overflow-hidden mt-4">
+<div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200/70 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Precios diferenciados por sucursal
+              </div>
+<table class="w-full text-left text-sm divide-y divide-slate-100">
+<tbody class="divide-y divide-slate-100">
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="px-4 py-3 font-medium text-slate-900">
+                      Sucursal Principal
+                      <span class="block text-xs font-normal text-slate-400">Usa precio base de catálogo</span>
+</td>
+<td class="px-4 py-3 font-semibold text-slate-900 text-right">$9.500 COP</td>
+<td class="px-4 py-3 text-right">
+<label class="inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="relative w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+<span class="ml-2 text-xs font-medium text-slate-600">Disponible</span>
+</label>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="px-4 py-3 font-medium text-slate-900">
+                      Sucursal Norte
+                      <span class="block text-xs font-normal text-teal-700">+3.1% zona especial</span>
+</td>
+<td class="px-4 py-3 font-semibold text-slate-900 text-right">$9.800 COP</td>
+<td class="px-4 py-3 text-right">
+<label class="inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="relative w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+<span class="ml-2 text-xs font-medium text-slate-600">Disponible</span>
+</label>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="px-4 py-3 font-medium text-slate-900">
+                      Sucursal Centro
+                      <span class="block text-xs font-normal text-slate-400">Usa precio base de catálogo</span>
+</td>
+<td class="px-4 py-3 font-semibold text-slate-900 text-right">$9.500 COP</td>
+<td class="px-4 py-3 text-right">
+<label class="inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="relative w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+<span class="ml-2 text-xs font-medium text-slate-600">Disponible</span>
+</label>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Separador fino -->
+<hr class="border-t border-slate-100 my-7"/>
+<!-- SECCIÓN 3: Régimen de Impuestos y Facturación DIAN -->
+<div class="space-y-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-teal-700 text-xl">receipt_long</span>
+<h2 class="text-base font-semibold text-slate-900">Configuración Tributaria (DIAN)</h2>
+</div>
+<!-- Radio Cards Grid (4 opciones) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+<!-- Opción 1: SELECCIONADA -->
+<label class="flex items-center justify-between p-3.5 rounded-xl border-2 border-teal-600 bg-teal-50/30 cursor-pointer shadow-xs">
+<div class="flex items-center gap-2.5">
+<input checked="" class="text-teal-700 focus:ring-teal-700 h-4 w-4 border-slate-300" name="tax_regime" type="radio"/>
+<span class="text-sm font-semibold text-slate-900">IVA 19% (Tarifa general)</span>
+</div>
+<span class="material-symbols-outlined text-teal-700 text-lg font-bold">check_circle</span>
+</label>
+<!-- Opción 2 -->
+<label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition">
+<div class="flex items-center gap-2.5">
+<input class="text-teal-700 focus:ring-teal-700 h-4 w-4 border-slate-300" name="tax_regime" type="radio"/>
+<span class="text-sm font-medium text-slate-700">IVA 5% (Canasta familiar)</span>
+</div>
+</label>
+<!-- Opción 3 -->
+<label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition">
+<div class="flex items-center gap-2.5">
+<input class="text-teal-700 focus:ring-teal-700 h-4 w-4 border-slate-300" name="tax_regime" type="radio"/>
+<span class="text-sm font-medium text-slate-700">INC 8% (Consumo)</span>
+</div>
+</label>
+<!-- Opción 4 -->
+<label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition">
+<div class="flex items-center gap-2.5">
+<input class="text-teal-700 focus:ring-teal-700 h-4 w-4 border-slate-300" name="tax_regime" type="radio"/>
+<span class="text-sm font-medium text-slate-700">Exento de impuesto</span>
+</div>
+</label>
+</div>
+<!-- Barra de Resumen Precio al Consumidor -->
+<div class="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-between mt-3 text-sm">
+<div class="flex items-center gap-2 text-slate-600">
+<span class="material-symbols-outlined text-slate-400 text-lg">info</span>
+<span>Precio final al consumidor (IVA 19% incluido):</span>
+</div>
+<div class="font-bold font-headline text-slate-900 text-lg">
+                $ 11.305 COP
+              </div>
+</div>
+</div>
+</section>
+<!-- 4. Columna Lateral Derecha (4 cols) -->
+<aside class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<!-- TARJETA 1: Existencias por Sucursal -->
+<div class="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
+<!-- Header con Icono de almacén -->
+<div class="flex items-center gap-3 mb-5">
+<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-xl">warehouse</span>
+</div>
+<div>
+<h3 class="text-sm font-semibold text-slate-900">Stock Disponible</h3>
+<p class="text-xs text-slate-500">Existencias físicas activas</p>
+</div>
+</div>
+<!-- Lista de Sucursales -->
+<div class="space-y-3">
+<!-- Sucursal 1 -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+<div class="flex flex-col">
+<span class="text-sm font-medium text-slate-800">Sucursal Principal</span>
+<span class="text-xs text-slate-400">Bodega central</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-semibold text-slate-900 text-sm">8 u.</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                    Stock bajo
+                  </span>
+</div>
+</div>
+<!-- Sucursal 2 -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+<div class="flex flex-col">
+<span class="text-sm font-medium text-slate-800">Sucursal Norte</span>
+<span class="text-xs text-slate-400">Vitrina comercial</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-semibold text-slate-900 text-sm">23 u.</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                    OK
+                  </span>
+</div>
+</div>
+<!-- Sucursal 3 -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+<div class="flex flex-col">
+<span class="text-sm font-medium text-slate-800">Sucursal Centro</span>
+<span class="text-xs text-slate-400">Punto de venta</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-semibold text-slate-900 text-sm">14 u.</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                    OK
+                  </span>
+</div>
+</div>
+</div>
+<!-- Bloque Totalizador -->
+<div class="border-t border-slate-100 pt-3.5 mt-4 flex justify-between items-center">
+<span class="text-sm text-slate-500 font-medium">Stock total acumulado:</span>
+<span class="font-bold text-lg font-headline text-slate-900">45 u.</span>
+</div>
+<!-- Enlace Kardex -->
+<a class="teal-link text-teal-700 hover:text-teal-800 text-xs font-semibold flex items-center justify-between mt-4 pt-3 border-t border-slate-100 group transition-colors" href="#">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base">receipt</span>
+                Ver historial de movimientos (Kardex)
+              </span>
+<span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+</a>
+</div>
+<!-- TARJETA 2: Distribuidor Principal -->
+<div class="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
+<!-- Header con Icono de proveedor -->
+<div class="flex items-center gap-3 mb-4">
+<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-xl">local_shipping</span>
+</div>
+<div>
+<h3 class="text-sm font-semibold text-slate-900">Proveedor Asignado</h3>
+<p class="text-xs text-slate-500">Cadena de suministro directa</p>
+</div>
+</div>
+<!-- Nombre de Empresa y NIT -->
+<div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1">
+<div class="font-semibold text-sm text-slate-900 leading-snug">
+                Distribuidora Nacional de Café S.A.S.
+              </div>
+<div class="text-xs text-slate-500 font-mono">
+                NIT: 900.823.101-4
+              </div>
+<div class="flex items-center gap-1.5 text-xs text-slate-600 pt-1.5 border-t border-slate-200/50 mt-1.5">
+<span class="material-symbols-outlined text-sm text-teal-700">schedule</span>
+<span>Entrega estimada: <strong>2 días hábiles</strong></span>
+</div>
+</div>
+<!-- Botón Generar Orden -->
+<button class="w-full border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium rounded-xl py-2.5 px-4 text-sm flex items-center justify-center gap-2 mt-4 shadow-xs transition-colors active:scale-98" type="button">
+<span class="material-symbols-outlined text-lg text-slate-600">local_shipping</span>
+<span>Generar orden de pedido</span>
+</button>
+</div>
+</aside>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Panel Principal</title>
+<!-- Inter Google Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            teal: {
+              700: '#0F6E6E',
+              800: '#0c5858',
+              900: '#094242',
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "2xl": "1rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    /* Custom tooltip styling helper */
+    .has-tooltip:hover .tooltip {
+      visibility: visible;
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-900 antialiased selection:bg-teal-700/10 selection:text-teal-700">
+<!-- ========================================================================= -->
+<!-- SIDEBAR NAVIGATION RAIL (Shared Component: SideNavBar)                     -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-4 z-40 bg-slate-900 dark:bg-slate-950 border-r border-slate-800 shadow-none">
+<!-- Brand Logo Top Anchor -->
+<div class="mb-6 flex flex-col items-center">
+<div class="w-10 h-10 rounded-xl bg-teal-700 text-white font-headline font-bold flex items-center justify-center text-lg shadow-inner ring-1 ring-teal-500/30">
+        N
+      </div>
+</div>
+<!-- Main Navigation Icons -->
+<nav aria-label="Navegación principal" class="flex-1 flex flex-col items-center gap-2 w-full px-2">
+<!-- Active Tab: Panel (Closest semantic match to current page 'Panel Principal') -->
+<a class="w-full text-teal-400 bg-slate-800/80 rounded-xl p-3 flex items-center justify-center relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-teal-500 before:rounded-r group active:scale-95 transition-transform duration-150" href="#" title="Panel">
+<span class="material-symbols-outlined text-[22px]" data-icon="dashboard">dashboard</span>
+<span class="sr-only">Panel</span>
+<!-- Tooltip on hover -->
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Panel</span>
+</a>
+<!-- Ventas -->
+<a class="w-full text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Ventas">
+<span class="material-symbols-outlined text-[22px]" data-icon="point_of_sale">point_of_sale</span>
+<span class="sr-only">Ventas</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Ventas</span>
+</a>
+<!-- Inventario -->
+<a class="w-full text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Inventario">
+<span class="material-symbols-outlined text-[22px]" data-icon="inventory_2">inventory_2</span>
+<span class="sr-only">Inventario</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Inventario</span>
+</a>
+<!-- Reportes -->
+<a class="w-full text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Reportes">
+<span class="material-symbols-outlined text-[22px]" data-icon="analytics">analytics</span>
+<span class="sr-only">Reportes</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Reportes</span>
+</a>
+<!-- Ajustes -->
+<a class="w-full text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Ajustes">
+<span class="material-symbols-outlined text-[22px]" data-icon="settings">settings</span>
+<span class="sr-only">Ajustes</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Ajustes</span>
+</a>
+</nav>
+<!-- Footer Actions -->
+<div class="flex flex-col items-center gap-2 w-full px-2 pt-4 border-t border-slate-800">
+<a class="w-full text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Ayuda">
+<span class="material-symbols-outlined text-[22px]" data-icon="help">help</span>
+<span class="sr-only">Ayuda</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Ayuda</span>
+</a>
+<a class="w-full text-slate-400 hover:text-rose-400 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center relative group active:scale-95 transition-transform duration-150" href="#" title="Cerrar Sesión">
+<span class="material-symbols-outlined text-[22px]" data-icon="logout">logout</span>
+<span class="sr-only">Cerrar Sesión</span>
+<span class="absolute left-full ml-3 px-2 py-1 bg-slate-950 text-slate-100 text-xs rounded-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap border border-slate-800">Cerrar Sesión</span>
+</a>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- TOP APP BAR (Shared Component: TopNavBar)                                  -->
+<!-- ========================================================================= -->
+<header class="sticky top-0 right-0 h-16 w-[calc(100%-72px)] ml-[72px] z-30 bg-white border-b border-slate-200/60 shadow-sm">
+<div class="flex justify-between items-center px-8 h-full w-full">
+<!-- Breadcrumb & Page Hierarchy -->
+<div class="flex items-center gap-2 text-sm font-body">
+<span class="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors">Panel Administrativo</span>
+<span class="text-slate-300">/</span>
+<span class="text-slate-900 font-semibold tracking-tight">Panel Principal</span>
+</div>
+<!-- Right cluster actions -->
+<div class="flex items-center gap-4">
+<!-- Active Branch Selector Dropdown Pill -->
+<button class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200/80 bg-slate-50/70 hover:bg-slate-100 text-slate-700 text-xs font-medium transition-colors" type="button">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span class="font-medium text-slate-900">Sucursal Principal</span>
+<span class="material-symbols-outlined text-sm text-slate-400" data-icon="expand_more">expand_more</span>
+</button>
+<!-- Notifications button with badge -->
+<button aria-label="Notificaciones" class="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors" type="button">
+<span class="material-symbols-outlined text-[22px]" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">3</span>
+</button>
+<div aria-hidden="true" class="h-6 w-px bg-slate-200"></div>
+<!-- Profile Avatar & Details -->
+<div class="flex items-center gap-3 pl-1">
+<div class="relative">
+<img alt="Avatar de Administrador Propietario" class="w-8 h-8 rounded-full object-cover ring-2 ring-slate-100" data-alt="Close up professional portrait of a business owner and retail administrator wearing a minimalist navy jacket against a softly lit modern office backdrop with neutral warm lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBULF12xPH_hx-ulntlsvoQC4SwuUNViaWScicYcb9lygGNqFdJQC-32C8gZie5_aOYVVJ3CG1R-KF4uaV4D_aByvjIkEyAWLlD0ZuZvY9DUaqlFnH8EsFFlVEeOywmvI6ylcmhOurmZshsPj5_9AgprVS_b4QG17G-_jG4NMXdi2QRnf4INVhrsnvtLN4Xy1wjPxpgpvs2GT5MpYt9XAMAx4iTaEmQuzfYauVQnXDnoa_oRVgRaTo2AVe5NwM28JgD4r1zOsYWrnJ5"/>
+<span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>
+</div>
+<div class="text-left hidden sm:block">
+<div class="text-xs font-semibold text-slate-900 leading-tight">Admin</div>
+<div class="inline-flex items-center text-[10px] font-medium text-teal-700">Propietario</div>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN CONTENT CANVAS                                                       -->
+<!-- ========================================================================= -->
+<main class="w-[calc(100%-72px)] ml-[72px] min-h-[calc(100vh-64px)] p-8">
+<div class="max-w-7xl mx-auto space-y-6">
+<!-- ======================================================================= -->
+<!-- SECTION 1: 4 KEY METRIC CARDS                                           -->
+<!-- ======================================================================= -->
+<section aria-label="Métricas de resumen" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+<!-- Tarjeta 1: Ingresos -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-medium text-slate-500">Ingresos</span>
+<span class="material-symbols-outlined text-slate-400 text-sm cursor-help" data-icon="info" title="Total facturado bruto durante el período actual">info</span>
+</div>
+<div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+<span class="material-symbols-outlined text-lg" data-icon="trending_up">trending_up</span>
+</div>
+</div>
+<div class="text-2xl font-bold text-slate-900 tabular-nums tracking-tight mb-2">
+            $44.820.000
+          </div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-xs text-slate-400 tabular-nums">Sin IVA: $37.663.865</span>
+<span class="inline-flex items-center gap-0.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+              +12.4%
+            </span>
+</div>
+</div>
+<!-- Tarjeta 2: Ganancias -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-medium text-slate-500">Ganancias</span>
+<div class="w-9 h-9 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+<span class="material-symbols-outlined text-lg" data-icon="payments">payments</span>
+</div>
+</div>
+<div class="text-2xl font-bold text-slate-900 tabular-nums tracking-tight mb-2">
+            $14.340.000
+          </div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-xs text-slate-400 tabular-nums">Tras gastos: $14.248.000 · 32% margen</span>
+<span class="inline-flex items-center gap-0.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+              +8.1%
+            </span>
+</div>
+</div>
+<!-- Tarjeta 3: Balance -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-medium text-slate-500">Balance</span>
+<div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+<span class="material-symbols-outlined text-lg" data-icon="account_balance_wallet">account_balance_wallet</span>
+</div>
+</div>
+<div class="text-2xl font-bold text-slate-900 tabular-nums tracking-tight mb-2">
+            $8.950.000
+          </div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-xs text-slate-400 tabular-nums">Caja acumulada: $8.950.000</span>
+<span class="inline-flex items-center text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+              En línea
+            </span>
+</div>
+</div>
+<!-- Tarjeta 4: Gastos -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-medium text-slate-500">Gastos</span>
+<div class="w-9 h-9 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+<span class="material-symbols-outlined text-lg" data-icon="receipt_long">receipt_long</span>
+</div>
+</div>
+<div class="text-2xl font-bold text-slate-900 tabular-nums tracking-tight mb-2">
+            $92.000
+          </div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-xs text-slate-400">sin base de comparación</span>
+<span class="inline-flex items-center text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+              Turno actual
+            </span>
+</div>
+</div>
+</section>
+<!-- ======================================================================= -->
+<!-- SECTION 2: CHARTS ROW (Bento 2 Cols + 1 Col)                            -->
+<!-- ======================================================================= -->
+<section aria-label="Visualización de ventas" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Tendencia de Ventas (2/3 cols) -->
+<div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm flex flex-col justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+<div>
+<h2 class="text-base font-semibold text-slate-900 tracking-tight">Tendencia de Ventas</h2>
+<p class="text-xs text-slate-500 mt-0.5">Ingresos acumulados vs volumen de órdenes por hora</p>
+</div>
+<div class="flex items-center gap-2">
+<!-- Switch/Filter buttons -->
+<div class="inline-flex p-1 bg-slate-100 rounded-lg text-xs font-medium">
+<button class="px-2.5 py-1 rounded bg-white text-slate-900 shadow-xs font-semibold" type="button">Ingresos</button>
+<button class="px-2.5 py-1 rounded text-slate-600 hover:text-slate-900" type="button">Órdenes</button>
+</div>
+<!-- Period Dropdown -->
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-700" type="button">
+                Hoy
+                <span class="material-symbols-outlined text-sm text-slate-400" data-icon="expand_more">expand_more</span>
+</button>
+</div>
+</div>
+<!-- Hybrid Chart: Hourly Bar Volume + Smooth Curve Area Gradient -->
+<div class="relative w-full h-64 pt-4">
+<!-- Tooltip Tag anchored at peak point (14:00 peak) -->
+<div class="absolute left-[62%] top-[14%] -translate-x-1/2 -translate-y-full mb-2 z-10 pointer-events-none hidden sm:flex flex-col items-center">
+<div class="bg-slate-900 text-white text-[11px] font-medium py-1 px-2.5 rounded-lg shadow-lg flex items-center gap-2 border border-slate-800">
+<span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+<span>Pico: <strong class="text-teal-300 font-bold tabular-nums">$6.420.000</strong> a las 14:00</span>
+</div>
+<div class="w-2 h-2 bg-slate-900 rotate-45 -mt-1"></div>
+</div>
+<!-- SVG Visual -->
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 600 200">
+<defs>
+<!-- Teal Petroleum Area Gradient -->
+<lineargradient id="nexaRevenueGrad" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#0F6E6E" stop-opacity="0.28"></stop>
+<stop offset="100%" stop-color="#0F6E6E" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Subtle horizontal grid lines -->
+<line stroke="#f1f5f9" stroke-width="1" x1="0" x2="600" y1="20" y2="20"></line>
+<line stroke="#f1f5f9" stroke-width="1" x1="0" x2="600" y1="70" y2="70"></line>
+<line stroke="#f1f5f9" stroke-width="1" x1="0" x2="600" y1="120" y2="120"></line>
+<line stroke="#f1f5f9" stroke-width="1" x1="0" x2="600" y1="170" y2="170"></line>
+<!-- Order Volume Bar representation -->
+<rect class="opacity-80" fill="#e2e8f0" height="25" rx="3" width="22" x="35" y="145"></rect>
+<rect class="opacity-80" fill="#e2e8f0" height="18" rx="3" width="22" x="115" y="152"></rect>
+<rect class="opacity-80" fill="#cbd5e1" height="55" rx="3" width="22" x="195" y="115"></rect>
+<rect class="opacity-70" fill="#94a3b8" height="110" rx="3" width="22" x="275" y="60"></rect>
+<rect class="opacity-30" fill="#0F6E6E" height="132" rx="3" width="22" x="355" y="38"></rect>
+<rect class="opacity-80" fill="#cbd5e1" height="85" rx="3" width="22" x="435" y="85"></rect>
+<rect class="opacity-80" fill="#e2e8f0" height="40" rx="3" width="22" x="515" y="130"></rect>
+<!-- Smooth Area Gradient Fill -->
+<path d="M 45,150 C 120,155 170,120 205,100 C 245,78 285,65 315,50 C 345,35 375,42 410,65 C 455,95 490,125 530,135 L 530,170 L 45,170 Z" fill="url(#nexaRevenueGrad)"></path>
+<!-- Continuous Smooth Revenue Curve -->
+<path d="M 45,150 C 120,155 170,120 205,100 C 245,78 285,65 315,50 C 345,35 375,42 410,65 C 455,95 490,125 530,135" fill="none" stroke="#0F6E6E" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- Peak indicator dot at 14:00 -->
+<circle class="filter drop-shadow" cx="366" cy="42" fill="#0F6E6E" r="5" stroke="#ffffff" stroke-width="2.5"></circle>
+<circle class="animate-ping" cx="366" cy="42" fill="#0F6E6E" opacity="0.2" r="10"></circle>
+</svg>
+<!-- Hourly X Axis Labels -->
+<div class="flex justify-between text-[11px] text-slate-400 font-medium px-4 mt-2 tabular-nums">
+<span>00:00</span>
+<span>04:00</span>
+<span>08:00</span>
+<span>12:00</span>
+<span class="text-teal-700 font-semibold">14:00 (Pico)</span>
+<span>16:00</span>
+<span>20:00</span>
+<span>23:00</span>
+</div>
+</div>
+</div>
+<!-- Ventas por Canal (1/3 col) -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h2 class="text-base font-semibold text-slate-900 tracking-tight">Ventas por Canal</h2>
+<p class="text-xs text-slate-500 mt-0.5">Distribución porcentual de hoy</p>
+</div>
+<button class="text-slate-400 hover:text-slate-600 p-1 rounded-lg" type="button">
+<span class="material-symbols-outlined text-lg" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+<!-- Stylized SVG Donut Chart with Centered Total -->
+<div class="relative flex items-center justify-center my-3">
+<svg class="w-44 h-44 -rotate-90" viewbox="0 0 120 120">
+<!-- Background Ring -->
+<circle cx="60" cy="60" fill="none" r="48" stroke="#f1f5f9" stroke-width="14"></circle>
+<!-- Segment 1: WhatsApp (45% -> dash 135.7, circumference 301.6) #0F6E6E -->
+<circle cx="60" cy="60" fill="none" r="48" stroke="#0F6E6E" stroke-dasharray="135.7 301.6" stroke-dashoffset="0" stroke-linecap="round" stroke-width="14"></circle>
+<!-- Segment 2: Punto de Venta (35% -> dash 105.5) #334155 (slate-700) -->
+<circle cx="60" cy="60" fill="none" r="48" stroke="#334155" stroke-dasharray="105.5 301.6" stroke-dashoffset="-137" stroke-linecap="round" stroke-width="14"></circle>
+<!-- Segment 3: Tienda Online (20% -> dash 60.3) #10b981 (emerald-500) -->
+<circle cx="60" cy="60" fill="none" r="48" stroke="#10b981" stroke-dasharray="60.3 301.6" stroke-dashoffset="-244" stroke-linecap="round" stroke-width="14"></circle>
+</svg>
+<!-- Donut Center Value -->
+<div class="absolute inset-0 flex flex-col items-center justify-center text-center">
+<span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Total</span>
+<span class="text-lg font-bold text-slate-900 tabular-nums tracking-tight">$44.8M</span>
+<span class="text-[10px] text-teal-700 font-semibold">100% activo</span>
+</div>
+</div>
+<!-- Detailed Legend -->
+<div class="space-y-3 pt-3 border-t border-slate-100 text-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-teal-700"></span>
+<span class="font-medium text-slate-700">WhatsApp (45%)</span>
+</div>
+<span class="font-semibold text-slate-900 tabular-nums">$20.169.000</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+<span class="font-medium text-slate-700">Punto de Venta (35%)</span>
+</div>
+<span class="font-semibold text-slate-900 tabular-nums">$15.687.000</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+<span class="font-medium text-slate-700">Tienda Online (20%)</span>
+</div>
+<span class="font-semibold text-slate-900 tabular-nums">$8.964.000</span>
+</div>
+</div>
+</div>
+</section>
+<!-- ======================================================================= -->
+<!-- SECTION 3: OPERATIONAL ALERTS & QUICK ACCESS                            -->
+<!-- ======================================================================= -->
+<section aria-label="Operaciones y acciones rápidas" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<!-- Tarjeta: Alertas Operativas -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2.5">
+<h2 class="text-base font-semibold text-slate-900 tracking-tight">Alertas Operativas</h2>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600">
+                  3 pendientes
+                </span>
+</div>
+<button class="text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors" type="button">
+                Marcar leídas
+              </button>
+</div>
+<!-- List of 3 actionable notifications -->
+<div class="space-y-3">
+<!-- Item 1: Stock bajo -->
+<div class="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 hover:bg-slate-50 hover:border-slate-200/80 transition-all cursor-pointer group">
+<div class="flex items-center gap-3.5">
+<div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="warning">warning</span>
+</div>
+<div>
+<h3 class="text-xs font-semibold text-slate-800">5 productos con stock bajo</h3>
+<p class="text-[11px] text-slate-400">Requiere reorden antes del viernes</p>
+</div>
+</div>
+<span class="text-xs font-semibold text-teal-700 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  Ver detalle <span aria-hidden="true">→</span>
+</span>
+</div>
+<!-- Item 2: Agotados -->
+<div class="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 hover:bg-slate-50 hover:border-slate-200/80 transition-all cursor-pointer group">
+<div class="flex items-center gap-3.5">
+<div class="w-9 h-9 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="cancel">cancel</span>
+</div>
+<div>
+<h3 class="text-xs font-semibold text-slate-800">2 productos agotados</h3>
+<p class="text-[11px] text-slate-400">Afecta ventas de hoy</p>
+</div>
+</div>
+<span class="text-xs font-semibold text-teal-700 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  Ver detalle <span aria-hidden="true">→</span>
+</span>
+</div>
+<!-- Item 3: Despachos -->
+<div class="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 hover:bg-slate-50 hover:border-slate-200/80 transition-all cursor-pointer group">
+<div class="flex items-center gap-3.5">
+<div class="w-9 h-9 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="local_shipping">local_shipping</span>
+</div>
+<div>
+<h3 class="text-xs font-semibold text-slate-800">3 despachos pendientes de entrega</h3>
+<p class="text-[11px] text-slate-400">Ruta norte asignada</p>
+</div>
+</div>
+<span class="text-xs font-semibold text-teal-700 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  Ver detalle <span aria-hidden="true">→</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Tarjeta: Accesos Rápidos (Grid 2x3) -->
+<div class="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm flex flex-col justify-between">
+<div>
+<div class="mb-4">
+<h2 class="text-base font-semibold text-slate-900 tracking-tight">Accesos Rápidos</h2>
+<p class="text-xs text-slate-500 mt-0.5">Acciones frecuentes del turno</p>
+</div>
+<!-- Grid 2x3 Actions -->
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+<!-- 1: Resumen de Ventas -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="bar_chart">bar_chart</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Resumen Ventas</div>
+<div class="text-[10px] text-slate-400">Totales e IVA</div>
+</div>
+</a>
+<!-- 2: Ventas por Producto -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="sell">sell</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Por Producto</div>
+<div class="text-[10px] text-slate-400">Ranking SKUs</div>
+</div>
+</a>
+<!-- 3: Órdenes -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="shopping_bag">shopping_bag</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Órdenes</div>
+<div class="text-[10px] text-slate-400">Historial del día</div>
+</div>
+</a>
+<!-- 4: Stock Info -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="warehouse">warehouse</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Stock Info</div>
+<div class="text-[10px] text-slate-400">Kardex rápido</div>
+</div>
+</a>
+<!-- 5: Gastos -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="credit_card">credit_card</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Gastos</div>
+<div class="text-[10px] text-slate-400">Salidas de caja</div>
+</div>
+</a>
+<!-- 6: Compras -->
+<a class="p-3.5 rounded-xl border border-slate-200/70 hover:border-teal-700 hover:bg-teal-50/20 hover:shadow-xs transition-all flex flex-col gap-2 group" href="#">
+<div class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-teal-700 group-hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="shopping_cart">shopping_cart</span>
+</div>
+<div>
+<div class="text-xs font-semibold text-slate-800 group-hover:text-teal-900">Compras</div>
+<div class="text-[10px] text-slate-400">Recepción prods</div>
+</div>
+</a>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- ========================================================================= -->
+<!-- FLOATING ACTION BUTTON: Asistente IA Nexa                                  -->
+<!-- ========================================================================= -->
+<aside aria-label="Asistente IA" class="fixed bottom-8 right-8 z-50 group">
+<div class="relative flex items-center">
+<!-- Tooltip Pill lateral hover -->
+<span class="absolute right-full mr-3 px-3 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-lg border border-slate-800 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-teal-400 animate-ping"></span>
+        Asistente IA Nexa
+      </span>
+<!-- Primary FAB Button -->
+<button class="w-14 h-14 rounded-full bg-teal-700 text-white shadow-xl shadow-teal-900/30 hover:bg-teal-800 hover:scale-105 active:scale-95 transition-all flex items-center justify-center relative focus:outline-none focus:ring-4 focus:ring-teal-700/30" type="button">
+<span class="material-symbols-outlined text-2xl" data-icon="auto_awesome">auto_awesome</span>
+<!-- Live AI Pulse Badge -->
+<span class="absolute top-0 right-0 flex h-3.5 w-3.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-teal-400 border-2 border-white"></span>
+</span>
+</button>
+</div>
+</aside>
+</body></html>

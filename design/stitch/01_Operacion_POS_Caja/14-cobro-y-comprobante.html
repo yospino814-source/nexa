@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-100" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Proceso de Cobro y Comprobante</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#0F6E6E',
+              dark: '#0D5B5B',
+              light: '#E6F4F4',
+              soft: '#F0F9F9'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "2xl": "1.25rem",
+            "3xl": "1.75rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .material-symbols-outlined[data-weight="fill"] {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .ticket-sawtooth {
+      background: radial-gradient(circle, transparent, transparent 4px, #ffffff 4px, #ffffff);
+      background-size: 14px 10px;
+    }
+  </style>
+</head>
+<body class="h-full font-body text-slate-900 antialiased overflow-hidden select-none bg-slate-100">
+<!-- CAPA DE FONDO: POS en operación atenuado -->
+<div aria-hidden="true" class="h-full flex flex-col pointer-events-none filter blur-[2px] opacity-75 select-none">
+<!-- TopNavBar conforme al Shared Components JSON -->
+<header class="flex justify-between items-center h-14 px-4 w-full select-none bg-white border-b border-slate-200/60 shadow-sm z-10">
+<div class="flex items-center gap-6">
+<div class="font-display text-lg font-bold tracking-tight text-teal-700 flex items-center gap-2">
+<div class="w-8 h-8 rounded-xl bg-teal-700 flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-lg" data-weight="fill">point_of_sale</span>
+</div>
+          Nexa POS
+        </div>
+<div class="flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full text-xs font-semibold text-slate-600">
+<span class="material-symbols-outlined text-sm text-teal-700">storefront</span>
+          Caja Principal
+        </div>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-50 border border-slate-200 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base">admin_panel_settings</span>
+          Panel Admin
+        </button>
+<div class="flex items-center gap-2 pl-2 border-l border-slate-200">
+<div class="w-8 h-8 rounded-full bg-teal-700/10 text-teal-700 font-bold flex items-center justify-center text-xs">
+            CM
+          </div>
+<span class="text-sm font-medium text-slate-700">Carlos Morales</span>
+</div>
+</div>
+</header>
+<!-- Simulación del Canvas de Terminal POS -->
+<main class="flex-1 grid grid-cols-12 gap-6 p-6 overflow-hidden bg-slate-50">
+<!-- Grid de categorías y productos (atenuado) -->
+<section class="col-span-8 space-y-4">
+<div class="flex gap-2 pb-2">
+<span class="px-4 py-2 bg-teal-700 text-white rounded-xl text-xs font-semibold">Bebidas y Cafés</span>
+<span class="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-semibold">Panadería artesanal</span>
+<span class="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-semibold">Desayunos brunch</span>
+</div>
+<div class="grid grid-cols-4 gap-3">
+<div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs h-32 flex flex-col justify-between">
+<span class="font-bold text-sm text-slate-800">Café Americano 12oz</span>
+<span class="font-extrabold text-base text-teal-700">$7.500</span>
+</div>
+<div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs h-32 flex flex-col justify-between">
+<span class="font-bold text-sm text-slate-800">Cappuccino Vainilla</span>
+<span class="font-extrabold text-base text-teal-700">$9.800</span>
+</div>
+<div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs h-32 flex flex-col justify-between">
+<span class="font-bold text-sm text-slate-800">Croissant Mantequilla</span>
+<span class="font-extrabold text-base text-teal-700">$8.200</span>
+</div>
+<div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs h-32 flex flex-col justify-between">
+<span class="font-bold text-sm text-slate-800">Tostada Aguacate &amp; Huevo</span>
+<span class="font-extrabold text-base text-teal-700">$24.900</span>
+</div>
+</div>
+</section>
+<!-- Panel Orden actual (atenuado) -->
+<aside class="col-span-4 bg-white rounded-3xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-sm">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-slate-100">
+<h2 class="font-bold text-base text-slate-800">Orden activa #0849</h2>
+<span class="px-2.5 py-1 bg-amber-50 text-amber-700 font-semibold text-xs rounded-full">Mesa 04</span>
+</div>
+<div class="py-4 space-y-3">
+<div class="flex justify-between text-sm">
+<span class="text-slate-600">2x Cappuccino Especial</span>
+<span class="font-semibold text-slate-900">$21.600</span>
+</div>
+<div class="flex justify-between text-sm">
+<span class="text-slate-600">1x Tostada Aguacate</span>
+<span class="font-semibold text-slate-900">$24.900</span>
+</div>
+<div class="flex justify-between text-sm">
+<span class="text-slate-600">1x Sandwich Pavo Queso</span>
+<span class="font-semibold text-slate-900">$15.737</span>
+</div>
+</div>
+</div>
+<div class="border-t border-slate-100 pt-3">
+<div class="flex justify-between text-lg font-bold">
+<span>Total Orden</span>
+<span class="text-teal-700">$62.237</span>
+</div>
+</div>
+</aside>
+</main>
+</div>
+<!-- BACKDROP OVERLAY ELEGANTE -->
+<div class="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-40 flex items-center justify-center p-6 overflow-y-auto">
+<!-- CONTENEDOR DUAL: Modal Principal de Pago Rápido + Card Adyacente de Éxito / Vista Previa -->
+<div class="relative w-full max-w-[1240px] flex flex-col xl:flex-row items-center justify-center gap-6 my-auto">
+<!-- ========================================== -->
+<!-- PANEL 1: MODAL PRINCIPAL DE PAGO RÁPIDO   -->
+<!-- ========================================== -->
+<div class="w-full max-w-[660px] bg-white rounded-3xl shadow-2xl border border-slate-200/90 p-7 lg:p-8 relative flex flex-col justify-between z-10 transition-all">
+<!-- Header & Cerrar con Esc -->
+<div class="relative pb-5 border-b border-slate-100">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+<span class="w-2 h-2 rounded-full bg-teal-600 animate-pulse"></span>
+              Terminal de Cobro Activo
+            </div>
+<button class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all text-slate-600 flex items-center justify-center group" title="Cerrar modal">
+<span class="material-symbols-outlined text-lg">close</span>
+<span class="sr-only">Cerrar</span>
+</button>
+</div>
+<!-- Total a Cobrar Destacado -->
+<div class="text-center mt-3">
+<p class="text-xs uppercase font-bold text-slate-400 tracking-wider">Total a cobrar</p>
+<div class="mt-1 flex items-baseline justify-center gap-2">
+<h1 class="font-extrabold text-4xl lg:text-[42px] tracking-tight text-slate-900 font-headline tabular-nums leading-none">
+                $62.237 <span class="text-xl font-bold text-slate-400">COP</span>
+</h1>
+</div>
+<div class="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+<span class="material-symbols-outlined text-sm text-teal-700" data-weight="fill">shopping_bag</span>
+<span>Orden #0849 • 4 artículos</span>
+</div>
+</div>
+</div>
+<div class="mt-6 space-y-5">
+<!-- Métodos de Pago: 4 botones táctiles grandes (>48px) -->
+<div>
+<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Método de pago</label>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+<!-- Efectivo (Activo) -->
+<button class="h-20 rounded-2xl border-2 border-teal-700 bg-teal-50/80 flex flex-col items-center justify-center p-2 text-teal-800 transition-transform active:scale-95 shadow-xs" type="button">
+<span class="material-symbols-outlined text-2xl text-teal-700 mb-1" data-weight="fill">payments</span>
+<span class="text-xs font-bold">Efectivo</span>
+<span class="text-[10px] text-teal-600 font-semibold mt-0.5">Alt + 1</span>
+</button>
+<!-- Tarjeta / Datáfono -->
+<button class="h-20 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 flex flex-col items-center justify-center p-2 text-slate-700 transition-all active:scale-95" type="button">
+<span class="material-symbols-outlined text-2xl text-slate-500 mb-1">credit_card</span>
+<span class="text-xs font-semibold">Tarjeta / POS</span>
+<span class="text-[10px] text-slate-400 font-medium mt-0.5">Alt + 2</span>
+</button>
+<!-- Transferencia Nequi/Daviplata -->
+<button class="h-20 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 flex flex-col items-center justify-center p-2 text-slate-700 transition-all active:scale-95" type="button">
+<span class="material-symbols-outlined text-2xl text-slate-500 mb-1">qr_code_2</span>
+<span class="text-xs font-semibold">Nequi / Davi</span>
+<span class="text-[10px] text-slate-400 font-medium mt-0.5">Alt + 3</span>
+</button>
+<!-- Pago Mixto -->
+<button class="h-20 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 flex flex-col items-center justify-center p-2 text-slate-700 transition-all active:scale-95" type="button">
+<span class="material-symbols-outlined text-2xl text-slate-500 mb-1">call_split</span>
+<span class="text-xs font-semibold">Mixto</span>
+<span class="text-[10px] text-slate-400 font-medium mt-0.5">Alt + 4</span>
+</button>
+</div>
+</div>
+<!-- Sección Efectivo y Denominaciones Rápidas -->
+<div class="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/70 space-y-3">
+<div class="flex items-center justify-between">
+<label class="text-xs font-bold uppercase tracking-wider text-slate-600">Monto recibido</label>
+<span class="text-xs text-teal-700 font-semibold flex items-center gap-1 cursor-pointer hover:underline">
+<span class="material-symbols-outlined text-sm">calculate</span> Teclado táctil
+              </span>
+</div>
+<!-- Input Numérico Gigante -->
+<div class="relative rounded-2xl bg-white border-2 border-teal-700 shadow-sm focus-within:ring-4 focus-within:ring-teal-700/15 transition-all">
+<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+<span class="text-slate-400 font-bold text-2xl">$</span>
+</div>
+<input aria-label="Monto recibido en efectivo" class="w-full pl-10 pr-12 py-3 bg-transparent text-slate-900 font-extrabold text-3xl font-headline tracking-tight text-left border-none focus:outline-none focus:ring-0 tabular-nums" type="text" value="100.000"/>
+<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center">
+<button class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100" type="button">
+<span class="material-symbols-outlined text-xl">backspace</span>
+</button>
+</div>
+</div>
+<!-- Chips de Denominación Rápida de Billetes Colombianos -->
+<div class="grid grid-cols-4 gap-2 pt-1">
+<button class="h-11 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold transition-all active:scale-95 flex items-center justify-center shadow-xs" type="button">
+                Exacto
+              </button>
+<button class="h-11 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold transition-all active:scale-95 flex items-center justify-center shadow-xs" type="button">
+                $70.000
+              </button>
+<!-- Seleccionado $100.000 -->
+<button class="h-11 rounded-xl bg-teal-800 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-sm ring-2 ring-teal-700/30 active:scale-95" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                $100.000
+              </button>
+<button class="h-11 rounded-xl bg-white border border-slate-200 hover:border-teal-700 hover:text-teal-700 text-slate-700 text-xs font-bold transition-all active:scale-95 flex items-center justify-center shadow-xs" type="button">
+                + $50.000
+              </button>
+</div>
+</div>
+<!-- Tarjeta de Cambio a Entregar (Highlight) -->
+<div class="bg-emerald-50 border border-emerald-200/90 rounded-2xl p-4 text-center shadow-xs">
+<span class="text-emerald-800 font-semibold text-xs uppercase tracking-wider block">
+              Cambio a entregar al cliente
+            </span>
+<div class="font-extrabold text-3xl sm:text-[34px] text-emerald-600 font-headline tracking-tight tabular-nums mt-0.5">
+              $37.763 <span class="text-lg font-bold text-emerald-700">COP</span>
+</div>
+</div>
+<!-- Selector de Tipo de Comprobante (Segmented Control) -->
+<div>
+<div class="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+<!-- Tirilla POS (Activo) -->
+<button class="py-2.5 px-3 rounded-xl bg-white shadow-xs text-xs font-bold text-slate-900 flex items-center justify-center gap-2 border border-slate-200/60" type="button">
+<span class="material-symbols-outlined text-emerald-600 text-base" data-weight="fill">check_circle</span>
+                Tirilla POS (Ticket)
+              </button>
+<!-- Factura Electrónica -->
+<button class="py-2.5 px-3 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-center gap-2" type="button">
+<span class="material-symbols-outlined text-base">receipt_long</span>
+                Factura DIAN (Electrónica)
+              </button>
+</div>
+</div>
+</div>
+<!-- Botón de Acción Principal de Cobro -->
+<div class="mt-6">
+<button class="w-full h-16 rounded-2xl bg-[#0F6E6E] hover:bg-[#0D5B5B] text-white font-bold text-lg flex items-center justify-center gap-3 shadow-lg shadow-teal-900/25 active:scale-[0.99] transition-all cursor-pointer" type="button">
+<span class="material-symbols-outlined text-2xl font-bold">check</span>
+<span>Confirmar pago (Enter)</span>
+</button>
+<div class="flex items-center justify-between text-[11px] text-slate-400 font-medium px-2 mt-2">
+<span>Presiona <kbd class="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-600 font-mono">Esc</kbd> para cancelar</span>
+<span>Cajero en turno: Carlos M.</span>
+</div>
+</div>
+</div>
+<!-- ========================================== -->
+<!-- PANEL 2: ESTADO ÉXITO Y TICKET ADYACENTE   -->
+<!-- ========================================== -->
+<div class="w-full max-w-[440px] bg-white rounded-3xl shadow-2xl border border-slate-200/90 p-7 relative flex flex-col justify-between">
+<div>
+<!-- Badge de Estado de la Transacción -->
+<div class="flex items-center justify-between pb-3 border-b border-slate-100">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-xs">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Aprobada #NX-84920
+            </span>
+<span class="text-xs text-slate-400 font-mono">Hoy • 15:42:19</span>
+</div>
+<!-- Ícono de Éxito & Encabezado -->
+<div class="text-center mt-4 mb-4">
+<div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm ring-8 ring-emerald-50/60">
+<span class="material-symbols-outlined text-3xl font-extrabold" data-weight="fill">check_circle</span>
+</div>
+<h2 class="font-extrabold text-2xl text-slate-900 tracking-tight font-headline">
+              ¡Venta registrada con éxito!
+            </h2>
+<p class="text-xs text-slate-500 mt-0.5">El inventario se ha actualizado en tiempo real</p>
+</div>
+<!-- Banner Destacado de Cambio -->
+<div class="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-3.5 text-white flex items-center justify-between shadow-sm shadow-emerald-500/15 mb-4">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-xl">payments</span>
+</div>
+<div class="text-left">
+<p class="text-[11px] uppercase tracking-wider text-emerald-100 font-semibold">Devolver cambio</p>
+<p class="font-extrabold text-xl text-white tabular-nums leading-tight">$37.763 COP</p>
+</div>
+</div>
+<span class="text-xs font-semibold px-2 py-1 bg-white/20 rounded-lg text-white">Efectivo</span>
+</div>
+<!-- Vista Previa Ticket Térmico POS (Estilo papel con corte) -->
+<div class="bg-slate-50 rounded-2xl border border-dashed border-slate-300 p-4 space-y-2 text-xs text-slate-600">
+<div class="text-center pb-2 border-b border-dashed border-slate-200">
+<p class="font-bold text-slate-900 tracking-tight text-sm">NEXA COFFEE &amp; BAKERY</p>
+<p class="text-[11px] text-slate-500">NIT: 901.442.839-1 • Cll 85 # 14-20</p>
+<p class="text-[11px] text-slate-500">Ticket Térmico POS: #0849</p>
+</div>
+<div class="space-y-1.5 py-1 text-[11px]">
+<div class="flex justify-between font-mono">
+<span>2x Cappuccino Especial</span>
+<span class="font-semibold text-slate-800">$21.600</span>
+</div>
+<div class="flex justify-between font-mono">
+<span>1x Tostada Aguacate</span>
+<span class="font-semibold text-slate-800">$24.900</span>
+</div>
+<div class="flex justify-between font-mono">
+<span>1x Sandwich Pavo Queso</span>
+<span class="font-semibold text-slate-800">$15.737</span>
+</div>
+</div>
+<div class="pt-2 border-t border-dashed border-slate-200 space-y-1 text-[11px]">
+<div class="flex justify-between font-semibold text-slate-700">
+<span>Subtotal (IVA incl.)</span>
+<span>$62.237</span>
+</div>
+<div class="flex justify-between font-extrabold text-slate-900 text-xs">
+<span>TOTAL PAGADO</span>
+<span class="text-teal-700 font-mono text-sm">$62.237</span>
+</div>
+<div class="flex justify-between text-slate-500">
+<span>Efectivo Recibido:</span>
+<span class="font-mono">$100.000</span>
+</div>
+<div class="flex justify-between text-emerald-600 font-bold">
+<span>Cambio:</span>
+<span class="font-mono">$37.763</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Acciones de Salida y Entrega del Comprobante -->
+<div class="mt-5 space-y-2.5">
+<div class="grid grid-cols-2 gap-2">
+<!-- Imprimir Ticket -->
+<button class="h-12 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-base">print</span>
+<span>Imprimir (P)</span>
+</button>
+<!-- WhatsApp -->
+<button class="h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-xs" type="button">
+<span class="material-symbols-outlined text-base">chat</span>
+<span>WhatsApp (W)</span>
+</button>
+</div>
+<!-- Nueva Venta -->
+<button class="w-full h-14 rounded-2xl bg-[#0F6E6E] hover:bg-[#0D5B5B] text-white font-bold text-base flex items-center justify-center gap-2 shadow-md shadow-teal-900/20 active:scale-95 transition-all cursor-pointer" type="button">
+<span class="material-symbols-outlined text-xl">add_circle</span>
+<span>Nueva venta (Enter)</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</body></html>
