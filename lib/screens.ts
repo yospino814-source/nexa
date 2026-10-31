@@ -76,7 +76,7 @@ export const screens: Screen[] = [
   s("25", "recetas-e-insumos", "Recetas e insumos", "/recetas", "restaurante", "admin"),
   // Inventario y compras
   s("05", "stock-info", "Stock e inventario", "/inventario", "inventario", "admin", "react"),
-  s("08", "compras", "Compras", "/compras", "inventario", "admin"),
+  s("08", "compras", "Compras", "/compras", "inventario", "admin", "react"),
   s("15", "ficha-de-producto", "Ficha de producto", "/inventario/producto", "inventario", "admin"),
   s("16", "movimientos-de-inventario", "Movimientos (kardex)", "/inventario/movimientos", "inventario", "admin", "react"),
   // Ventas y finanzas
