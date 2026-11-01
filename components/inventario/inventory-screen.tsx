@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Tag,
+  Upload,
   XCircle,
 } from "lucide-react";
 
@@ -99,6 +100,12 @@ export function InventoryScreen() {
             className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"
           >
             <History className="size-4" /> Kardex de movimientos
+          </Link>
+          <Link
+            href="/inventario/importar"
+            className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"
+          >
+            <Upload className="size-4" /> Importar CSV
           </Link>
           <Link
             href="/inventario/producto/nuevo"

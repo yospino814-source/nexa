@@ -1125,3 +1125,46 @@ export type BusinessInfo = {
   nit: string | null;
   dv: string | null;
 };
+
+// ------------------------------------------------------------- importacion CSV (F2.6)
+
+export type ImportRowData = {
+  sku: string | null;
+  codigo_barras: string | null;
+  nombre: string;
+  categoria: string | null;
+  unidad: string;
+  impuesto: string;
+  costo: Decimal | null;
+  precio: Decimal | null;
+  cantidad_inicial: Decimal | null;
+  sku_padre: string | null;
+  atributos: Record<string, string>;
+};
+
+export type ImportRowResult = {
+  line: number;
+  status: "OK" | "ADVERTENCIA" | "ERROR";
+  action: "CREAR" | "ACTUALIZAR";
+  messages: string[];
+  data: ImportRowData;
+};
+
+export type ImportSummary = {
+  ok: number;
+  warnings: number;
+  errors: number;
+  create: number;
+  update: number;
+};
+
+export type AnalyzeResponse = {
+  session_id: Uuid;
+  summary: ImportSummary;
+  rows: ImportRowResult[];
+};
+
+export type CommitResponse = {
+  committed_rows: number;
+  done: boolean;
+};

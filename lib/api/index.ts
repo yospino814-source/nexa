@@ -124,6 +124,9 @@ import type {
   CreateOptionGroupInput,
   OptionGroupDetail,
   UpdateProductOptionGroupInput,
+  AnalyzeResponse,
+  CommitResponse,
+  ImportRowResult,
 } from "./types";
 
 export * from "./types";
@@ -1758,6 +1761,68 @@ export const api = {
       }
       return request(`/v1/products/${id}/unarchive`, {
         method: "POST",
+      });
+    },
+
+    async importAnalyze(branchId: Uuid, file: File): Promise<AnalyzeResponse> {
+      if (USE_MOCKS) {
+        await delay(300);
+        const text = await file.text();
+        const lines = text.split("\n").filter((l) => l.trim().length > 0);
+        const hasErrors = text.includes("7.70123E+12");
+        const rows: ImportRowResult[] = lines.slice(1).map((line, idx) => ({
+          line: idx + 2,
+          status: line.includes("7.70123E+12") ? "ERROR" : "OK",
+          action: "CREAR",
+          messages: line.includes("7.70123E+12") ? ["código en notación científica"] : [],
+          data: {
+            sku: `MOCK-${idx + 1}`,
+            codigo_barras: null,
+            nombre: `Producto importado ${idx + 1}`,
+            categoria: "General",
+            unidad: "UND",
+            impuesto: "IVA19",
+            costo: "5000.00",
+            precio: "10000.00",
+            cantidad_inicial: "10.0000",
+            sku_padre: null,
+            atributos: {},
+          },
+        }));
+        return {
+          session_id: crypto.randomUUID(),
+          summary: {
+            ok: hasErrors ? rows.length - 1 : rows.length,
+            warnings: 0,
+            errors: hasErrors ? 1 : 0,
+            create: rows.length,
+            update: 0,
+          },
+          rows,
+        };
+      }
+
+      const formData = new FormData();
+      formData.append("branch_id", branchId);
+      formData.append("file", file);
+
+      return request<AnalyzeResponse>("/v1/products/import/analyze", {
+        method: "POST",
+        body: formData,
+      });
+    },
+
+    async importCommit(sessionId: Uuid, offset: number, limit: number): Promise<CommitResponse> {
+      if (USE_MOCKS) {
+        await delay(200);
+        return {
+          committed_rows: offset + limit,
+          done: true,
+        };
+      }
+      return request<CommitResponse>("/v1/products/import/commit", {
+        method: "POST",
+        body: JSON.stringify({ session_id: sessionId, offset, limit }),
       });
     },
   },
