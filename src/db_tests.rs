@@ -771,6 +771,7 @@ async fn database_integration() {
     f1_tiers(&app, &admin).await;
     f1_promotions(&app, &admin).await;
     f1_coupons(&app, &admin).await;
+    f1_override(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1052,6 +1053,7 @@ fn sale(
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             })
             .collect(),
         payments: payments
@@ -1918,6 +1920,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -1945,6 +1948,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             discount_pct: Some(dec(20)),
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -1973,6 +1977,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             discount_pct: Some(dec(10)),
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -2904,6 +2909,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -2932,6 +2938,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -2972,6 +2979,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             discount_pct: Some(dec(10)),
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3033,6 +3041,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             discount_pct: Some(dec(10)),
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3180,6 +3189,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: Some(paca.id),
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3239,6 +3249,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: Some(mayorista.id),
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3282,6 +3293,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: Some(mayorista.id),
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3423,6 +3435,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3477,6 +3490,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3500,6 +3514,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3528,6 +3543,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3583,6 +3599,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3640,6 +3657,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: Some(cust1.id),
@@ -3663,6 +3681,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             discount_pct: None,
             tier_id: None,
             price_override_reason: None,
+            custom_tax: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3691,6 +3710,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: Some(cust1.id),
@@ -3716,6 +3736,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: Some(cust2.id),
@@ -3771,6 +3792,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3824,6 +3846,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3875,6 +3898,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3926,6 +3950,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -3978,6 +4003,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4004,6 +4030,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             payments: vec![SalePayment {
                 method: PaymentMethod::Efectivo,
@@ -4033,6 +4060,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4085,6 +4113,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4129,6 +4158,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: Some(cust.id),
@@ -4154,6 +4184,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             payments: vec![SalePayment {
                 method: PaymentMethod::Efectivo,
@@ -4183,6 +4214,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: Some(cust.id),
@@ -4235,6 +4267,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4287,6 +4320,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4367,6 +4401,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             tip_amount: None,
             customer_id: None,
@@ -4394,4 +4429,253 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
     assert_eq!(q_combo.total, dec(8100) + dec(1539));
 
     cleanup(admin, tenant, &[cashier, owner]).await;
+}
+
+/// Código de un error `Coded`, o `None` si es otro tipo de error.
+fn err_code<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> Option<&'static str> {
+    match r {
+        Err(ApiError::Domain(DomainError::Coded { code, .. })) => Some(code),
+        _ => None,
+    }
+}
+
+fn line_item(
+    product_id: Option<Uuid>,
+    custom_name: Option<&str>,
+    price: Option<i64>,
+    reason: Option<&str>,
+    custom_tax: Option<&str>,
+    discount_pct: Option<i64>,
+) -> sales::SaleItem {
+    sales::SaleItem {
+        product_id,
+        custom_name: custom_name.map(str::to_string),
+        qty: dec(1),
+        unit_price_override: price.map(dec),
+        discount_pct: discount_pct.map(dec),
+        tier_id: None,
+        price_override_reason: reason.map(str::to_string),
+        custom_tax: custom_tax.map(str::to_string),
+    }
+}
+
+fn cash_sale(branch: Uuid, item: sales::SaleItem, total: i64) -> sales::SaleRequest {
+    sales::SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![item],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(total),
+            reference: None,
+        }],
+        quoted_total: dec(total),
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    }
+}
+
+async fn set_cashier_override(
+    app: &PgPool,
+    owner: &crate::auth::Claims,
+    code: &str,
+    allowed: bool,
+) {
+    permissions::update_role_permissions(
+        app,
+        owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: code.into(),
+                allowed,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// F1.9: cambio de precio e ítem libre.
+async fn f1_override(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // Arroz con IVA 5 %: precio 3.000; con cambio a 2.500 el total es 2.625.
+    let prod = seed_product(admin, tenant, "Arroz 500g", "UND", Some("IVA5"), false).await;
+    set_base_price(admin, prod, "3000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "50", "0").await;
+
+    let reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg, dec(0))
+        .await
+        .unwrap();
+
+    let override_sale = |reason: Option<&str>| {
+        cash_sale(
+            branch,
+            line_item(Some(prod), None, Some(2500), reason, None, None),
+            2625,
+        )
+    };
+
+    // [P] Con el ajuste de la sucursal apagado (por defecto): 422 PRICE_OVERRIDE_DISABLED
+    let r = sales::checkout(app, &c_cashier, override_sale(Some("cliente fiel"))).await;
+    assert_eq!(err_code(&r), Some("PRICE_OVERRIDE_DISABLED"), "{r:?}");
+
+    // Un precio igual al de catálogo (diferencia < 0,01) se ignora y no exige nada.
+    let same = cash_sale(
+        branch,
+        line_item(Some(prod), None, Some(3000), None, None, None),
+        3150,
+    );
+    assert!(sales::checkout(app, &c_cashier, same).await.is_ok());
+
+    let mut s = settings::BranchSettings::default();
+    s.pos.allow_price_override = true;
+    settings::update_settings(
+        app,
+        &c_owner,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: s,
+        },
+    )
+    .await
+    .unwrap();
+
+    // [P] Con el ajuste encendido pero sin pos:price_override: 403
+    let r = sales::checkout(app, &c_cashier, override_sale(Some("cliente fiel"))).await;
+    assert!(is_forbidden(&r), "{r:?}");
+
+    set_cashier_override(app, &c_owner, "pos:price_override", true).await;
+
+    // [P] Producto que no permite cambio de precio: 422 PRICE_OVERRIDE_NOT_ALLOWED_PRODUCT
+    sqlx::query("update products set allow_price_override = false where id = $1")
+        .bind(prod)
+        .execute(admin)
+        .await
+        .unwrap();
+    let r = sales::checkout(app, &c_cashier, override_sale(Some("cliente fiel"))).await;
+    assert_eq!(
+        err_code(&r),
+        Some("PRICE_OVERRIDE_NOT_ALLOWED_PRODUCT"),
+        "{r:?}"
+    );
+    sqlx::query("update products set allow_price_override = true where id = $1")
+        .bind(prod)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    // [P] Sin motivo, o con menos de 3 caracteres: 422 PRICE_OVERRIDE_REASON_REQUIRED
+    let r = sales::checkout(app, &c_cashier, override_sale(None)).await;
+    assert_eq!(
+        err_code(&r),
+        Some("PRICE_OVERRIDE_REASON_REQUIRED"),
+        "{r:?}"
+    );
+    let r = sales::checkout(app, &c_cashier, override_sale(Some("ok"))).await;
+    assert_eq!(
+        err_code(&r),
+        Some("PRICE_OVERRIDE_REASON_REQUIRED"),
+        "{r:?}"
+    );
+
+    // Cambio válido: se cobra 2.500 más IVA 5 %.
+    let resp = created(
+        sales::checkout(app, &c_cashier, override_sale(Some("cliente frecuente")))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(resp.order.total_amount.normalize(), dec(2625));
+    let line_id = resp.items[0].id;
+
+    // [P] El cambio de precio queda en audit_log (precio resuelto antes, nuevo después)
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "select before, after from audit_log
+          where action = 'CAMBIO_PRECIO' and entity = 'order_items' and entity_id = $1",
+    )
+    .bind(line_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    let before_price: Decimal = serde_json::from_value(before["price"].clone()).unwrap();
+    let after_price: Decimal = serde_json::from_value(after["price"].clone()).unwrap();
+    assert_eq!(before_price.normalize(), dec(3000));
+    assert_eq!(after_price.normalize(), dec(2500));
+    assert_eq!(after["reason"], "cliente frecuente");
+
+    // --- Ítem libre ---
+    let free = |tax: Option<&str>, discount: Option<i64>, total: i64| {
+        cash_sale(
+            branch,
+            line_item(
+                None,
+                Some("Servicio especial"),
+                Some(5000),
+                None,
+                tax,
+                discount,
+            ),
+            total,
+        )
+    };
+
+    // [P] Sin pos:custom_item: 403 (el cajero lo trae por defecto; se le quita)
+    set_cashier_override(app, &c_owner, "pos:custom_item", false).await;
+    let r = sales::checkout(app, &c_cashier, free(Some("IVA19"), None, 5950)).await;
+    assert!(is_forbidden(&r), "{r:?}");
+    set_cashier_override(app, &c_owner, "pos:custom_item", true).await;
+
+    // [P] Impuesto inválido o ausente: 422 CUSTOM_ITEM_INVALID
+    let r = sales::checkout(app, &c_cashier, free(Some("IVA99"), None, 5000)).await;
+    assert_eq!(err_code(&r), Some("CUSTOM_ITEM_INVALID"), "{r:?}");
+    let r = sales::checkout(app, &c_cashier, free(None, None, 5000)).await;
+    assert_eq!(err_code(&r), Some("CUSTOM_ITEM_INVALID"), "{r:?}");
+
+    // [P] Ítem libre con descuento: 422 CUSTOM_ITEM_INVALID
+    let r = sales::checkout(app, &c_cashier, free(Some("EXENTO"), Some(10), 4500)).await;
+    assert_eq!(err_code(&r), Some("CUSTOM_ITEM_INVALID"), "{r:?}");
+
+    // [P] Producto e ítem libre en la misma línea: 422 CUSTOM_ITEM_INVALID
+    let both = cash_sale(
+        branch,
+        line_item(
+            Some(prod),
+            Some("Doble"),
+            Some(5000),
+            None,
+            Some("EXENTO"),
+            None,
+        ),
+        5000,
+    );
+    let r = sales::checkout(app, &c_cashier, both).await;
+    assert_eq!(err_code(&r), Some("CUSTOM_ITEM_INVALID"), "{r:?}");
+
+    // [P] El ítem libre no mueve stock y calcula bien su impuesto (5.000 + IVA 19 % = 5.950)
+    let (on_hand_before, _) = stock_row(admin, branch, prod).await;
+    let resp = created(
+        sales::checkout(app, &c_cashier, free(Some("IVA19"), None, 5950))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(resp.items.len(), 1);
+    assert!(resp.items[0].product_id.is_none());
+    assert_eq!(resp.items[0].tax_amount.normalize(), dec(950));
+    assert_eq!(resp.order.total_amount.normalize(), dec(5950));
+    let (on_hand_after, _) = stock_row(admin, branch, prod).await;
+    assert_eq!(on_hand_before, on_hand_after);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

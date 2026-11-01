@@ -56,8 +56,13 @@ pub struct SaleItem {
     pub discount_pct: Option<Decimal>,
     #[serde(default)]
     pub tier_id: Option<Uuid>,
-    #[serde(default)]
+    /// Razón del cambio de precio (requerida si el precio difiere del catálogo).
+    /// Acepta también el alias `override_reason` en JSON para compatibilidad.
+    #[serde(default, alias = "override_reason")]
     pub price_override_reason: Option<String>,
+    /// Impuesto del ítem libre: "IVA19", "IVA5", "INC8" o "EXENTO".
+    #[serde(default)]
+    pub custom_tax: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,6 +341,8 @@ struct PrepItemInfo {
     tier_id: Option<Uuid>,
     units_per_package: Decimal,
     list_price: Decimal,
+    /// Precio resuelto (catálogo, tarifa y opciones) antes del cambio manual.
+    resolved_price: Decimal,
     price_override_reason: Option<String>,
 }
 
@@ -371,8 +378,18 @@ async fn prepare_pricing_lines(
         }
 
         // 2. Producto o ítem libre
+        if item.product_id.is_some() && item.custom_name.is_some() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "CUSTOM_ITEM_INVALID",
+                "Una línea no puede tener producto e ítem libre a la vez",
+                None,
+            ));
+        }
         match item.product_id {
             None => {
+                // F1.9: el permiso va antes que cualquier validación del ítem libre.
+                scope.require_permission("pos:custom_item")?;
                 let custom_name = item
                     .custom_name
                     .as_deref()
@@ -386,7 +403,7 @@ async fn prepare_pricing_lines(
                         None,
                     )
                 })?;
-                if custom_name_str.len() > 80 {
+                if custom_name_str.chars().count() > 80 {
                     return Err(error::coded(
                         StatusCode::UNPROCESSABLE_ENTITY,
                         "CUSTOM_ITEM_INVALID",
@@ -394,16 +411,6 @@ async fn prepare_pricing_lines(
                         None,
                     ));
                 }
-
-                if !settings.pos.allow_price_override {
-                    return Err(error::coded(
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        "PRICE_OVERRIDE_DISABLED",
-                        "Esta sucursal no permite precios personalizados",
-                        None,
-                    ));
-                }
-                scope.require_permission("pos:price_override")?;
 
                 let unit_price = item.unit_price_override.ok_or_else(|| {
                     error::coded(
@@ -429,6 +436,31 @@ async fn prepare_pricing_lines(
                         None,
                     ));
                 }
+                if item.discount_pct.is_some_and(|d| d > Decimal::ZERO) {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "Un ítem libre no puede tener descuento manual",
+                        None,
+                    ));
+                }
+
+                // Impuesto del ítem libre
+                let valid_taxes = ["IVA19", "IVA5", "INC8", "EXENTO"];
+                let custom_tax_code = item.custom_tax.as_deref().unwrap_or("");
+                if !valid_taxes.contains(&custom_tax_code) {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El impuesto debe ser IVA19, IVA5, INC8 o EXENTO",
+                        None,
+                    ));
+                }
+                let item_tax_rate = if custom_tax_code == "EXENTO" {
+                    Decimal::ZERO
+                } else {
+                    crate::catalog::tax_rate_for(Some(custom_tax_code)).unwrap_or(Decimal::ZERO)
+                };
 
                 let unit_price = crate::money::money(unit_price);
                 price_lines.push(PriceLine {
@@ -440,8 +472,8 @@ async fn prepare_pricing_lines(
                     tier_id: None,
                     overridden: false,
                     custom: true,
-                    manual_pct: item.discount_pct,
-                    tax_rate: Decimal::ZERO,
+                    manual_pct: None,
+                    tax_rate: item_tax_rate,
                 });
                 prep_infos.push(PrepItemInfo {
                     product_id: None,
@@ -450,13 +482,15 @@ async fn prepare_pricing_lines(
                     tier_id: None,
                     units_per_package: Decimal::ONE,
                     list_price: unit_price,
-                    price_override_reason: item.price_override_reason.clone(),
+                    resolved_price: unit_price,
+                    price_override_reason: None,
                 });
             }
             Some(pid) => {
-                let row: Option<(String, Option<Uuid>, Option<Decimal>, Option<String>)> =
+                let row: Option<(String, Option<Uuid>, Option<Decimal>, Option<String>, bool)> =
                     sqlx::query_as(
-                        "select p.name, p.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo
+                        "select p.name, p.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
+                                p.allow_price_override
                            from branch_products bp
                            join products p on p.id = bp.product_id
                            left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
@@ -468,9 +502,10 @@ async fn prepare_pricing_lines(
                     .fetch_optional(&mut **tx)
                     .await?;
 
-                let (name, category_id, catalog_price_opt, tax_code) = row.ok_or_else(|| {
-                    validation(format!("product {pid} is not in the branch assortment"))
-                })?;
+                let (name, category_id, catalog_price_opt, tax_code, product_allows_override) = row
+                    .ok_or_else(|| {
+                        validation(format!("product {pid} is not in the branch assortment"))
+                    })?;
                 let catalog_price = catalog_price_opt
                     .ok_or_else(|| validation(format!("product {pid} has no base price")))?;
                 let tax_rate = crate::catalog::tax_rate_for(tax_code.as_deref());
@@ -600,11 +635,58 @@ async fn prepare_pricing_lines(
                 };
 
                 let (unit_price, overridden) = if let Some(ov) = item.unit_price_override {
-                    if !settings.pos.allow_price_override {
-                        return Err(validation("price override is not allowed in this branch"));
+                    let rounded_ov = crate::money::money(ov);
+                    let diff = (rounded_ov - resolved_price).abs();
+                    if diff >= rust_decimal::Decimal::new(1, 2) {
+                        // Check 1: setting de sucursal
+                        if !settings.pos.allow_price_override {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "PRICE_OVERRIDE_DISABLED",
+                                "Esta sucursal no permite cambio de precio",
+                                None,
+                            ));
+                        }
+                        // Check 2: permiso del cajero
+                        scope.require_permission("pos:price_override")?;
+                        // Check 3: producto permite override
+                        if !product_allows_override {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "PRICE_OVERRIDE_NOT_ALLOWED_PRODUCT",
+                                "Este producto no permite cambio de precio",
+                                None,
+                            ));
+                        }
+                        // Check 4: razón obligatoria (3-120 chars)
+                        let reason = item
+                            .price_override_reason
+                            .as_deref()
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty());
+                        match reason {
+                            None => {
+                                return Err(error::coded(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "PRICE_OVERRIDE_REASON_REQUIRED",
+                                    "El cambio de precio requiere una razón de entre 3 y 120 caracteres",
+                                    None,
+                                ));
+                            }
+                            Some(r) if r.chars().count() < 3 || r.chars().count() > 120 => {
+                                return Err(error::coded(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "PRICE_OVERRIDE_REASON_REQUIRED",
+                                    "El cambio de precio requiere una razón de entre 3 y 120 caracteres",
+                                    None,
+                                ));
+                            }
+                            _ => {}
+                        }
+                        (rounded_ov, true)
+                    } else {
+                        (resolved_price, false)
                     }
-                    scope.require_permission("pos:price_override")?;
-                    (crate::money::money(ov), true)
                 } else {
                     (resolved_price, false)
                 };
@@ -628,7 +710,14 @@ async fn prepare_pricing_lines(
                     tier_id: item.tier_id,
                     units_per_package,
                     list_price,
-                    price_override_reason: item.price_override_reason.clone(),
+                    resolved_price,
+                    price_override_reason: if overridden {
+                        item.price_override_reason
+                            .as_deref()
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    },
                 });
             }
         }
@@ -816,13 +905,15 @@ pub async fn checkout_tx(
     }
 
     // 9. Insertar líneas con todas las columnas
+    let mut item_ids: Vec<Uuid> = Vec::with_capacity(priced_cart.lines.len());
     for (i, pl) in priced_cart.lines.iter().enumerate() {
-        sqlx::query(
+        let item_id: Uuid = sqlx::query_scalar(
             "insert into order_items
                (tenant_id, branch_id, order_id, product_id, custom_name, tier_id, units_per_package,
                 qty, unit_price, list_price, discount_manual, discount_promotion, discount_order,
                 discount_coupon, promotion_id, price_override_reason, tax_rate)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+             returning id",
         )
         .bind(scope.tenant)
         .bind(branch)
@@ -841,8 +932,29 @@ pub async fn checkout_tx(
         .bind(pl.promotion_id)
         .bind(&prep_infos[i].price_override_reason)
         .bind(price_lines[i].tax_rate)
-        .execute(&mut **tx)
+        .fetch_one(&mut **tx)
         .await?;
+        item_ids.push(item_id);
+    }
+
+    // 9b. Auditoría de cambios de precio, por id de línea
+    for (i, pl) in price_lines.iter().enumerate() {
+        if pl.overridden {
+            crate::audit::record_tx(
+                tx,
+                scope,
+                "CAMBIO_PRECIO",
+                "order_items",
+                item_ids[i],
+                Some(serde_json::json!({ "price": prep_infos[i].resolved_price })),
+                Some(serde_json::json!({
+                    "price": pl.unit_price,
+                    "reason": prep_infos[i].price_override_reason
+                })),
+                None,
+            )
+            .await?;
+        }
     }
 
     // 10. Stock: descuento directo, solo productos
@@ -1234,6 +1346,7 @@ mod tests {
                 discount_pct: None,
                 tier_id: None,
                 price_override_reason: None,
+                custom_tax: None,
             }],
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             quoted_total: Decimal::from(1000),

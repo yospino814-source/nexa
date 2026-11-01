@@ -351,3 +351,10 @@ create policy coupon_redemptions_tenant_isolation on public.coupon_redemptions
 grant select, insert, update, delete on public.coupons to authenticated;
 grant select, insert, update, delete on public.coupon_targets to authenticated;
 grant select, insert, update on public.coupon_redemptions to authenticated;
+
+-- ============================================================
+-- F1.9 Cambio de precio e ítem libre
+-- ============================================================
+
+alter table public.products add column allow_price_override boolean not null default true;
+
