@@ -291,6 +291,36 @@ pub async fn set_product_tier_prices(
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("settings:write")?;
 
+    let row_meta: Option<(bool, Option<Uuid>)> = sqlx::query_as(
+        "select has_variants, parent_id from products where tenant_id = $1 and id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(product_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((has_variants, parent_id)) = row_meta {
+        if has_variants || parent_id.is_some() {
+            for it in &items {
+                let kind: Option<String> = sqlx::query_scalar(
+                    "select kind from price_tiers where tenant_id = $1 and id = $2",
+                )
+                .bind(scope.tenant)
+                .bind(it.tier_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if kind.as_deref() == Some("PRESENTACION") {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "VARIANTS_AND_PRESENTATIONS",
+                        "No se pueden asignar presentaciones a un producto con variantes ni a una variante",
+                        None,
+                    ));
+                }
+            }
+        }
+    }
+
     // Validar unicidad de códigos de barras
     let mut seen_barcodes = std::collections::HashSet::new();
     for it in &items {

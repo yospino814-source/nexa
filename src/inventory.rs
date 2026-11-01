@@ -205,6 +205,23 @@ pub async fn reserve(
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn check_not_variant_parent(tx: &mut Tx<'_>, product_id: Uuid) -> Result<(), ApiError> {
+    let has_variants: Option<bool> =
+        sqlx::query_scalar("select has_variants from products where id = $1")
+            .bind(product_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    if has_variants.unwrap_or(false) {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "PRODUCT_IS_VARIANT_PARENT",
+            "No se puede operar stock de un producto padre de variantes",
+            None,
+        ));
+    }
+    Ok(())
+}
+
 pub async fn reserve_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
@@ -216,6 +233,7 @@ pub async fn reserve_tx(
     expires_at: Option<DateTime<Utc>>,
 ) -> Result<Vec<Uuid>, ApiError> {
     positive(qty)?;
+    check_not_variant_parent(tx, product_id).await?;
 
     let exists: bool = sqlx::query_scalar("select exists(select 1 from products where id = $1)")
         .bind(product_id)
@@ -565,6 +583,7 @@ pub async fn replenish_ref_tx(
     scope.require(Action::ManageInventory)?;
     tenancy::ensure_branch_tx(tx, scope, branch_id).await?;
     positive(qty)?;
+    check_not_variant_parent(tx, product_id).await?;
 
     sqlx::query(
         "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
@@ -665,6 +684,7 @@ pub async fn adjust_tx(
             "delta must be non-zero".into(),
         )));
     }
+    check_not_variant_parent(tx, product_id).await?;
 
     let (on_hand, reserved) = lock_or_create_stock_tx(tx, scope, branch_id, product_id).await?;
     apply_delta_tx(
