@@ -11,6 +11,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
+    public data?: unknown,
   ) {
     super(message);
   }
@@ -52,7 +54,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (response.status === 401) onUnauthorized?.();
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
-    throw new ApiError(response.status, body?.error ?? response.statusText);
+    throw new ApiError(response.status, body?.error ?? response.statusText, body?.code, body?.data);
   }
   // 204 (reposicion, ajuste, punto de reorden) no trae cuerpo.
   if (response.status === 204) return undefined as T;

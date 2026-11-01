@@ -82,6 +82,7 @@ export type SessionContext = {
   /** `null` = membresia de todo el negocio sin sucursal fija. */
   branch: Uuid | null;
   role: Role;
+  permissions?: string[];
 };
 
 /** GET /v1/branches — src/tenancy.rs::BranchAccess */
@@ -508,4 +509,8 @@ export type DashboardSummary = {
 };
 
 /** Cuerpo de error de ApiError (src/error.rs). */
-export type ApiErrorBody = { error: string };
+export type ApiErrorBody = {
+  error: string;
+  code?: string;
+  data?: unknown;
+};

@@ -32,6 +32,8 @@ type SessionState = {
   name: string | null;
   branches: BranchAccess[];
   branchId: string | null;
+  permissions: string[];
+  can: (code: string) => boolean;
   boot: () => Promise<void>;
   selectBranch: (branchId: string) => void;
   signOut: () => Promise<void>;
@@ -84,6 +86,13 @@ export const useSession = create<SessionState>((set, get) => ({
   name: null,
   branches: [],
   branchId: null,
+  permissions: [],
+
+  can(code) {
+    const role = get().branches.find((b) => b.id === get().branchId)?.role;
+    if (role === "DUENO") return true;
+    return get().permissions.includes(code);
+  },
 
   boot() {
     // Varias pantallas pueden pedir el arranque a la vez: se hace una sola vez.
@@ -93,16 +102,22 @@ export const useSession = create<SessionState>((set, get) => ({
     return booting;
   },
 
-  selectBranch(branchId) {
+  async selectBranch(branchId) {
     if (!get().branches.some((b) => b.id === branchId)) return;
     localStorage.setItem(BRANCH_KEY, branchId);
     set({ branchId, status: "ready" });
+    try {
+      const ctx = await api.session.context();
+      set({ permissions: ctx.permissions ?? [] });
+    } catch {
+      // ignore
+    }
   },
 
   async signOut() {
     await getSupabase()?.auth.signOut();
     localStorage.removeItem(BRANCH_KEY);
-    set({ status: "signed-out", email: null, name: null, branches: [], branchId: null });
+    set({ status: "signed-out", email: null, name: null, branches: [], branchId: null, permissions: [] });
   },
 }));
 
@@ -150,6 +165,14 @@ async function bootOnce(set: Setter) {
     const branchId =
       branches.find((b) => b.id === stored)?.id ?? (branches.length === 1 ? branches[0].id : null);
     set({ status: branchId ? "ready" : "choose-branch", email, name, branches, branchId });
+    if (branchId) {
+      try {
+        const ctx = await api.session.context();
+        set({ permissions: ctx.permissions ?? [] });
+      } catch {
+        // ignore
+      }
+    }
   } catch (e) {
     if (e instanceof ApiError && e.status === 403) {
       set({ status: "no-business", email, name, branches: [] });

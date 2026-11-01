@@ -38,6 +38,7 @@ import {
   mockUpdateUserStatus,
   mockUsersList,
   mockRecordLoginAttempt,
+  PERMISSION_CATALOG,
 } from "./mock-platform";
 import type {
   AuditEntry,
@@ -301,7 +302,13 @@ export const api = {
     async context(): Promise<SessionContext> {
       if (USE_MOCKS) {
         await delay();
-        return { uid: null, tenant: null, branch: MOCK_BRANCH_ID, role: "CAJERO" };
+        return {
+          uid: null,
+          tenant: null,
+          branch: MOCK_BRANCH_ID,
+          role: "DUENO",
+          permissions: PERMISSION_CATALOG.map((p) => p.code),
+        };
       }
       return request("/v1/context");
     },
@@ -310,7 +317,7 @@ export const api = {
     async branches(): Promise<BranchAccess[]> {
       if (USE_MOCKS) {
         await delay();
-        return [{ id: MOCK_BRANCH_ID, name: "Sucursal Principal", code: null, role: "ADMIN_CAJA" }];
+        return [{ id: MOCK_BRANCH_ID, name: "Sucursal Principal", code: null, role: "DUENO" }];
       }
       return request("/v1/branches");
     },
@@ -774,9 +781,66 @@ export const api = {
   },
 };
 
+export const ERROR_MESSAGES: Record<string, string> = {
+  REGISTER_INVALID: "Revisá los datos de la caja.",
+  REGISTER_CODE_TAKEN: "Ya existe una caja con ese código.",
+  REGISTER_HAS_OPEN_SESSION: "La caja tiene un turno abierto. Cerralo primero.",
+  REGISTER_BUSY: "Esa caja ya tiene un turno abierto.",
+  USER_HAS_OPEN_SESSION: "Ya tenés un turno abierto en esta sucursal.",
+  CASH_AMOUNT_INVALID: "El monto debe ser mayor a cero.",
+  CASH_INSUFFICIENT: "No hay suficiente efectivo en la caja.",
+  CASH_KIND_NOT_ALLOWED: "Ese tipo de movimiento no se registra a mano.",
+  CASH_STATE_CHANGED: "Hubo movimientos nuevos mientras contabas. Volvé a contar.",
+  CUSTOMER_INVALID: "Revisá los datos del cliente.",
+  CUSTOMER_DUPLICATED: "Ya existe un cliente con ese documento.",
+  SALE_CUSTOMER_AND_ALIAS: "Elegí cliente o alias, no los dos.",
+  SALE_ALIAS_INVALID: "El alias debe tener entre 1 y 40 caracteres.",
+  SALE_ALIAS_NOT_ALLOWED: "Esta sucursal no permite ventas con alias.",
+  SALE_CUSTOMER_REQUIRED: "Esta sucursal exige un cliente en cada venta.",
+  SALE_CUSTOMER_INVALID: "El cliente no existe o está archivado.",
+  PRICE_CHANGED: "Los precios cambiaron. Revisá el total.",
+  DISCOUNT_ABOVE_MAX: "El descuento supera el máximo permitido.",
+  TIER_INVALID: "La tarifa no es válida para esta línea.",
+  TIER_MISSING_UNITS: "La presentación no tiene unidades configuradas.",
+  TIER_KIND_IMMUTABLE: "No se puede cambiar el tipo de una tarifa.",
+  BARCODE_TAKEN: "Ese código de barras ya está en uso.",
+  PROMOTION_INVALID: "Revisá los datos de la promoción.",
+  PROMOTION_NOT_EDITABLE: "Pausá la promoción para editarla.",
+  PROMOTION_EXHAUSTED: "Una promoción se agotó. Revisá el total.",
+  COUPON_NOT_FOUND: "El cupón no existe.",
+  COUPON_INACTIVE: "El cupón no está activo.",
+  COUPON_NOT_STARTED: "El cupón todavía no está vigente.",
+  COUPON_EXPIRED: "El cupón venció.",
+  COUPON_EXHAUSTED: "El cupón se agotó.",
+  COUPON_REQUIRES_CUSTOMER: "Este cupón necesita un cliente identificado.",
+  COUPON_CUSTOMER_LIMIT: "Este cliente ya usó el cupón.",
+  COUPON_MIN_SUBTOTAL: "La compra no alcanza el mínimo del cupón.",
+  COUPON_NOT_APPLICABLE: "El cupón no aplica a estos productos.",
+  COUPON_CODE_TAKEN: "Ya existe un cupón con ese código.",
+  PRICE_OVERRIDE_DISABLED: "Esta sucursal no permite cambiar precios.",
+  PRICE_OVERRIDE_NOT_ALLOWED_PRODUCT: "Este producto no permite cambiar el precio.",
+  PRICE_OVERRIDE_REASON_REQUIRED: "Escribí el motivo del cambio de precio.",
+  CUSTOM_ITEM_INVALID: "Revisá el ítem libre.",
+  TIPS_DISABLED: "Las propinas están desactivadas.",
+  TIP_INVALID: "Revisá la propina y el mesero.",
+  IDEMPOTENCY_CONFLICT: "Esta operación ya se registró con otros datos.",
+  REFUND_ORDER_INVALID: "Esta venta no admite devoluciones.",
+  REFUND_INVALID: "Revisá las líneas de la devolución.",
+  REFUND_QTY_EXCEEDED: "La cantidad supera lo que queda por devolver.",
+  REFUND_ORIGINAL_MIXED: "La venta tuvo varios medios de pago: devolvé en efectivo.",
+  REFUND_REFERENCE_REQUIRED: "Escribí la referencia del reverso.",
+  REFUND_NEEDS_OPEN_SESSION: "Abrí un turno de caja para devolver efectivo.",
+  REFUND_NOT_PENDING: "La devolución ya fue decidida.",
+  VOID_NOT_ALLOWED: "No se puede anular: la venta no es de hoy, el turno cerró, tiene devoluciones o ya fue facturada.",
+  VOID_REASON_REQUIRED: "Escribí el motivo de la anulación.",
+};
+
 /** Mensajes del backend traducidos para el cajero. */
 export function friendlyError(error: unknown): string {
   if (!(error instanceof ApiError)) return "No se pudo conectar con el servidor. Intentá de nuevo.";
+  if (error.code && ERROR_MESSAGES[error.code]) {
+    return ERROR_MESSAGES[error.code];
+  }
   const m = error.message;
   if (error.status === 429 || m.includes("too many requests") || m.includes("intentos fallidos")) {
     return "Demasiados intentos fallidos. Tu cuenta está bloqueada temporalmente (15 minutos).";
