@@ -620,6 +620,22 @@ export type StockLevel = {
   archived?: boolean;
 };
 
+/** GET /v1/inventory/alerts?branch_id= — src/inventory.rs::StockAlert */
+export type StockAlert = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  location_name: string;
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  kind: "BAJO" | "NEGATIVO";
+  qty: Decimal;
+  created_at: string;
+  resolved_at: string | null;
+};
+
 // ------------------------------------------------------------- compras y proveedores
 
 export type PurchaseStatus = "PENDIENTE" | "RECIBIDA" | "ANULADA";

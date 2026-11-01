@@ -94,6 +94,7 @@ import type {
   Role,
   RolePermissionsResponse,
   SessionContext,
+  StockAlert,
   StockLevel,
   Supplier,
   TenantUser,
@@ -1623,6 +1624,15 @@ export const api = {
       }
       const loc = locationId ? `&location_id=${locationId}` : "";
       return request(`/v1/inventory/stock?branch_id=${branchId}${loc}`);
+    },
+
+    /** GET /v1/inventory/alerts — alertas abiertas de stock. */
+    async alerts(branchId: Uuid): Promise<StockAlert[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return [];
+      }
+      return request(`/v1/inventory/alerts?branch_id=${branchId}`);
     },
 
     /** GET /v1/inventory/movements — kardex, mas reciente primero. */

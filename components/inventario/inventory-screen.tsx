@@ -15,11 +15,12 @@ import {
   Search,
   Tag,
   Upload,
+  X,
   XCircle,
 } from "lucide-react";
 
 import { StatCard } from "@/components/nexa/stat-card";
-import { api, type StockLevel, type StockStatus } from "@/lib/api";
+import { api, type StockAlert, type StockLevel, type StockStatus } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP, formatQty } from "@/lib/format";
@@ -42,6 +43,8 @@ export function InventoryScreen() {
   const branch = useCurrentBranch();
   const branches = useSession((s) => s.branches);
   const { data, loading, error, reload } = useApi(() => api.inventory.stock(branch.id), branch.id);
+  const { data: alertsData, reload: reloadAlerts } = useApi(() => api.inventory.alerts(branch.id), branch.id);
+  const alerts: StockAlert[] = useMemo(() => alertsData ?? [], [alertsData]);
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
@@ -51,6 +54,7 @@ export function InventoryScreen() {
   const [editing, setEditing] = useState<{ item: StockLevel; mode: StockMode } | null>(null);
   const [moving, setMoving] = useState<StockLevel | null>(null);
   const [tierPricingItem, setTierPricingItem] = useState<StockLevel | null>(null);
+  const [showAlerts, setShowAlerts] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const items = useMemo(() => data ?? [], [data]);
@@ -84,6 +88,7 @@ export function InventoryScreen() {
   function saved(message: string) {
     setToast(message);
     reload();
+    reloadAlerts();
     setTimeout(() => setToast(null), 4000);
   }
 
@@ -107,6 +112,15 @@ export function InventoryScreen() {
           >
             <Upload className="size-4" /> Importar CSV
           </Link>
+          {alerts.length > 0 && (
+            <button
+              onClick={() => setShowAlerts(true)}
+              className="flex h-11 items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100"
+            >
+              <AlertTriangle className="size-4 text-amber-600" />
+              {alerts.length} {alerts.length === 1 ? "alerta" : "alertas"}
+            </button>
+          )}
           <Link
             href="/inventario/producto/nuevo"
             className="flex h-11 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
@@ -325,6 +339,62 @@ export function InventoryScreen() {
       />
       <TransferDialog item={moving} from={branch} destinations={destinations} onClose={() => setMoving(null)} onSaved={saved} />
       <TierPricesDialog item={tierPricingItem} onClose={() => setTierPricingItem(null)} onSaved={saved} />
+
+      {showAlerts && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="size-5 text-amber-500" />
+                <h3 className="text-lg font-bold">Alertas de inventario ({alerts.length})</h3>
+              </div>
+              <button
+                onClick={() => setShowAlerts(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="mt-4 divide-y divide-slate-100">
+              {alerts.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">No hay alertas abiertas.</p>
+              ) : (
+                alerts.map((alert) => (
+                  <div key={alert.id} className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="font-semibold text-slate-800">{alert.product_name}</p>
+                      <p className="text-xs text-slate-500">
+                        {alert.sku ? `SKU: ${alert.sku} · ` : ""}Bodega: {alert.location_name}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-xs font-semibold",
+                          alert.kind === "NEGATIVO"
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-amber-100 text-amber-800",
+                        )}
+                      >
+                        {alert.kind === "NEGATIVO" ? "Stock negativo" : "Stock bajo"}
+                      </span>
+                      <span className="text-sm font-bold text-slate-700">{formatQty(alert.qty)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setShowAlerts(false)}
+                className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
