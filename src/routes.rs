@@ -17,7 +17,7 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
     AppState, audit, cash, catalog, customers, inventory, orders, permissions, procurement,
-    registers, sales, settings, tenancy, users,
+    refunds, registers, sales, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -114,6 +114,10 @@ pub fn router() -> Router<AppState> {
         .route("/v1/orders/{id}/confirm", post(confirm_order))
         .route("/v1/orders/{id}/transition", post(transition_order))
         .route("/v1/orders/{id}/cancel", post(cancel_order))
+        .route("/v1/orders/{id}/refunds", get(order_refunds))
+        .route("/v1/refunds", get(list_refunds).post(create_refund))
+        .route("/v1/refunds/{id}/approve", post(approve_refund))
+        .route("/v1/refunds/{id}/reject", post(reject_refund))
         // Inventario
         .route("/v1/inventory/available", get(available))
         .route("/v1/inventory/movements", get(movements))
@@ -1087,5 +1091,64 @@ async fn toggle_coupon(
 ) -> ApiResult<Json<crate::coupons::CouponDto>> {
     Ok(Json(
         crate::coupons::toggle(&state.pool, &user.claims, id).await?,
+    ))
+}
+
+// ---------------------------------------------------------- devoluciones (F1.11)
+
+#[derive(Deserialize)]
+struct RefundListQuery {
+    branch_id: Uuid,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+async fn create_refund(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<refunds::RefundRequest>,
+) -> ApiResult<(StatusCode, Json<refunds::Refund>)> {
+    match refunds::create(&state.pool, &user.claims, req).await? {
+        refunds::Created::New(r) => Ok((StatusCode::CREATED, Json(r))),
+        refunds::Created::Replayed(r) => Ok((StatusCode::OK, Json(r))),
+    }
+}
+
+async fn approve_refund(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<refunds::Refund>> {
+    Ok(Json(refunds::approve(&state.pool, &user.claims, id).await?))
+}
+
+async fn reject_refund(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<refunds::RejectRequest>,
+) -> ApiResult<Json<refunds::Refund>> {
+    Ok(Json(
+        refunds::reject(&state.pool, &user.claims, id, req).await?,
+    ))
+}
+
+async fn list_refunds(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<RefundListQuery>,
+) -> ApiResult<Json<Vec<refunds::Refund>>> {
+    Ok(Json(
+        refunds::list(&state.pool, &user.claims, q.branch_id, q.status).await?,
+    ))
+}
+
+async fn order_refunds(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<refunds::Refund>>> {
+    Ok(Json(
+        refunds::for_order(&state.pool, &user.claims, id).await?,
     ))
 }

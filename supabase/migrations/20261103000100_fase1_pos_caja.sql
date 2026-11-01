@@ -358,3 +358,85 @@ grant select, insert, update on public.coupon_redemptions to authenticated;
 
 alter table public.products add column allow_price_override boolean not null default true;
 
+-- ============================================================
+-- F1.11 Devoluciones
+-- ============================================================
+
+insert into public.tbl_tipos_maestra (tima_nombre, tima_codigo, padre_id)
+select 'Devolucion de cliente', 'DEVOLUCION', h.tima_id from public.tbl_tipos_maestra h
+where h.padre_id is null and h.tima_codigo = 'MOV'
+on conflict (padre_id, tima_codigo) do nothing;
+
+create table public.refunds (
+  id uuid primary key,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid not null,
+  order_id uuid not null,
+  prefix text not null,
+  number bigint not null,
+  status text not null check (status in ('PENDIENTE','APROBADA','RECHAZADA')),
+  method text not null check (method in ('EFECTIVO','ORIGINAL')),
+  original_method text,
+  reversal_reference text,
+  reason text not null check (length(trim(reason)) between 3 and 200),
+  subtotal numeric(14,2) not null,
+  tax_amount numeric(14,2) not null,
+  total numeric(14,2) not null check (total > 0),
+  cash_session_id uuid,
+  requested_by uuid not null references public.users(id),
+  decided_by uuid references public.users(id),
+  decided_at timestamptz,
+  reject_reason text,
+  client_request jsonb not null,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, id),
+  unique (branch_id, prefix, number),
+  foreign key (tenant_id, branch_id) references public.branches (tenant_id, id),
+  foreign key (tenant_id, order_id) references public.orders (tenant_id, id),
+  foreign key (tenant_id, cash_session_id) references public.cash_sessions (tenant_id, id)
+);
+create index refunds_order_idx on public.refunds (order_id);
+create index refunds_branch_status_idx on public.refunds (branch_id, status);
+
+create table public.refund_items (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  refund_id uuid not null,
+  order_item_id uuid not null,
+  qty numeric(14,4) not null check (qty > 0),
+  disposition text not null check (disposition in ('REINTEGRAR','MERMA','SIN_DEVOLUCION')),
+  line_total numeric(14,2) not null,
+  tax_amount numeric(14,2) not null,
+  foreign key (tenant_id, refund_id) references public.refunds (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, order_item_id) references public.order_items (tenant_id, id)
+);
+create index refund_items_refund_idx on public.refund_items (refund_id);
+create index refund_items_order_item_idx on public.refund_items (order_item_id);
+
+alter table public.orders add column refunded_amount numeric(14,2) not null default 0;
+
+alter table public.fiscal_documents add column refund_id uuid;
+alter table public.fiscal_documents drop constraint fiscal_documents_order_id_doc_type_key;
+create unique index fiscal_documents_order_doc_idx on public.fiscal_documents (order_id, doc_type) where refund_id is null;
+create unique index fiscal_documents_refund_idx on public.fiscal_documents (refund_id) where refund_id is not null;
+
+alter table public.refunds enable row level security;
+alter table public.refund_items enable row level security;
+create policy refunds_isolation on public.refunds for all
+  using (public.in_scope(tenant_id, branch_id))
+  with check (public.in_scope(tenant_id, branch_id));
+create policy refund_items_isolation on public.refund_items for all
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+grant select, insert, update, delete on public.refunds, public.refund_items to authenticated;
+
+-- ============================================================
+-- F1.12 Anulación de ventas
+-- ============================================================
+
+insert into public.tbl_tipos_maestra (tima_nombre, tima_codigo, padre_id)
+select 'Anulado', 'ANULADO', h.tima_id from public.tbl_tipos_maestra h
+where h.padre_id is null and h.tima_codigo = 'DOCF'
+on conflict (padre_id, tima_codigo) do nothing;
+
+alter table public.orders add column void_reason text;

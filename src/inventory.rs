@@ -584,6 +584,49 @@ pub async fn replenish_ref_tx(
     .await
 }
 
+/// Reingresa al inventario lo devuelto por un cliente (devolución o anulación).
+///
+/// No exige permiso de inventario: el permiso lo valida quien llama
+/// (`pos:sell` o `pos:refund`). Un producto con receta devuelve sus insumos,
+/// igual que `sell_tx` los descontó. El movimiento es de tipo `DEVOLUCION`.
+pub async fn return_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    product_id: Uuid,
+    qty: Decimal,
+    cause: &str,
+    reference: (&str, Uuid),
+) -> Result<(), ApiError> {
+    positive(qty)?;
+    for (component, need) in components(tx, product_id, qty).await? {
+        sqlx::query(
+            "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
+             values ($1, $2, $3, $4, 0)
+             on conflict (branch_id, product_id)
+             do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
+        )
+        .bind(scope.tenant)
+        .bind(branch_id)
+        .bind(component)
+        .bind(need)
+        .execute(&mut **tx)
+        .await?;
+        record_movement_ref(
+            tx,
+            scope,
+            branch_id,
+            component,
+            "DEVOLUCION",
+            need,
+            cause,
+            Some(reference),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// Ajusta inventario (delta con signo) y registra el movimiento.
 pub async fn adjust(
     pool: &PgPool,
@@ -956,7 +999,7 @@ pub async fn kardex(
         "with m as (
            select im.id, im.product_id, t.tima_codigo as movement_type, im.qty,
                   case
-                    when t.tima_codigo in ('REPOSICION', 'AJUSTE_ENTRADA', 'TRASLADO_ENTRADA') then im.qty
+                    when t.tima_codigo in ('REPOSICION', 'AJUSTE_ENTRADA', 'TRASLADO_ENTRADA', 'DEVOLUCION') then im.qty
                     when t.tima_codigo in ('DESCUENTO', 'AJUSTE_SALIDA', 'TRASLADO_SALIDA') then -im.qty
                   end as delta,
                   im.cause, im.ref_type, im.ref_id, im.created_by, im.branch_id, im.created_at

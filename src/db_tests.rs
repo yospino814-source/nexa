@@ -14,7 +14,7 @@ use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment,
 use crate::test_support::*;
 use crate::{
     AppState, cash, catalog, coupons, customers, inventory, orders, outbox, permissions,
-    procurement, registers, routes, sales, sequences, settings, tenancy, users,
+    procurement, refunds, registers, routes, sales, sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -773,6 +773,7 @@ async fn database_integration() {
     f1_coupons(&app, &admin).await;
     f1_override(&app, &admin).await;
     f1_tips(&app, &admin).await;
+    f1_refunds(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -4815,4 +4816,268 @@ async fn f1_tips(app: &PgPool, admin: &PgPool) {
     assert_eq!(summary.tips_pending.normalize(), dec(1000));
 
     cleanup(admin, tenant, &[owner, cashier, waiter, stranger]).await;
+}
+
+fn d(s: &str) -> Decimal {
+    s.parse().expect("decimal")
+}
+
+fn refund_req(
+    id: Uuid,
+    order_id: Uuid,
+    order_item_id: Uuid,
+    qty: i64,
+    disposition: refunds::Disposition,
+    method: refunds::RefundMethod,
+) -> refunds::RefundRequest {
+    refunds::RefundRequest {
+        id,
+        order_id,
+        method,
+        reason: "Producto defectuoso".into(),
+        reversal_reference: None,
+        items: vec![refunds::RefundItemInput {
+            order_item_id,
+            qty: dec(qty),
+            disposition,
+        }],
+    }
+}
+
+fn new_refund(r: refunds::Created) -> refunds::Refund {
+    match r {
+        refunds::Created::New(x) => x,
+        refunds::Created::Replayed(_) => panic!("expected a new refund"),
+    }
+}
+
+fn cash_payment(amount: &str) -> Vec<SalePayment> {
+    vec![SalePayment {
+        method: PaymentMethod::Efectivo,
+        amount: d(amount),
+        reference: None,
+    }]
+}
+
+/// F1.11: devoluciones.
+async fn f1_refunds(app: &PgPool, admin: &PgPool) {
+    use refunds::{Disposition::*, RefundMethod::*};
+
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // Precio con el que el IVA de 3 unidades no se divide exacto entre 3:
+    // 3 x 1.001,01 = 3.003,03; IVA 19 % = 570,58 (190,19 por unidad, sobra 0,01).
+    let prod = seed_product(admin, tenant, "Licuadora", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, prod, "1001.01").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "10", "0").await;
+
+    let reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg, dec(0))
+        .await
+        .unwrap();
+
+    let mut s1 = sale(Uuid::new_v4(), branch, &[(prod, 3)], &[], d("3573.61"));
+    s1.payments = cash_payment("3573.61");
+    let s1 = created(sales::checkout(app, &c_cashier, s1).await.unwrap());
+    let order_id = s1.order.id;
+    let item = &s1.items[0];
+    let item_id = item.id;
+    let (stock_after_sale, _) = stock_row(admin, branch, prod).await;
+
+    // [P] Con aprobación obligatoria y un cajero sin pos:refund queda PENDIENTE, sin mover stock ni caja
+    let r1 = new_refund(
+        refunds::create(
+            app,
+            &c_cashier,
+            refund_req(Uuid::new_v4(), order_id, item_id, 1, Reintegrar, Efectivo),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(r1.status, "PENDIENTE");
+    assert_eq!(r1.number, "DEV-000001");
+    assert_eq!(stock_row(admin, branch, prod).await.0, stock_after_sale);
+    let before = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.expected_cash.normalize(), d("3573.61"));
+
+    // [P] No se puede devolver más de lo vendido menos lo ya devuelto (contando las pendientes)
+    let r = refunds::create(
+        app,
+        &c_cashier,
+        refund_req(Uuid::new_v4(), order_id, item_id, 3, Reintegrar, Efectivo),
+    )
+    .await;
+    assert_eq!(err_code(&r), Some("REFUND_QTY_EXCEEDED"), "{:?}", r.err());
+
+    // [P] Sin turno abierto del aprobador: 409 REFUND_NEEDS_OPEN_SESSION
+    let r = refunds::approve(app, &c_owner, r1.id).await;
+    assert_eq!(
+        err_code(&r),
+        Some("REFUND_NEEDS_OPEN_SESSION"),
+        "{:?}",
+        r.err()
+    );
+
+    // El dueño abre turno en una segunda caja y aprueba.
+    let reg2: Uuid = sqlx::query_scalar(
+        "insert into cash_registers (tenant_id, branch_id, name, code)
+         values ($1, $2, 'Caja 2', 'CAJA-2') returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    cash::open(app, &c_owner, branch, reg2, dec(10000))
+        .await
+        .unwrap();
+    let r1 = refunds::approve(app, &c_owner, r1.id).await.unwrap();
+    assert_eq!(r1.status, "APROBADA");
+    assert_eq!(r1.total.normalize(), d("1191.20"));
+
+    // [P] REINTEGRAR sube el stock
+    assert_eq!(
+        stock_row(admin, branch, prod).await.0,
+        stock_after_sale + dec(1)
+    );
+
+    // [P] La devolución en efectivo crea un movimiento DEVOLUCION y baja el esperado del turno
+    let owner_summary = cash::current(app, &c_owner, branch).await.unwrap().unwrap();
+    assert_eq!(owner_summary.expected_cash.normalize(), d("8808.80"));
+    let movements: i64 = sqlx::query_scalar(
+        "select count(*) from cash_movements m join tbl_tipos_maestra t on t.tima_id = m.kind_id
+          where t.tima_codigo = 'DEVOLUCION' and m.ref_id = $1",
+    )
+    .bind(r1.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(movements, 1);
+
+    // [P] Se crea un fiscal_documents NOTA_CREDITO con refund_id
+    let notes: i64 = sqlx::query_scalar(
+        "select count(*) from fiscal_documents where doc_type = 'NOTA_CREDITO' and refund_id = $1",
+    )
+    .bind(r1.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(notes, 1);
+
+    // [P] MERMA no cambia el stock; las devoluciones parciales suman exacto lo vendido
+    let r2_req = refund_req(Uuid::new_v4(), order_id, item_id, 2, Merma, Efectivo);
+    let r2 = new_refund(
+        refunds::create(app, &c_cashier, r2_req.clone())
+            .await
+            .unwrap(),
+    );
+    let r2 = refunds::approve(app, &c_owner, r2.id).await.unwrap();
+    assert_eq!(
+        stock_row(admin, branch, prod).await.0,
+        stock_after_sale + dec(1)
+    );
+    assert_eq!(
+        (r1.subtotal + r2.subtotal).normalize(),
+        item.line_total.normalize()
+    );
+    assert_eq!(
+        (r1.tax_amount + r2.tax_amount).normalize(),
+        item.tax_amount.normalize()
+    );
+    let refunded: Decimal = sqlx::query_scalar("select refunded_amount from orders where id = $1")
+        .bind(order_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert_eq!(refunded.normalize(), d("3573.61"));
+
+    // [P] Reintento idéntico devuelve la misma devolución; con otro cuerpo, IDEMPOTENCY_CONFLICT
+    match refunds::create(app, &c_cashier, r2_req.clone())
+        .await
+        .unwrap()
+    {
+        refunds::Created::Replayed(x) => assert_eq!(x.id, r2.id),
+        refunds::Created::New(_) => panic!("expected a replay"),
+    }
+    let mut changed = r2_req.clone();
+    changed.reason = "Otro motivo distinto".into();
+    let r = refunds::create(app, &c_cashier, changed).await;
+    assert_eq!(err_code(&r), Some("IDEMPOTENCY_CONFLICT"), "{:?}", r.err());
+
+    // Rechazo: una pendiente rechazada ya no se puede aprobar.
+    let mut s3 = sale(Uuid::new_v4(), branch, &[(prod, 1)], &[], d("1191.20"));
+    s3.payments = cash_payment("1191.20");
+    let s3 = created(sales::checkout(app, &c_cashier, s3).await.unwrap());
+    let r3 = new_refund(
+        refunds::create(
+            app,
+            &c_cashier,
+            refund_req(
+                Uuid::new_v4(),
+                s3.order.id,
+                s3.items[0].id,
+                1,
+                Reintegrar,
+                Efectivo,
+            ),
+        )
+        .await
+        .unwrap(),
+    );
+    let r3 = refunds::reject(
+        app,
+        &c_owner,
+        r3.id,
+        refunds::RejectRequest {
+            reason: "No aplica".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(r3.status, "RECHAZADA");
+    let r = refunds::approve(app, &c_owner, r3.id).await;
+    assert_eq!(err_code(&r), Some("REFUND_NOT_PENDING"), "{:?}", r.err());
+
+    // [P] ORIGINAL en una venta con pagos mixtos: 422 REFUND_ORIGINAL_MIXED
+    let mut s4 = sale(Uuid::new_v4(), branch, &[(prod, 1)], &[], d("1191.20"));
+    s4.payments = vec![
+        SalePayment {
+            method: PaymentMethod::Datafono,
+            amount: dec(1000),
+            reference: Some("123456".into()),
+        },
+        SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: d("191.20"),
+            reference: None,
+        },
+    ];
+    let s4 = created(sales::checkout(app, &c_cashier, s4).await.unwrap());
+    let r = refunds::create(
+        app,
+        &c_cashier,
+        refund_req(
+            Uuid::new_v4(),
+            s4.order.id,
+            s4.items[0].id,
+            1,
+            Reintegrar,
+            Original,
+        ),
+    )
+    .await;
+    assert_eq!(err_code(&r), Some("REFUND_ORIGINAL_MIXED"), "{:?}", r.err());
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

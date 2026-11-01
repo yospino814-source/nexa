@@ -99,6 +99,11 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | POST | `/v1/orders/{id}/confirm` | Reservar stock (pasa a `EN_PREPARACION`) |
 | POST | `/v1/orders/{id}/transition` | `{to: "LISTA" \| "ENTREGADA" \| "COBRADA" \| "CERRADA"}` |
 | POST | `/v1/orders/{id}/cancel` | Cancelar y liberar reservas y mesa |
+| GET | `/v1/orders/{id}/refunds` | Devoluciones de una venta (`pos:sell`) |
+| POST | `/v1/refunds` | Crear devolución idempotente por `id`; queda `PENDIENTE` o `APROBADA` según el ajuste y el permiso (`pos:sell`) |
+| POST | `/v1/refunds/{id}/approve` | Aprobar: stock, caja, saldo devuelto y nota crédito (`pos:refund`) |
+| POST | `/v1/refunds/{id}/reject` | Rechazar con motivo (`pos:refund`) |
+| GET | `/v1/refunds?branch_id=&status=` | Devoluciones de la sucursal (`pos:refund`) |
 | GET | `/v1/inventory/available?branch_id=&product_id=` | Disponible de un producto |
 | GET | `/v1/inventory/stock?branch_id=` | Existencias con punto de reorden y estado `OK` / `BAJO` / `AGOTADO` |
 | GET | `/v1/inventory/movements?branch_id=&product_id=&limit=` | Kardex, más reciente primero, con `delta` y saldo resultante |
