@@ -216,9 +216,16 @@ export type CashSummary = {
   tips_total: Decimal;
   tips_paid: Decimal;
   tips_pending: Decimal;
+  state_token: string;
 };
 
-/** GET /v1/cash-sessions/{id}/activity — src/cash.rs::ActivityEntry */
+/** GET /v1/cash-sessions/{id}/activity — src/cash.rs::ActivityResponse */
+export type CashActivityReport = {
+  state_token: string;
+  items: CashActivity[];
+};
+
+/** Fila individual de bitacora del turno — src/cash.rs::ActivityEntry */
 export type CashActivity = {
   at: string;
   kind: "APERTURA" | "VENTA" | CashMovementKind | "CIERRE";

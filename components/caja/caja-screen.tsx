@@ -71,7 +71,11 @@ function OpenShiftView({
 }) {
   const [dialog, setDialog] = useState<CashMovementKind | null>(null);
   const version = useCashVersion();
-  const { data: activity } = useApi(() => api.cash.activity(summary.session.id), `${summary.session.id}:${version}`);
+  const { data: activityReport } = useApi(
+    () => api.cash.activity(summary.session.id),
+    `${summary.session.id}:${version}`,
+  );
+  const activity = activityReport?.items ?? null;
 
   const s = summary.session;
   const expected = Number(summary.expected_cash);
@@ -143,8 +147,8 @@ function OpenShiftView({
       </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_420px]">
-        <ShiftActivity activity={activity ?? null} />
-        <CashCount summary={summary} onClosed={onClosed} />
+        <ShiftActivity activity={activity} />
+        <CashCount summary={summary} onClosed={onClosed} onReload={onChanged} />
       </div>
 
       <CashMovementDialog

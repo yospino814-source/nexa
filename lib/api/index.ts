@@ -46,6 +46,7 @@ import type {
   BranchAccess,
   BranchSettings,
   CashActivity,
+  CashActivityReport,
   CashMovementKind,
   CashMovementReasonCode,
   CashRegister,
@@ -146,6 +147,7 @@ function seedClosedSessions(): CashSummary[] {
       tips_total: "0.00",
       tips_paid: "0.00",
       tips_pending: "0.00",
+      state_token: "mock-closed-state",
     };
   });
 }
@@ -269,11 +271,12 @@ function mockSummary(session: CashSession): CashSummary {
     tips_total: dec(tipsTotal),
     tips_paid: dec(tipsPaid),
     tips_pending: dec(tipsPending),
+    state_token: `mock-state-${session.id.slice(0, 8)}-${moves.length}-${sales.length}`,
   };
 }
 
 /** Bitacora del turno mock, igual que src/cash.rs::activity. */
-function mockActivity(sessionId: Uuid): CashActivity[] {
+function mockActivity(sessionId: Uuid): CashActivityReport {
   const session =
     mockCash?.id === sessionId ? mockCash : mockClosed.find((s) => s.session.id === sessionId)?.session;
   if (!session) throw new ApiError(404, "not found");
@@ -297,7 +300,9 @@ function mockActivity(sessionId: Uuid): CashActivity[] {
   if (session.closed_at) {
     entries.push({ at: session.closed_at, kind: "CIERRE", detail: session.notes, methods: "EFECTIVO", amount: session.counted_cash ?? "0", user_name: "Usuario demo" });
   }
-  return entries.sort((a, b) => b.at.localeCompare(a.at));
+  const items = entries.sort((a, b) => b.at.localeCompare(a.at));
+  const token = mockCash && mockCash.id === sessionId ? mockSummary(mockCash).state_token : "mock-state";
+  return { state_token: token, items };
 }
 
 
@@ -478,16 +483,20 @@ export const api = {
     },
 
     /** POST /v1/cash-sessions/{id}/close */
-    async close(sessionId: Uuid, countedCash: Decimal, notes?: string): Promise<CashSummary> {
+    async close(sessionId: Uuid, countedCash: Decimal, stateToken: string, notes?: string): Promise<CashSummary> {
       if (!USE_MOCKS) {
         return request(`/v1/cash-sessions/${sessionId}/close`, {
           method: "POST",
-          body: JSON.stringify({ counted_cash: countedCash, notes: notes ?? null }),
+          body: JSON.stringify({ counted_cash: countedCash, state_token: stateToken, notes: notes ?? null }),
         });
       }
       await delay();
       if (!mockCash || mockCash.id !== sessionId) throw new ApiError(409, "cash session is already closed");
-      const expected = Number(mockSummary(mockCash).expected_cash);
+      const curSummary = mockSummary(mockCash);
+      if (curSummary.state_token !== stateToken) {
+        throw new ApiError(409, "Hubo movimientos nuevos mientras contabas. Volvé a contar.", "CASH_STATE_CHANGED");
+      }
+      const expected = Number(curSummary.expected_cash);
       const counted = Number(countedCash);
       const reg = mockRegisters.find((r) => r.id === mockCash?.register_id);
       if (reg) reg.open_session = null;
@@ -558,8 +567,8 @@ export const api = {
       return structuredClone(mockSummary(mockCash));
     },
 
-    /** GET /v1/cash-sessions/{id}/activity — bitacora del turno, mas reciente primero. */
-    async activity(sessionId: Uuid): Promise<CashActivity[]> {
+    /** GET /v1/cash-sessions/{id}/activity — bitacora del turno con token de estado. */
+    async activity(sessionId: Uuid): Promise<CashActivityReport> {
       if (USE_MOCKS) {
         await delay();
         return mockActivity(sessionId);

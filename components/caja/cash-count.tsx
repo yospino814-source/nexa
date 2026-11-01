@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, EyeOff, Loader2, Lock } from "lucide-react";
 
-import { api, friendlyError, type CashSummary } from "@/lib/api";
+import { api, ApiError, friendlyError, type CashSummary } from "@/lib/api";
 import { bumpCash } from "@/lib/stores/cash";
 import { formatCOP } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -15,12 +15,23 @@ const COINS = [1_000, 500, 200, 100, 50];
  * Arqueo: el cajero cuenta billetes y monedas. El efectivo esperado queda
  * oculto por defecto (conteo ciego) para que el conteo no se "acomode".
  */
-export function CashCount({ summary, onClosed }: { summary: CashSummary; onClosed: (closed: CashSummary) => void }) {
+export function CashCount({
+  summary,
+  onClosed,
+  onReload,
+}: {
+  summary: CashSummary;
+  onClosed: (closed: CashSummary) => void;
+  onReload?: () => void;
+}) {
   const [qty, setQty] = useState<Record<number, number>>({});
   const [showExpected, setShowExpected] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Guarda el token recibido al abrirse
+  const [token, setToken] = useState(summary.state_token);
 
   const counted = [...BILLS, ...COINS].reduce((sum, d) => sum + d * (qty[d] ?? 0), 0);
   const expected = Number(summary.expected_cash);
@@ -32,11 +43,24 @@ export function CashCount({ summary, onClosed }: { summary: CashSummary; onClose
     setBusy(true);
     setError(null);
     try {
-      const closed = await api.cash.close(summary.session.id, counted.toFixed(2), notes.trim() || undefined);
+      const closed = await api.cash.close(
+        summary.session.id,
+        counted.toFixed(2),
+        token,
+        notes.trim() || undefined,
+      );
       bumpCash();
       onClosed(closed);
     } catch (e) {
-      setError(friendlyError(e));
+      if (e instanceof ApiError && e.code === "CASH_STATE_CHANGED") {
+        setError("Hubo movimientos nuevos mientras contabas. Volvé a contar.");
+        setQty({});
+        setToken(summary.state_token);
+        bumpCash();
+        onReload?.();
+      } else {
+        setError(friendlyError(e));
+      }
     } finally {
       setBusy(false);
     }
