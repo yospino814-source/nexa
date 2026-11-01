@@ -788,6 +788,7 @@ async fn database_integration() {
     f2_archive(&app, &admin).await;
     f2_import(&app, &admin).await;
     f2_locations(&app, &admin).await;
+    f2_pipeline(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -6733,6 +6734,166 @@ async fn f2_locations(app: &PgPool, admin: &PgPool) {
     )
     .await;
     assert!(is_conflict(&err_deact));
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_pipeline(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let principal_id: Uuid = sqlx::query_scalar(
+        "select id from locations where branch_id = $1 and is_default = true limit 1",
+    )
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    let reg = crate::registers::create(
+        app,
+        &c_owner,
+        crate::registers::CreateRegisterRequest {
+            branch_id: branch,
+            code: "CAJA-PIPE".to_string(),
+            name: "Caja Pipeline".to_string(),
+            default_opening: dec(100000),
+            location_id: Some(principal_id),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Abrir turno de caja
+    let _session = crate::cash::open(app, &c_owner, branch, reg.id, dec(100000))
+        .await
+        .unwrap();
+
+    // Crear producto estándar
+    let prod_id = seed_product(admin, tenant, "Producto Pipeline", "UND", None, false).await;
+    set_base_price(admin, prod_id, "1000").await;
+    seed_branch_product(admin, tenant, branch, prod_id, None, None).await;
+
+    // Fijar punto de reorden en 5
+    crate::inventory::set_min_qty(app, &c_owner, branch, prod_id, dec(5))
+        .await
+        .unwrap();
+
+    // 1. Reponer 1 unidad
+    crate::inventory::replenish(app, &c_owner, branch, prod_id, dec(1), "stock inicial")
+        .await
+        .unwrap();
+
+    let (oh, res) = stock_row(admin, branch, prod_id).await;
+    assert_eq!(oh, dec(1));
+    assert_eq!(res, dec(0));
+
+    // [P] Dos ventas concurrentes por la última unidad: solo una pasa y la otra recibe 409 STOCK_INSUFFICIENT
+    let sale_req_1 = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(prod_id, 1)],
+        &[(crate::sales::PaymentMethod::Efectivo, 1000)],
+        dec(1000),
+    );
+    let sale_req_2 = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(prod_id, 1)],
+        &[(crate::sales::PaymentMethod::Efectivo, 1000)],
+        dec(1000),
+    );
+
+    let (r1, r2) = tokio::join!(
+        crate::sales::checkout(app, &c_owner, sale_req_1),
+        crate::sales::checkout(app, &c_owner, sale_req_2),
+    );
+
+    let (winner, loser) = match (r1, r2) {
+        (Ok(w), Err(l)) => (w, l),
+        (Err(l), Ok(w)) => (w, l),
+        (Ok(_), Ok(_)) => panic!("Both concurrent sales succeeded! Exactly one must win"),
+        (Err(e1), Err(e2)) => panic!("Both concurrent sales failed: {:?}, {:?}", e1, e2),
+    };
+
+    assert_eq!(created(winner).order.status, "COBRADA");
+    assert_eq!(loser.status(), axum::http::StatusCode::CONFLICT);
+
+    let (oh_after, _) = stock_row(admin, branch, prod_id).await;
+    assert_eq!(oh_after, dec(0));
+
+    // [P] Bajar de min_qty crea alerta BAJO, y reponer la resuelve
+    let alerts_low = crate::inventory::list_alerts(app, &c_owner, branch)
+        .await
+        .unwrap();
+    assert!(
+        alerts_low
+            .iter()
+            .any(|a| a.product_id == prod_id && a.kind == "BAJO" && a.resolved_at.is_none()),
+        "debe existir una alerta BAJO abierta para el producto"
+    );
+
+    // Reponer 10 unidades (> min_qty de 5)
+    crate::inventory::replenish(
+        app,
+        &c_owner,
+        branch,
+        prod_id,
+        dec(10),
+        "reponer sobre min_qty",
+    )
+    .await
+    .unwrap();
+
+    let alerts_after_rep = crate::inventory::list_alerts(app, &c_owner, branch)
+        .await
+        .unwrap();
+    assert!(
+        !alerts_after_rep
+            .iter()
+            .any(|a| a.product_id == prod_id && a.kind == "BAJO"),
+        "la alerta BAJO debe estar resuelta tras reponer sobre min_qty"
+    );
+
+    // [P] allow_negative_stock = true: stock queda negativo y se crea una alerta NEGATIVO. Nunca se recorta a 0.
+    let mut current_settings = crate::settings::get_settings(app, &c_owner, branch)
+        .await
+        .unwrap();
+    current_settings.inventory.allow_negative_stock = true;
+    crate::settings::update_settings(
+        app,
+        &c_owner,
+        crate::settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: current_settings,
+        },
+    )
+    .await
+    .unwrap();
+
+    crate::inventory::adjust(app, &c_owner, branch, prod_id, dec(-12), "ajuste negativo")
+        .await
+        .unwrap();
+
+    let (oh_neg, _) = stock_row(admin, branch, prod_id).await;
+    assert_eq!(
+        oh_neg,
+        dec(-2),
+        "stock debe quedar en -2 y nunca recortarse a 0"
+    );
+
+    let alerts_neg = crate::inventory::list_alerts(app, &c_owner, branch)
+        .await
+        .unwrap();
+    assert!(
+        alerts_neg
+            .iter()
+            .any(|a| a.product_id == prod_id && a.kind == "NEGATIVO" && a.resolved_at.is_none()),
+        "debe existir una alerta NEGATIVO abierta"
+    );
 
     cleanup(admin, tenant, &[owner]).await;
 }

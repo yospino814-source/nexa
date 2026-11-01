@@ -222,4 +222,41 @@ alter table public.cash_registers add column location_id uuid,
   add constraint cash_registers_location_fkey foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id);
 update public.cash_registers c set location_id = l.id from public.locations l where l.branch_id = c.branch_id and l.is_default;
 
+-- F2.9 Flujo único de stock
+alter table public.stock drop constraint if exists stock_on_hand_check;
+alter table public.stock drop constraint if exists stock_check;
+alter table public.stock drop constraint if exists stock_on_hand_check1;
+
+alter table public.inventory_movements
+  add column if not exists unit_cost numeric(14,4),
+  add column if not exists total_cost numeric(14,2),
+  add column if not exists balance_after numeric(14,4),
+  add column if not exists lot_id uuid;
+
+create table if not exists public.stock_alerts (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid not null,
+  location_id uuid not null,
+  product_id uuid not null,
+  kind text not null check (kind in ('BAJO','NEGATIVO')),
+  qty numeric(14,4) not null,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id),
+  foreign key (tenant_id, product_id) references public.products (tenant_id, id)
+);
+
+create unique index if not exists stock_alerts_open on public.stock_alerts (location_id, product_id, kind) where resolved_at is null;
+
+alter table public.stock_alerts enable row level security;
+
+create policy stock_alerts_tenant_isolation on public.stock_alerts
+  for all to authenticated
+  using (in_scope(tenant_id, branch_id))
+  with check (in_scope(tenant_id, branch_id));
+
+grant select, insert, update on public.stock_alerts to authenticated;
+
+
 

@@ -8,7 +8,7 @@
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -409,6 +409,18 @@ async fn consume_rows(
     Ok(count)
 }
 
+        sqlx::query(
+            "update stock_reservations set status_id = public.tipo_id('RES', 'CONFIRMADA'), updated_at = now() where id = $1",
+        )
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+
+        count += 1;
+    }
+    Ok(count)
+}
+
 // ------------------------------------------------------------ venta directa
 
 /// Descuenta stock sin pasar por reserva (venta de mostrador: se cobra en el
@@ -589,6 +601,7 @@ pub async fn replenish_tx(
     replenish_ref_tx(tx, scope, branch_id, product_id, qty, cause, None).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn replenish_ref_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
@@ -715,6 +728,38 @@ pub async fn adjust_tx(
     apply_delta_tx(
         tx, scope, branch_id, product_id, on_hand, reserved, delta, cause,
     )
+    .bind(loc_id)
+    .bind(product_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(Decimal::ZERO);
+
+    let settings = crate::settings::load_tx(tx, branch_id).await?;
+    if delta < Decimal::ZERO
+        && !settings.inventory.allow_negative_stock
+        && existing_on_hand + delta < Decimal::ZERO
+    {
+        return Err(ApiError::Domain(DomainError::Validation(
+            "adjustment violates stock".into(),
+        )));
+    }
+
+    let applied = apply_delta_tx(
+        tx,
+        scope,
+        StockDelta {
+            branch_id,
+            location_id: loc_id,
+            product_id,
+            delta,
+            movement: kind,
+            unit_cost: None,
+            lot_id: None,
+            ref_type: "adjustment",
+            ref_id: movement_ref,
+            cause: Some(cause.to_string()),
+        },
+    )
     .await?;
 
     crate::audit::record_tx(
@@ -762,7 +807,10 @@ pub async fn count(
 
 /// Bloquea la fila de stock; si el producto nunca tuvo stock en la sucursal,
 /// la crea en cero (el producto debe ser del negocio).
-pub async fn default_location_id_tx(tx: &mut Tx<'_>, branch_id: Uuid) -> Result<Uuid, ApiError> {
+pub async fn default_location_id_tx(
+    tx: &mut Tx<'_>,
+    branch_id: Uuid,
+) -> Result<Uuid, ApiError> {
     crate::locations::default_location_id_tx(tx, branch_id).await
 }
 
@@ -955,14 +1003,13 @@ pub async fn transfer_locations(
     positive(args.qty)?;
 
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    crate::db::set_scope(&mut tx, scope.tenant, None).await?;
 
     let from_loc_id = match args.from_location_id {
         Some(id) => id,
         None => {
-            let bid = args.from_branch_id.ok_or_else(|| {
-                error::validation("from_location_id or from_branch_id is required")
-            })?;
+            let bid = args
+                .from_branch_id
+                .ok_or_else(|| error::validation("from_location_id or from_branch_id is required"))?;
             default_location_id_tx(&mut tx, bid).await?
         }
     };
@@ -990,46 +1037,27 @@ pub async fn transfer_locations(
         branch_id: Uuid,
     }
 
-    let from_info: LocInfo =
-        sqlx::query_as("select id, branch_id from locations where tenant_id = $1 and id = $2")
-            .bind(scope.tenant)
-            .bind(from_loc_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                error::coded(
-                    StatusCode::NOT_FOUND,
-                    "LOCATION_NOT_FOUND",
-                    "Ubicación de origen no encontrada",
-                    None,
-                )
-            })?;
-
-    let to_info: LocInfo =
-        sqlx::query_as("select id, branch_id from locations where tenant_id = $1 and id = $2")
-            .bind(scope.tenant)
-            .bind(to_loc_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                error::coded(
-                    StatusCode::NOT_FOUND,
-                    "LOCATION_NOT_FOUND",
-                    "Ubicación de destino no encontrada",
-                    None,
-                )
-            })?;
-
-    tenancy::require_in_branch_tx(
-        &mut tx,
-        &scope,
-        from_info.branch_id,
-        Action::ManageInventory,
+    let from_info: LocInfo = sqlx::query_as(
+        "select id, branch_id from locations where tenant_id = $1 and id = $2",
     )
-    .await?;
+    .bind(scope.tenant)
+    .bind(from_loc_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| error::coded(StatusCode::NOT_FOUND, "LOCATION_NOT_FOUND", "Ubicación de origen no encontrada", None))?;
+
+    let to_info: LocInfo = sqlx::query_as(
+        "select id, branch_id from locations where tenant_id = $1 and id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(to_loc_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| error::coded(StatusCode::NOT_FOUND, "LOCATION_NOT_FOUND", "Ubicación de destino no encontrada", None))?;
+
+    tenancy::require_in_branch_tx(&mut tx, &scope, from_info.branch_id, Action::ManageInventory).await?;
     if to_info.branch_id != from_info.branch_id {
-        tenancy::require_in_branch_tx(&mut tx, &scope, to_info.branch_id, Action::ManageInventory)
-            .await?;
+        tenancy::require_in_branch_tx(&mut tx, &scope, to_info.branch_id, Action::ManageInventory).await?;
     }
 
     crate::db::set_scope(&mut tx, scope.tenant, None).await?;
@@ -1039,26 +1067,13 @@ pub async fn transfer_locations(
     };
 
     let (first_loc, second_loc, first_bid, second_bid) = if from_loc_id < to_loc_id {
-        (
-            from_loc_id,
-            to_loc_id,
-            from_info.branch_id,
-            to_info.branch_id,
-        )
+        (from_loc_id, to_loc_id, from_info.branch_id, to_info.branch_id)
     } else {
-        (
-            to_loc_id,
-            from_loc_id,
-            to_info.branch_id,
-            from_info.branch_id,
-        )
+        (to_loc_id, from_loc_id, to_info.branch_id, from_info.branch_id)
     };
 
-    let a = lock_or_create_stock_location_tx(&mut tx, &wide, first_bid, first_loc, args.product_id)
-        .await?;
-    let b =
-        lock_or_create_stock_location_tx(&mut tx, &wide, second_bid, second_loc, args.product_id)
-            .await?;
+    let a = lock_or_create_stock_location_tx(&mut tx, &wide, first_bid, first_loc, args.product_id).await?;
+    let b = lock_or_create_stock_location_tx(&mut tx, &wide, second_bid, second_loc, args.product_id).await?;
     let (on_hand, reserved) = if first_loc == from_loc_id { a } else { b };
 
     if on_hand - reserved < args.qty {
@@ -1118,7 +1133,6 @@ pub async fn transfer_locations(
 }
 
 /// Traslada unidades de una sucursal a otra (o entre bodegas) en una sola transaccion.
-#[allow(dead_code)]
 pub async fn transfer(
     pool: &PgPool,
     claims: &Claims,
@@ -1128,11 +1142,6 @@ pub async fn transfer(
     qty: Decimal,
     cause: &str,
 ) -> Result<Uuid, ApiError> {
-    if from == to {
-        return Err(ApiError::Domain(DomainError::Validation(
-            "source and destination branches must differ".into(),
-        )));
-    }
     transfer_locations(
         pool,
         claims,
@@ -1283,6 +1292,18 @@ pub async fn kardex(
     .bind(branch_id)
     .bind(product_id)
     .bind(location_id)
+    .bind(limit.clamp(1, 1000))
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(rows)
+}
+           left join users u on u.id = m.created_by
+          order by m.created_at desc, m.id desc
+          limit $3",
+    )
+    .bind(branch_id)
+    .bind(product_id)
     .bind(limit.clamp(1, 1000))
     .fetch_all(&mut *tx)
     .await?;

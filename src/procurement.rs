@@ -621,6 +621,7 @@ pub async fn receive_purchase_tx(
             item.qty,
             &cause,
             Some(("COMPRA", purchase_id)),
+            Some(item.unit_cost),
         )
         .await?;
 

@@ -1346,19 +1346,25 @@ pub async fn archive_product(
     // 4. Con confirm = true (o con el plan vacío), en la misma transacción:
     // 4.1 por cada fila del plan, registra un ajuste de salida con causa "Baja por archivo" mediante apply_delta_tx,
     // con movement = AJUSTE_SALIDA, ref_type = 'ARCHIVE' y ref_id = product_id
-    for (branch_id, _bname, pid, on_hand, reserved, _cost) in stock_rows {
+    for (branch_id, _bname, pid, on_hand, _reserved, _cost) in stock_rows {
         if on_hand > Decimal::ZERO {
             let delta = -on_hand;
-            crate::inventory::apply_delta_ref_tx(
+            let loc_id = crate::inventory::default_location_id_tx(&mut tx, branch_id).await?;
+            crate::inventory::apply_delta_tx(
                 &mut tx,
                 &scope,
-                branch_id,
-                pid,
-                on_hand,
-                reserved,
-                delta,
-                "Baja por archivo",
-                Some(("ARCHIVE", pid)),
+                crate::inventory::StockDelta {
+                    branch_id,
+                    location_id: loc_id,
+                    product_id: pid,
+                    delta,
+                    movement: "AJUSTE_SALIDA",
+                    unit_cost: None,
+                    lot_id: None,
+                    ref_type: "ARCHIVE",
+                    ref_id: pid,
+                    cause: Some("Baja por archivo".to_string()),
+                },
             )
             .await?;
         }

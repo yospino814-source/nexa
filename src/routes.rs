@@ -152,6 +152,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/inventory/count", post(count))
         .route("/v1/inventory/transfer", post(transfer))
         .route("/v1/inventory/stock", get(stock_levels))
+        .route("/v1/inventory/alerts", get(inventory_alerts))
         .route("/v1/inventory/min-qty", put(set_min_qty))
         // Bodegas / Ubicaciones (F2.8)
         .route("/v1/locations", get(list_locations).post(create_location))
@@ -731,6 +732,20 @@ async fn stock_levels(
     Ok(Json(
         inventory::stock_levels(&state.pool, &user.claims, q.branch_id, q.location_id).await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct AlertsQuery {
+    branch_id: Uuid,
+}
+
+async fn inventory_alerts(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<AlertsQuery>,
+) -> ApiResult<Json<Vec<inventory::StockAlert>>> {
+    let alerts = inventory::list_alerts(&state.pool, &user.claims, q.branch_id).await?;
+    Ok(Json(alerts))
 }
 
 #[derive(Deserialize)]
