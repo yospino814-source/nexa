@@ -3,6 +3,7 @@ pub mod auth;
 mod cash;
 mod catalog;
 pub mod coupons;
+pub mod csv_import;
 pub mod customers;
 mod db;
 mod error;

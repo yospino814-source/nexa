@@ -108,3 +108,25 @@ grant select, insert, update, delete on public.options to authenticated;
 grant select, insert, update, delete on public.product_option_groups to authenticated;
 grant select, insert, update, delete on public.order_item_options to authenticated;
 
+-- F2.6 Importación CSV en dos pasos
+create table public.import_sessions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid not null,
+  created_by uuid not null references public.users(id),
+  rows jsonb not null,
+  committed_rows integer not null default 0,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '24 hours',
+  foreign key (tenant_id, branch_id) references public.branches (tenant_id, id)
+);
+
+alter table public.import_sessions enable row level security;
+
+create policy import_sessions_tenant_isolation on public.import_sessions
+  for all to authenticated
+  using (in_scope(tenant_id, branch_id))
+  with check (in_scope(tenant_id, branch_id));
+
+grant select, insert, update on public.import_sessions to authenticated;
+

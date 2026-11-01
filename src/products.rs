@@ -624,15 +624,12 @@ pub async fn get_product(
     Ok(detail)
 }
 
-pub async fn create_product(
-    pool: &PgPool,
-    claims: &Claims,
+pub async fn create_product_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
     input: ProductInput,
-) -> Result<ProductDetail, ApiError> {
+) -> Result<Uuid, ApiError> {
     validate_product_input(&input)?;
-    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require_permission("inventory:adjust")?;
-
     let name = input.name.trim().to_string();
     let sku = input
         .sku
@@ -646,18 +643,18 @@ pub async fn create_product(
         .filter(|s| !s.is_empty());
 
     if let Some(s) = sku {
-        check_sku_unique(&mut tx, scope.tenant, s, None).await?;
+        check_sku_unique(tx, scope.tenant, s, None).await?;
     }
     if let Some(b) = barcode {
-        check_barcode_unique(&mut tx, scope.tenant, b, None).await?;
+        check_barcode_unique(tx, scope.tenant, b, None).await?;
     }
 
-    let uom_id = resolve_uom_id(&mut tx, &input.unit_measure_code).await?;
+    let uom_id = resolve_uom_id(tx, &input.unit_measure_code).await?;
     let puom_id = match &input.purchase_uom_code {
-        Some(code) => Some(resolve_uom_id(&mut tx, code).await?),
+        Some(code) => Some(resolve_uom_id(tx, code).await?),
         None => None,
     };
-    let tax_id = resolve_tax_type_id(&mut tx, &input.tax_code).await?;
+    let tax_id = resolve_tax_type_id(tx, &input.tax_code).await?;
 
     let id: Uuid = sqlx::query_scalar(
         "insert into products (
@@ -687,13 +684,13 @@ pub async fn create_product(
     .bind(input.allow_price_override)
     .bind(input.has_variants)
     .bind(&input.description)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     // Crear branch_products si el scope tiene branch o para todas las sucursales del negocio
     let branches: Vec<Uuid> = sqlx::query_scalar("select id from branches where tenant_id = $1")
         .bind(scope.tenant)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await?;
 
     for bid in &branches {
@@ -706,13 +703,13 @@ pub async fn create_product(
         .bind(bid)
         .bind(id)
         .bind(input.base_price)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
     crate::audit::record_tx(
-        &mut tx,
-        &scope,
+        tx,
+        scope,
         "PRODUCTO_CREADO",
         "products",
         id,
@@ -722,20 +719,30 @@ pub async fn create_product(
     )
     .await?;
 
+    Ok(id)
+}
+
+pub async fn create_product(
+    pool: &PgPool,
+    claims: &Claims,
+    input: ProductInput,
+) -> Result<ProductDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    let id = create_product_tx(&mut tx, &scope, input).await?;
     let detail = get_product_detail_tx(&mut tx, &scope, id, scope.branch).await?;
     tx.commit().await?;
     Ok(detail)
 }
 
-pub async fn update_product(
-    pool: &PgPool,
-    claims: &Claims,
+pub async fn update_product_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
     id: Uuid,
     input: ProductInput,
-) -> Result<ProductDetail, ApiError> {
+) -> Result<(), ApiError> {
     validate_product_input(&input)?;
-    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require_permission("inventory:adjust")?;
 
     let name = input.name.trim().to_string();
     let sku = input
@@ -750,28 +757,28 @@ pub async fn update_product(
         .filter(|s| !s.is_empty());
 
     if let Some(s) = sku {
-        check_sku_unique(&mut tx, scope.tenant, s, Some(id)).await?;
+        check_sku_unique(tx, scope.tenant, s, Some(id)).await?;
     }
     if let Some(b) = barcode {
-        check_barcode_unique(&mut tx, scope.tenant, b, Some(id)).await?;
+        check_barcode_unique(tx, scope.tenant, b, Some(id)).await?;
     }
 
     let existing_uom_id: i32 =
         sqlx::query_scalar("select unit_measure_id from products where tenant_id = $1 and id = $2")
             .bind(scope.tenant)
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or(ApiError::Domain(crate::error::DomainError::NotFound))?;
 
-    let uom_id = resolve_uom_id(&mut tx, &input.unit_measure_code).await?;
+    let uom_id = resolve_uom_id(tx, &input.unit_measure_code).await?;
     if uom_id != existing_uom_id {
         let has_movements: bool = sqlx::query_scalar(
             "select exists(select 1 from inventory_movements where tenant_id = $1 and product_id = $2)",
         )
         .bind(scope.tenant)
         .bind(id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
 
         if has_movements {
@@ -794,7 +801,7 @@ pub async fn update_product(
         )
         .bind(scope.tenant)
         .bind(id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
 
         if has_pres {
@@ -808,12 +815,12 @@ pub async fn update_product(
     }
 
     let puom_id = match &input.purchase_uom_code {
-        Some(code) => Some(resolve_uom_id(&mut tx, code).await?),
+        Some(code) => Some(resolve_uom_id(tx, code).await?),
         None => None,
     };
-    let tax_id = resolve_tax_type_id(&mut tx, &input.tax_code).await?;
+    let tax_id = resolve_tax_type_id(tx, &input.tax_code).await?;
 
-    let before_detail = get_product_detail_tx(&mut tx, &scope, id, scope.branch).await?;
+    let before_detail = get_product_detail_tx(tx, scope, id, scope.branch).await?;
 
     sqlx::query(
         "update products set
@@ -855,7 +862,7 @@ pub async fn update_product(
     .bind(input.allow_price_override)
     .bind(input.has_variants)
     .bind(&input.description)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     // Copiar campos heredados y recalcular nombres de variantes hijas si es un padre
@@ -864,7 +871,7 @@ pub async fn update_product(
     )
     .bind(scope.tenant)
     .bind(id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
 
     for (child_id, attrs_opt) in children {
@@ -900,13 +907,13 @@ pub async fn update_product(
         .bind(input.purchase_factor)
         .bind(tax_id)
         .bind(input.track_lots)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
     crate::audit::record_tx(
-        &mut tx,
-        &scope,
+        tx,
+        scope,
         "PRODUCTO_EDITADO",
         "products",
         id,
@@ -916,6 +923,19 @@ pub async fn update_product(
     )
     .await?;
 
+    Ok(())
+}
+
+pub async fn update_product(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+    input: ProductInput,
+) -> Result<ProductDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    update_product_tx(&mut tx, &scope, id, input).await?;
     let detail = get_product_detail_tx(&mut tx, &scope, id, scope.branch).await?;
     tx.commit().await?;
     Ok(detail)
@@ -934,22 +954,19 @@ struct ParentProductRow {
     track_lots: bool,
 }
 
-pub async fn create_variant(
-    pool: &PgPool,
-    claims: &Claims,
+pub async fn create_variant_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
     parent_id: Uuid,
     input: CreateVariantInput,
-) -> Result<ProductDetail, ApiError> {
-    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require_permission("inventory:adjust")?;
-
+) -> Result<Uuid, ApiError> {
     let p: ParentProductRow = sqlx::query_as(
         "select name, has_variants, kind, usage, unit_measure_id, purchase_uom_id, purchase_factor, tax_type_id, track_lots
            from products where tenant_id = $1 and id = $2",
     )
     .bind(scope.tenant)
     .bind(parent_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or(ApiError::Domain(crate::error::DomainError::NotFound))?;
 
@@ -972,7 +989,7 @@ pub async fn create_variant(
     )
     .bind(scope.tenant)
     .bind(parent_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     if has_pres {
@@ -1034,7 +1051,7 @@ pub async fn create_variant(
                 None,
             ));
         }
-        check_sku_unique(&mut tx, scope.tenant, s, None).await?;
+        check_sku_unique(tx, scope.tenant, s, None).await?;
     }
 
     if let Some(b) = barcode {
@@ -1055,7 +1072,7 @@ pub async fn create_variant(
                 None,
             ));
         }
-        check_barcode_unique(&mut tx, scope.tenant, b, None).await?;
+        check_barcode_unique(tx, scope.tenant, b, None).await?;
     }
 
     if input.price < Decimal::ZERO {
@@ -1105,12 +1122,12 @@ pub async fn create_variant(
     .bind(p.track_lots)
     .bind(parent_id)
     .bind(attrs_json)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     let branches: Vec<Uuid> = sqlx::query_scalar("select id from branches where tenant_id = $1")
         .bind(scope.tenant)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await?;
 
     for bid in &branches {
@@ -1123,13 +1140,13 @@ pub async fn create_variant(
         .bind(bid)
         .bind(id)
         .bind(input.price)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
     crate::audit::record_tx(
-        &mut tx,
-        &scope,
+        tx,
+        scope,
         "PRODUCTO_CREADO",
         "products",
         id,
@@ -1139,6 +1156,19 @@ pub async fn create_variant(
     )
     .await?;
 
+    Ok(id)
+}
+
+pub async fn create_variant(
+    pool: &PgPool,
+    claims: &Claims,
+    parent_id: Uuid,
+    input: CreateVariantInput,
+) -> Result<ProductDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    let id = create_variant_tx(&mut tx, &scope, parent_id, input).await?;
     let detail = get_product_detail_tx(&mut tx, &scope, id, scope.branch).await?;
     tx.commit().await?;
     Ok(detail)

@@ -786,6 +786,7 @@ async fn database_integration() {
     f2_products(&app, &admin).await;
     f2_options(&app, &admin).await;
     f2_archive(&app, &admin).await;
+    f2_import(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -6308,6 +6309,169 @@ async fn f2_archive(app: &PgPool, admin: &PgPool) {
         !is_still_archived,
         "producto no debe estar archivado tras unarchive"
     );
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_import(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    // 1. [P] Un código 7.70123E+12 da ERROR
+    let csv_with_sci_error = "sku,codigo_barras,nombre,categoria,unidad,impuesto,costo,precio,cantidad_inicial,sku_padre,atributos\n\
+        ERR-01,7.70123E+12,Producto Malo,General,UND,IVA19,1000,2000,0,,\n";
+
+    let resp_err =
+        crate::csv_import::analyze_csv(app, &c_owner, branch, csv_with_sci_error.as_bytes())
+            .await
+            .unwrap();
+
+    assert_eq!(resp_err.summary.errors, 1);
+    assert_eq!(resp_err.rows[0].status, "ERROR");
+    assert!(
+        resp_err.rows[0]
+            .messages
+            .iter()
+            .any(|m| m.contains("código en notación científica"))
+    );
+
+    // 2. [P] Un CSV con errores no se confirma (responde 409 IMPORT_HAS_ERRORS)
+    let commit_err_result = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_err.session_id,
+            offset: 0,
+            limit: 200,
+        },
+    )
+    .await;
+
+    match commit_err_result {
+        Err(ApiError::Domain(DomainError::Coded { code, .. })) => {
+            assert_eq!(code, "IMPORT_HAS_ERRORS");
+        }
+        other => panic!("expected IMPORT_HAS_ERRORS, got {:?}", other),
+    }
+
+    // 3. [P] Un CSV válido crea los productos y las variantes, y un reintento del mismo rango no duplica nada
+    let valid_csv = "sku;codigo_barras;nombre;categoria;unidad;impuesto;costo;precio;cantidad_inicial;sku_padre;atributos\n\
+        PADRE-01;;Camiseta Base;Ropa;UND;IVA19;10000;20000;0;;\n\
+        HIJO-01;7701234567890;Camiseta Roja M;Ropa;UND;IVA19;10000;22000;5;PADRE-01;Talla=M|Color=Rojo\n\
+        PROD-SOLO;7701234567891;Gorra Negra;Accesorios;UND;IVA19;5000;12000;10;;\n";
+
+    let resp_valid = crate::csv_import::analyze_csv(app, &c_owner, branch, valid_csv.as_bytes())
+        .await
+        .unwrap();
+
+    assert_eq!(resp_valid.summary.errors, 0);
+    assert_eq!(resp_valid.summary.ok + resp_valid.summary.warnings, 3);
+
+    // Commit primer bloque (filas 0 y 1: padre y variante)
+    let commit_batch1 = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_valid.session_id,
+            offset: 0,
+            limit: 2,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(commit_batch1.committed_rows, 2);
+    assert!(!commit_batch1.done);
+
+    // Reintento del mismo rango (idempotente)
+    let commit_retry = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_valid.session_id,
+            offset: 0,
+            limit: 2,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(commit_retry.committed_rows, 2);
+    assert!(!commit_retry.done);
+
+    // Commit segundo bloque (fila 2: gorra negra)
+    let commit_batch2 = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_valid.session_id,
+            offset: 2,
+            limit: 2,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(commit_batch2.committed_rows, 3);
+    assert!(commit_batch2.done);
+
+    // Verificar en base de datos que se crearon los productos
+    let total_products: i64 =
+        sqlx::query_scalar("select count(*) from products where tenant_id = $1")
+            .bind(tenant)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        total_products, 3,
+        "deben haberse creado 3 productos en total"
+    );
+
+    // Verificar que la variante HIJO-01 tiene parent_id = PADRE-01
+    let parent_id: Uuid =
+        sqlx::query_scalar("select id from products where tenant_id = $1 and sku = 'PADRE-01'")
+            .bind(tenant)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let variant_parent: Option<Uuid> = sqlx::query_scalar(
+        "select parent_id from products where tenant_id = $1 and sku = 'HIJO-01'",
+    )
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        variant_parent,
+        Some(parent_id),
+        "variante debe referenciar al padre"
+    );
+
+    // Verificar stock inicial cargado (5 en HIJO-01 y 10 en PROD-SOLO)
+    let stock_variant: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where branch_id = $1 and product_id = (select id from products where sku = 'HIJO-01' and tenant_id = $2)",
+    )
+    .bind(branch)
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        stock_variant,
+        dec(5),
+        "variante debe tener 5 de stock inicial"
+    );
+
+    let stock_solo: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where branch_id = $1 and product_id = (select id from products where sku = 'PROD-SOLO' and tenant_id = $2)",
+    )
+    .bind(branch)
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(stock_solo, dec(10), "gorra debe tener 10 de stock inicial");
 
     cleanup(admin, tenant, &[owner]).await;
 }

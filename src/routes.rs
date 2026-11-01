@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::error::{ApiError, DomainError};
+use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
@@ -67,6 +67,9 @@ pub fn router() -> Router<AppState> {
         // Catalogo
         .route("/v1/catalog", get(catalog_list))
         .route("/v1/products/{id}/recipe", get(recipe))
+        // Importación CSV (F2.6)
+        .route("/v1/products/import/analyze", post(import_analyze))
+        .route("/v1/products/import/commit", post(import_commit))
         // Productos (F2.3 / F2.5)
         .route("/v1/products", get(list_products).post(create_product))
         .route("/v1/products/{id}", get(get_product).put(update_product))
@@ -1341,4 +1344,100 @@ async fn business_info(
     Ok(Json(
         settings::business_info(&state.pool, &user.claims).await?,
     ))
+}
+
+// ------------------------------------------------------- importacion CSV (F2.6)
+
+async fn import_analyze(
+    State(state): State<AppState>,
+    user: AuthUser,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<crate::csv_import::AnalyzeResponse>> {
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let (branch_id, csv_bytes) = if content_type.contains("multipart/form-data") {
+        let boundary = content_type
+            .split(';')
+            .find_map(|p| {
+                let p = p.trim();
+                p.strip_prefix("boundary=")
+            })
+            .ok_or_else(|| {
+                error::coded(
+                    StatusCode::BAD_REQUEST,
+                    "MISSING_BOUNDARY",
+                    "Falta el delimitador (boundary) en Content-Type",
+                    None,
+                )
+            })?;
+
+        let parts = crate::csv_import::parse_multipart_body(&body, boundary.trim_matches('"'));
+        let branch_id_bytes = parts
+            .get("branch_id")
+            .map(|(_, d)| d.as_slice())
+            .ok_or_else(|| {
+                error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "MISSING_FIELD",
+                    "Falta el campo branch_id",
+                    None,
+                )
+            })?;
+        let branch_id_str = String::from_utf8_lossy(branch_id_bytes).trim().to_string();
+        let branch_id = branch_id_str.parse::<Uuid>().map_err(|_| {
+            error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INVALID_UUID",
+                "branch_id inválido",
+                None,
+            )
+        })?;
+
+        let file_bytes = parts.get("file").map(|(_, d)| d.clone()).ok_or_else(|| {
+            error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "MISSING_FIELD",
+                "Falta el archivo CSV (campo 'file')",
+                None,
+            )
+        })?;
+
+        (branch_id, file_bytes)
+    } else {
+        #[derive(Deserialize)]
+        struct JsonImportReq {
+            branch_id: Uuid,
+            #[serde(default)]
+            file_content: Option<String>,
+            #[serde(default)]
+            csv: Option<String>,
+        }
+        let json_body: JsonImportReq = serde_json::from_slice(&body).map_err(|e| {
+            error::coded(
+                StatusCode::BAD_REQUEST,
+                "INVALID_BODY",
+                format!("Cuerpo inválido: {e}"),
+                None,
+            )
+        })?;
+        let content = json_body.file_content.or(json_body.csv).unwrap_or_default();
+        (json_body.branch_id, content.into_bytes())
+    };
+
+    let res =
+        crate::csv_import::analyze_csv(&state.pool, &user.claims, branch_id, &csv_bytes).await?;
+    Ok(Json(res))
+}
+
+async fn import_commit(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<crate::csv_import::CommitRequest>,
+) -> ApiResult<Json<crate::csv_import::CommitResponse>> {
+    let res = crate::csv_import::commit_import(&state.pool, &user.claims, req).await?;
+    Ok(Json(res))
 }
