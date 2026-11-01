@@ -141,7 +141,7 @@ async fn health_db(State(state): State<AppState>) -> ApiResult<Json<serde_json::
 
 /// Identidad y alcance resueltos por membresia (tenant, sucursal y rol), tal
 /// como los aplica RLS. 403 si el usuario no pertenece a ningun negocio.
-async fn context(
+pub async fn context(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> ApiResult<Json<serde_json::Value>> {
@@ -151,11 +151,14 @@ async fn context(
             .fetch_one(&mut *tx)
             .await?;
     tx.commit().await?;
+    let mut perms: Vec<String> = scope.permissions.into_iter().collect();
+    perms.sort();
     Ok(Json(json!({
         "uid": uid,
         "tenant": tenant,
         "branch": branch,
         "role": scope.role,
+        "permissions": perms,
     })))
 }
 

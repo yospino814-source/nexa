@@ -13,8 +13,8 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    cash, catalog, inventory, orders, outbox, permissions, procurement, sales, sequences, settings,
-    tenancy, users,
+    AppState, cash, catalog, inventory, orders, outbox, permissions, procurement, routes, sales,
+    sequences, settings, tenancy, users,
 };
 
 fn dec(n: i64) -> Decimal {
@@ -754,6 +754,7 @@ async fn database_integration() {
     supplier_checks(&app, &admin).await;
     purchase_checks(&app, &admin).await;
     platform_checks(&app, &admin).await;
+    context_returns_permissions(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -2110,4 +2111,68 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     assert!(is_too_many_requests(&blocked_pre_check));
 
     cleanup(admin, tenant, &[owner, cashier, admin_user]).await;
+}
+
+/// F1.0: Permisos en el contexto
+async fn context_returns_permissions(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let state = AppState {
+        pool: app.clone(),
+        jwt: crate::auth::JwtValidator::new("http://localhost:54321"),
+    };
+
+    // [P] El dueño recibe todos los permisos de la tabla permissions
+    let owner_resp = routes::context(
+        axum::extract::State(state.clone()),
+        crate::auth::AuthUser { claims: c_owner },
+    )
+    .await
+    .unwrap();
+    let owner_json = owner_resp.0;
+    let owner_perms: Vec<String> =
+        serde_json::from_value(owner_json["permissions"].clone()).unwrap();
+
+    let all_perms: Vec<String> = sqlx::query_scalar("select code from permissions order by code")
+        .fetch_all(admin)
+        .await
+        .unwrap();
+    assert_eq!(owner_perms, all_perms);
+
+    // [P] Un cajero recibe exactamente los permisos base de CAJERO
+    let cashier_resp = routes::context(
+        axum::extract::State(state),
+        crate::auth::AuthUser { claims: c_cashier },
+    )
+    .await
+    .unwrap();
+    let cashier_json = cashier_resp.0;
+    let cashier_perms: Vec<String> =
+        serde_json::from_value(cashier_json["permissions"].clone()).unwrap();
+
+    let role_id: i32 = sqlx::query_scalar(
+        "select tima_id from tbl_tipos_maestra where padre_id = (select tima_id from tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL') and tima_codigo = 'CAJERO'"
+    )
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    let mut base_cajero_perms: Vec<String> =
+        sqlx::query_scalar("select permission_code from role_permissions where role_id = $1")
+            .bind(role_id)
+            .fetch_all(admin)
+            .await
+            .unwrap();
+    base_cajero_perms.sort();
+
+    assert_eq!(cashier_perms, base_cajero_perms);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

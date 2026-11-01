@@ -20,6 +20,13 @@ pub enum DomainError {
     State(String),
     #[error("too many requests: {0}")]
     TooManyRequests(String),
+    #[error("{message}")]
+    Coded {
+        status: StatusCode,
+        code: &'static str,
+        message: String,
+        data: Option<serde_json::Value>,
+    },
 }
 
 impl DomainError {
@@ -30,6 +37,7 @@ impl DomainError {
             DomainError::Forbidden => StatusCode::FORBIDDEN,
             DomainError::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
             DomainError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            DomainError::Coded { status, .. } => *status,
         }
     }
 }
@@ -45,6 +53,21 @@ pub fn state(msg: impl Into<String>) -> ApiError {
 
 pub fn too_many_requests(msg: impl Into<String>) -> ApiError {
     ApiError::Domain(DomainError::TooManyRequests(msg.into()))
+}
+
+#[allow(dead_code)]
+pub fn coded(
+    status: StatusCode,
+    code: &'static str,
+    message: impl Into<String>,
+    data: Option<serde_json::Value>,
+) -> ApiError {
+    ApiError::Domain(DomainError::Coded {
+        status,
+        code,
+        message: message.into(),
+        data,
+    })
 }
 
 /// Error de la capa API.
@@ -103,6 +126,22 @@ impl IntoResponse for ApiError {
             // El cliente solo ve "internal error"; el detalle queda en el log.
             tracing::error!(error = ?self, "request failed");
         }
+        if let ApiError::Domain(DomainError::Coded {
+            code,
+            message,
+            data,
+            ..
+        }) = self
+        {
+            let mut body = json!({
+                "error": message,
+                "code": code,
+            });
+            if let Some(d) = data {
+                body["data"] = d;
+            }
+            return (status, Json(body)).into_response();
+        }
         (status, Json(json!({ "error": self.message() }))).into_response()
     }
 }
@@ -113,6 +152,19 @@ mod tests {
 
     fn status_of(err: ApiError) -> StatusCode {
         err.status()
+    }
+
+    #[tokio::test]
+    async fn coded_error_body_has_code() {
+        use http_body_util::BodyExt;
+        let err = coded(StatusCode::CONFLICT, "X", "m", None);
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "X");
+        assert_eq!(body["error"], "m");
+        assert!(body.get("data").is_none());
     }
 
     #[test]

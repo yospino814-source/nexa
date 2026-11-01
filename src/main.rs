@@ -5,11 +5,12 @@ mod catalog;
 mod db;
 mod error;
 mod inventory;
+pub mod money;
 mod orders;
 pub mod outbox;
 pub mod permissions;
 mod procurement;
-mod routes;
+pub mod routes;
 mod sales;
 pub mod sequences;
 pub mod settings;
@@ -33,9 +34,9 @@ use tower_http::trace::TraceLayer;
 use crate::auth::JwtValidator;
 
 #[derive(Clone)]
-struct AppState {
-    pool: PgPool,
-    jwt: JwtValidator,
+pub struct AppState {
+    pub pool: PgPool,
+    pub jwt: JwtValidator,
 }
 
 /// Tiempo maximo de un request antes de responder 408.
