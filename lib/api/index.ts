@@ -37,6 +37,7 @@ import {
   mockUpdateUserRole,
   mockUpdateUserStatus,
   mockUsersList,
+  mockRecordLoginAttempt,
 } from "./mock-platform";
 import type {
   AuditEntry,
@@ -57,6 +58,7 @@ import type {
   Decimal,
   Invitation,
   InviteUserInput,
+  LoginAttemptInput,
   Movement,
   OrderItem,
   Payment,
@@ -744,12 +746,41 @@ export const api = {
       return request(`/v1/reports/dashboard?branch_id=${branchId}&period=today`);
     },
   },
+
+  auth: {
+    /** POST /v1/auth/login-attempt (verificación previa antes de iniciar sesión con Supabase) */
+    async checkLoginAttempt(email: string): Promise<void> {
+      if (USE_MOCKS) {
+        mockRecordLoginAttempt({ email });
+        return;
+      }
+      await request("/v1/auth/login-attempt", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+    },
+
+    /** POST /v1/auth/login-attempt (registro tras éxito o fallo de autenticación) */
+    async recordLoginAttempt(input: LoginAttemptInput): Promise<void> {
+      if (USE_MOCKS) {
+        mockRecordLoginAttempt(input);
+        return;
+      }
+      await request("/v1/auth/login-attempt", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+  },
 };
 
 /** Mensajes del backend traducidos para el cajero. */
 export function friendlyError(error: unknown): string {
   if (!(error instanceof ApiError)) return "No se pudo conectar con el servidor. Intentá de nuevo.";
   const m = error.message;
+  if (error.status === 429 || m.includes("too many requests") || m.includes("intentos fallidos")) {
+    return "Demasiados intentos fallidos. Tu cuenta está bloqueada temporalmente (15 minutos).";
+  }
   if (m.includes("no open cash session")) return "No hay un turno de caja abierto. Abrí la caja para vender.";
   if (m.includes("insufficient stock")) return "No hay stock suficiente de uno de los productos.";
   if (m.includes("do not cover the total")) return "El pago no cubre el total.";

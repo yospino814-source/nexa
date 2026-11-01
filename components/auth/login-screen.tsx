@@ -8,6 +8,7 @@ import { Eye, EyeOff, Loader2, MailCheck } from "lucide-react";
 import { getSupabase } from "@/lib/supabase/client";
 import { AUTH_ENABLED } from "@/lib/supabase/config";
 import { homeFor, rememberDevice, useSession } from "@/lib/stores/session";
+import { api, ApiError } from "@/lib/api";
 
 import { AuthShell, FieldLabel, inputClass, primaryButtonClass } from "./auth-shell";
 import { BranchPicker } from "./branch-picker";
@@ -19,7 +20,7 @@ function safeNext(next: string | null): string | null {
 
 function loginErrorMessage(message: string): string {
   if (/email not confirmed/i.test(message)) return "Confirmá tu email antes de entrar (revisá tu correo).";
-  if (/too many|rate limit/i.test(message)) return "Demasiados intentos. Esperá un momento y probá de nuevo.";
+  if (/too many|rate limit|bloquead|fallidos/i.test(message)) return "Demasiados intentos fallidos. Tu cuenta está bloqueada temporalmente (15 minutos).";
   if (/fetch|network/i.test(message)) return "No se pudo conectar. Revisá tu conexión.";
   return "Email o contraseña incorrectos";
 }
@@ -60,12 +61,52 @@ export function LoginScreen() {
     if (!supabase) return;
     setSubmitting(true);
     setError(null);
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+
+    const trimmedEmail = email.trim();
+
+    // 1. Verificación de intentos fallidos antes de llamar a Supabase
+    try {
+      await api.auth.checkLoginAttempt(trimmedEmail);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 429) {
+        setError("Demasiados intentos fallidos. Tu cuenta está bloqueada temporalmente (15 minutos).");
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // 2. Intento de autenticación con Supabase
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
     if (authError) {
+      // Registrar intento fallido
+      try {
+        await api.auth.recordLoginAttempt({
+          email: trimmedEmail,
+          success: false,
+          failure_reason: authError.message,
+        });
+      } catch (err: unknown) {
+        if (err instanceof ApiError && err.status === 429) {
+          setError("Demasiados intentos fallidos. Tu cuenta está bloqueada temporalmente (15 minutos).");
+          setSubmitting(false);
+          return;
+        }
+      }
       setError(loginErrorMessage(authError.message));
       setSubmitting(false);
       return;
     }
+
+    // 3. Registrar intento exitoso
+    try {
+      await api.auth.recordLoginAttempt({
+        email: trimmedEmail,
+        success: true,
+      });
+    } catch {
+      // No bloquear al usuario si el registro de auditoría falla
+    }
+
     rememberDevice(remember);
     await boot();
     if (useSession.getState().status === "error") {

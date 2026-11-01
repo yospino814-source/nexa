@@ -484,6 +484,12 @@ export type UpdateUserStatusInput = {
   active: boolean;
 };
 
+export type LoginAttemptInput = {
+  email: string;
+  success?: boolean;
+  failure_reason?: string;
+};
+
 // ---------------------------------------------------------------- PROPUESTOS
 
 /** PROPUESTO — GET /v1/reports/dashboard?branch_id=&period=today */

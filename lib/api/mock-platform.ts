@@ -4,6 +4,7 @@ import type {
   BranchSettings,
   Invitation,
   InviteUserInput,
+  LoginAttemptInput,
   Permission,
   Role,
   RolePermissionItem,
@@ -12,6 +13,7 @@ import type {
   UpdateRolePermissionsInput,
   Uuid,
 } from "./types";
+import { ApiError } from "./client";
 import { MOCK_BRANCH_ID } from "./mock";
 
 const BRANCH_CENTRO = MOCK_BRANCH_ID;
@@ -125,6 +127,8 @@ const mockInvitationsData: Invitation[] = [
 
 export const PERMISSION_CATALOG: Permission[] = [
   { code: "pos:sell", module: "pos", description: "Vender en mostrador" },
+  { code: "pos:order", module: "pos", description: "Tomar pedidos y comandas de mesa" },
+  { code: "pos:kitchen", module: "pos", description: "Ver y preparar pedidos en pantalla de cocina" },
   { code: "pos:price_override", module: "pos", description: "Modificar precio en venta" },
   { code: "pos:discount", module: "pos", description: "Aplicar descuento en venta" },
   { code: "pos:custom_item", module: "pos", description: "Agregar producto libre o no catalogado" },
@@ -151,23 +155,41 @@ export const PERMISSION_CATALOG: Permission[] = [
   { code: "users:manage", module: "users", description: "Invitar usuarios y administrar roles" },
 ];
 
+const CAJERO_BASE = [
+  "inventory:read",
+  "pos:order",
+  "pos:sell",
+  "cash:movement",
+  "cash:open",
+  "cash:close",
+  "cash:history",
+  "pos:discount",
+  "pos:custom_item",
+  "customers:read",
+  "customers:write",
+  "credit:collect",
+];
+
 const BASE_ROLE_PERMISSIONS: Record<Role, string[]> = {
   DUENO: PERMISSION_CATALOG.map((p) => p.code),
   ADMIN_CAJA: PERMISSION_CATALOG.map((p) => p.code).filter((c) => c !== "settings:write" && c !== "users:manage"),
-  CAJERO: ["pos:sell", "pos:discount", "cash:open", "cash:close", "cash:movement", "customers:read", "credit:collect"],
-  MESERO: ["pos:sell", "customers:read"],
-  COCINA: ["inventory:read"],
+  CAJERO: [...CAJERO_BASE],
+  MESERO: ["inventory:read", "pos:order", "customers:read"],
+  COCINA: ["inventory:read", "pos:kitchen"],
   SUPERVISOR: [
-    "pos:sell", "pos:price_override", "pos:discount", "pos:refund",
-    "cash:open", "cash:close", "cash:movement", "cash:history",
-    "inventory:read", "inventory:adjust", "inventory:transfer",
-    "customers:read", "customers:write", "credit:sell", "credit:collect", "reports:read",
+    ...CAJERO_BASE,
+    "pos:refund",
+    "inventory:adjust",
+    "reports:read",
   ],
   BODEGA: [
-    "inventory:read", "inventory:adjust", "inventory:transfer",
-    "purchases:create", "purchases:receive",
+    "inventory:read",
+    "inventory:adjust",
+    "inventory:adjust_approve",
+    "inventory:transfer",
+    "purchases:receive",
   ],
-  REPARTIDOR: ["pos:sell", "customers:read", "credit:collect"],
+  REPARTIDOR: ["pos:sell", "inventory:read"],
 };
 
 // Almacén de overrides en memoria para el modo mock
@@ -439,4 +461,42 @@ export function mockGetAudit(filter?: AuditFilter): AuditEntry[] {
   }
   return list;
 }
+
+interface MockLoginAttempt {
+  email: string;
+  success: boolean;
+  reason?: string;
+  at: number;
+}
+
+const mockLoginAttempts: MockLoginAttempt[] = [];
+
+export function mockRecordLoginAttempt(input: LoginAttemptInput): { ok: boolean; failed_attempts_in_window: number } {
+  const email = input.email.trim().toLowerCase();
+  if (!email) {
+    throw new ApiError(422, "email is required");
+  }
+  const now = Date.now();
+  const windowStart = now - 15 * 60 * 1000;
+
+  if (typeof input.success === "boolean") {
+    mockLoginAttempts.push({
+      email,
+      success: input.success,
+      reason: input.failure_reason,
+      at: now,
+    });
+  }
+
+  const recentFailures = mockLoginAttempts.filter(
+    (a) => a.email === email && !a.success && a.at >= windowStart
+  ).length;
+
+  if (recentFailures >= 5) {
+    throw new ApiError(429, "too many requests: demasiados intentos fallidos en los últimos 15 minutos");
+  }
+
+  return { ok: true, failed_attempts_in_window: recentFailures };
+}
+
 
