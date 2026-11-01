@@ -1764,6 +1764,17 @@ export const api = {
       });
     },
 
+    async generateBarcode(id: Uuid): Promise<{ barcode: string }> {
+      if (USE_MOCKS) {
+        await delay();
+        const barcode = `2000000000015`;
+        return { barcode };
+      }
+      return request<{ barcode: string }>(`/v1/products/${id}/generate-barcode`, {
+        method: "POST",
+      });
+    },
+
     async importAnalyze(branchId: Uuid, file: File): Promise<AnalyzeResponse> {
       if (USE_MOCKS) {
         await delay(300);
@@ -2526,6 +2537,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   TIER_MISSING_UNITS: "La presentación no tiene unidades configuradas.",
   TIER_KIND_IMMUTABLE: "No se puede cambiar el tipo de una tarifa.",
   BARCODE_TAKEN: "Ese código de barras ya está en uso.",
+  BARCODE_EXISTS: "El producto ya tiene un código de barras asignado.",
   PROMOTION_INVALID: "Revisá los datos de la promoción.",
   PROMOTION_NOT_EDITABLE: "Pausá la promoción para editarla.",
   PROMOTION_EXHAUSTED: "Una promoción se agotó. Revisá el total.",
