@@ -783,6 +783,7 @@ export type InventorySettings = {
   allow_negative_stock: boolean;
   track_raw_materials: boolean;
   low_stock_default?: number;
+  costing?: "PROMEDIO" | "PEPS";
 };
 
 export type TipsSettings = {

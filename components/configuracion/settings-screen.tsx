@@ -407,6 +407,43 @@ export function SettingsScreen() {
                 />
               </label>
             </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5 md:col-span-2">
+              <div>
+                <span className="font-bold text-slate-900 text-sm block">Método de costeo de inventario</span>
+                <span className="text-xs text-slate-500 block mt-0.5 mb-3">
+                  Define cómo se calcula el costo de la mercancía vendida (CMV) al registrar ventas y salidas de stock.
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { value: "PROMEDIO", label: "Costo Promedio Ponderado", desc: "Recalcula el costo unitario con cada entrada y valora salidas al costo medio actual." },
+                    { value: "PEPS", label: "PEPS / FIFO", desc: "Primero en Entrar, Primero en Salir. Consume las capas de costo más antiguas primero." },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() =>
+                        setFormSettings({
+                          ...formSettings,
+                          inventory: {
+                            ...formSettings.inventory,
+                            costing: opt.value as "PROMEDIO" | "PEPS",
+                          },
+                        })
+                      }
+                      className={`rounded-xl border p-4 text-left transition-all ${
+                        (formSettings.inventory.costing || "PROMEDIO") === opt.value
+                          ? "border-slate-900 bg-white ring-2 ring-slate-900/10 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <span className="font-bold text-slate-900 text-sm block">{opt.label}</span>
+                      <span className="text-xs text-slate-500 block mt-1">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

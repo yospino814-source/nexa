@@ -213,6 +213,7 @@ const mockBranchSettings: Record<string, BranchSettings> = {
       allow_negative_stock: false,
       track_raw_materials: true,
       low_stock_default: 5,
+      costing: "PROMEDIO",
     },
     tips: {
       enabled: false,
