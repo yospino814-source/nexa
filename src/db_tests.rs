@@ -13,8 +13,8 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    audit, cash, catalog, inventory, orders, outbox, permissions, procurement, sales, sequences,
-    settings, tenancy, users,
+    cash, catalog, inventory, orders, outbox, permissions, procurement, sales, sequences, settings,
+    tenancy, users,
 };
 
 fn dec(n: i64) -> Decimal {
@@ -1022,6 +1022,8 @@ fn sale(
             .map(|(product_id, qty)| SaleItem {
                 product_id: *product_id,
                 qty: dec(*qty),
+                unit_price_override: None,
+                discount_pct: None,
             })
             .collect(),
         payments: payments
@@ -1687,7 +1689,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     // 3. Ajustes por sucursal
     // [P] pos.allow_price_override (false por defecto) y pos.max_discount_pct (15)
     let prod = seed_product(admin, tenant, "Gaseosa Ajustes", "UND", None, false).await;
-    seed_branch_product(admin, tenant, branch, prod, Some(Decimal::from(5000)), None).await;
+    seed_branch_product(admin, tenant, branch, prod, None, Some("5000")).await;
     seed_stock(admin, tenant, branch, prod, "50", "0").await;
 
     // Abrir turno de caja
@@ -1767,18 +1769,10 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     assert!(ok_sale.receipt_number.starts_with("POS-"));
 
     // [P] pos.refund_requires_approval (true): cajero no puede cancelar sin aprobacion admin
-    let unbilled_order = orders::create(
-        app,
-        &c_cashier,
-        orders::CreateOrderRequest {
-            branch_id: branch,
-            sale_type: "MOSTRADOR".into(),
-            table_id: None,
-            notes: None,
-        },
-    )
-    .await
-    .unwrap();
+    let unbilled_order =
+        orders::create_order(app, &c_cashier, branch, "MOSTRADOR", None, None, None)
+            .await
+            .unwrap();
     let try_cashier_cancel_unbilled = orders::cancel(app, &c_cashier, unbilled_order.id).await;
     assert!(is_conflict(&try_cashier_cancel_unbilled) || is_state(&try_cashier_cancel_unbilled));
 
