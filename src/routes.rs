@@ -67,10 +67,12 @@ pub fn router() -> Router<AppState> {
         // Catalogo
         .route("/v1/catalog", get(catalog_list))
         .route("/v1/products/{id}/recipe", get(recipe))
-        // Productos (F2.3)
+        // Productos (F2.3 / F2.5)
         .route("/v1/products", get(list_products).post(create_product))
         .route("/v1/products/{id}", get(get_product).put(update_product))
         .route("/v1/products/{id}/variants", post(create_variant))
+        .route("/v1/products/{id}/archive", post(archive_product))
+        .route("/v1/products/{id}/unarchive", post(unarchive_product))
         .route(
             "/v1/branch-products/{product_id}",
             put(update_branch_product),
@@ -308,6 +310,25 @@ async fn update_branch_product(
     Ok(Json(
         products::update_branch_product(&state.pool, &user.claims, product_id, input).await?,
     ))
+}
+
+async fn archive_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<products::ArchiveProductInput>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let res = products::archive_product(&state.pool, &user.claims, id, input.confirm).await?;
+    Ok(Json(res))
+}
+
+async fn unarchive_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let res = products::unarchive_product(&state.pool, &user.claims, id).await?;
+    Ok(Json(res))
 }
 
 // ----------------------------------------------------------- modificadores (F2.4)

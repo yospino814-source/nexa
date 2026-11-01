@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{self, ApiError};
+use crate::error::{self, ApiError, DomainError};
 use crate::tenancy::{self, Scope};
 
 type Tx<'a> = Transaction<'a, Postgres>;
@@ -90,6 +90,7 @@ struct ProductDetailDbRow {
     pub has_variants: bool,
     pub parent_id: Option<Uuid>,
     pub archived: bool,
+    pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub unit_measure_code: String,
     pub purchase_uom_code: Option<String>,
     pub purchase_factor: Decimal,
@@ -114,6 +115,7 @@ pub struct LocationStockRow {
 pub struct ProductDetail {
     #[serde(flatten)]
     pub row: ProductRow,
+    pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub unit_measure_code: String,
     pub purchase_uom_code: Option<String>,
     pub purchase_factor: Decimal,
@@ -494,6 +496,7 @@ pub async fn get_product_detail_tx(
            p.has_variants,
            p.parent_id,
            (p.archived_at is not null) as archived,
+           p.archived_at,
            uom.tima_codigo as unit_measure_code,
            puom.tima_codigo as purchase_uom_code,
            p.purchase_factor,
@@ -592,6 +595,7 @@ pub async fn get_product_detail_tx(
             parent_id: row.parent_id,
             archived: row.archived,
         },
+        archived_at: row.archived_at,
         unit_measure_code: row.unit_measure_code,
         purchase_uom_code: row.purchase_uom_code,
         purchase_factor: row.purchase_factor,
@@ -1192,4 +1196,244 @@ pub async fn update_branch_product(
 
     tx.commit().await?;
     Ok(serde_json::json!({ "status": "ok", "id": bp_id }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArchiveProductInput {
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchivePlanItem {
+    pub location_id: Uuid,
+    pub location_name: String,
+    pub on_hand: Decimal,
+    pub avg_cost: Decimal,
+    pub value: Decimal,
+}
+
+pub async fn archive_product(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+    confirm: bool,
+) -> Result<serde_json::Value, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    let prod_row: Option<(Uuid, bool)> = sqlx::query_as(
+        "select id, has_variants
+           from products
+          where tenant_id = $1 and id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (prod_id, has_variants) = prod_row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    let mut product_ids = vec![prod_id];
+    if has_variants {
+        let variant_ids: Vec<Uuid> = sqlx::query_scalar(
+            "select id from products where tenant_id = $1 and parent_id = $2 and archived_at is null",
+        )
+        .bind(scope.tenant)
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+        product_ids.extend(variant_ids);
+    }
+
+    // 1. Si el producto tiene reservas ACTIVA en cualquier ubicación: 409 PRODUCT_HAS_RESERVATIONS
+    let has_res: bool = sqlx::query_scalar(
+        "select exists (
+           select 1 from stock_reservations
+            where tenant_id = $1
+              and product_id = any($2)
+              and status_id = public.tipo_id('RES', 'ACTIVA')
+         )",
+    )
+    .bind(scope.tenant)
+    .bind(&product_ids)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if has_res {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "PRODUCT_HAS_RESERVATIONS",
+            "El producto o sus variantes tienen reservas activas",
+            None,
+        ));
+    }
+
+    // 2. Calcula el plan: [{location_id, location_name, on_hand, avg_cost, value = money(on_hand × avg_cost)}], solo de las ubicaciones con on_hand != 0.
+    let stock_rows: Vec<(Uuid, String, Uuid, Decimal, Decimal, Option<Decimal>)> = sqlx::query_as(
+        "select s.branch_id, b.name, s.product_id, s.on_hand, s.reserved, coalesce(p.cost_price, 0)
+           from stock s
+           join branches b on b.id = s.branch_id
+           join products p on p.id = s.product_id
+          where s.tenant_id = $1
+            and s.product_id = any($2)
+            and s.on_hand != 0",
+    )
+    .bind(scope.tenant)
+    .bind(&product_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let mut plan = Vec::new();
+    let mut total_value = Decimal::ZERO;
+
+    for (branch_id, branch_name, _pid, on_hand, _reserved, cost_price) in &stock_rows {
+        let avg_cost = cost_price.unwrap_or(Decimal::ZERO);
+        let value = crate::money::money(*on_hand * avg_cost);
+        total_value += value;
+        plan.push(ArchivePlanItem {
+            location_id: *branch_id,
+            location_name: branch_name.clone(),
+            on_hand: *on_hand,
+            avg_cost,
+            value,
+        });
+    }
+
+    // 3. Si el plan no está vacío y confirm = false: 409 ARCHIVE_NEEDS_CONFIRM, con data: {plan, total_value}.
+    if !plan.is_empty() && !confirm {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "ARCHIVE_NEEDS_CONFIRM",
+            "El producto tiene existencias que deben darse de baja para archivar",
+            Some(serde_json::json!({
+                "plan": plan,
+                "total_value": total_value,
+            })),
+        ));
+    }
+
+    // 4. Con confirm = true (o con el plan vacío), en la misma transacción:
+    // 4.1 por cada fila del plan, registra un ajuste de salida con causa "Baja por archivo" mediante apply_delta_tx,
+    // con movement = AJUSTE_SALIDA, ref_type = 'ARCHIVE' y ref_id = product_id
+    for (branch_id, _bname, pid, on_hand, reserved, _cost) in stock_rows {
+        if on_hand > Decimal::ZERO {
+            let delta = -on_hand;
+            crate::inventory::apply_delta_ref_tx(
+                &mut tx,
+                &scope,
+                branch_id,
+                pid,
+                on_hand,
+                reserved,
+                delta,
+                "Baja por archivo",
+                Some(("ARCHIVE", pid)),
+            )
+            .await?;
+        }
+    }
+
+    // 4.2 archived_at = now() y branch_products.is_available = false en todas las sucursales;
+    // 4.3 si es un padre, archiva también todas sus variantes con el mismo proceso;
+    sqlx::query(
+        "update products
+            set archived_at = now()
+          where tenant_id = $1 and id = any($2)",
+    )
+    .bind(scope.tenant)
+    .bind(&product_ids)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "update branch_products
+            set is_available = false
+          where product_id = any($1)",
+    )
+    .bind(&product_ids)
+    .execute(&mut *tx)
+    .await?;
+
+    // 4.4 auditoría PRODUCTO_ARCHIVADO, con el plan en after.
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "PRODUCTO_ARCHIVADO",
+        "products",
+        id,
+        None,
+        Some(serde_json::json!({
+            "plan": plan,
+            "total_value": total_value,
+        })),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(serde_json::json!({
+        "status": "ok",
+        "archived_at": chrono::Utc::now(),
+        "archived_ids": product_ids,
+    }))
+}
+
+pub async fn unarchive_product(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+) -> Result<serde_json::Value, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    let prod_row: Option<(Uuid, bool)> =
+        sqlx::query_as("select id, has_variants from products where tenant_id = $1 and id = $2")
+            .bind(scope.tenant)
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let (prod_id, has_variants) = prod_row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    let mut product_ids = vec![prod_id];
+    if has_variants {
+        let variant_ids: Vec<Uuid> =
+            sqlx::query_scalar("select id from products where tenant_id = $1 and parent_id = $2")
+                .bind(scope.tenant)
+                .bind(id)
+                .fetch_all(&mut *tx)
+                .await?;
+        product_ids.extend(variant_ids);
+    }
+
+    sqlx::query(
+        "update products
+            set archived_at = null
+          where tenant_id = $1 and id = any($2)",
+    )
+    .bind(scope.tenant)
+    .bind(&product_ids)
+    .execute(&mut *tx)
+    .await?;
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "PRODUCTO_DESARCHIVADO",
+        "products",
+        id,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(serde_json::json!({
+        "status": "ok",
+        "unarchived_ids": product_ids,
+    }))
 }

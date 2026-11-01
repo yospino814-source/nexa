@@ -64,6 +64,7 @@ pub struct StockLevel {
     /// AGOTADO | BAJO | OK
     pub status: String,
     pub updated_at: Option<DateTime<Utc>>,
+    pub archived: bool,
 }
 
 /// Fila de reserva: (id, branch_id, product_id, qty).
@@ -772,7 +773,7 @@ async fn lock_or_create_stock_tx(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn apply_delta_tx(
+pub(crate) async fn apply_delta_ref_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
     branch_id: Uuid,
@@ -781,6 +782,7 @@ async fn apply_delta_tx(
     reserved: Decimal,
     delta: Decimal,
     cause: &str,
+    reference: Option<(&str, Uuid)>,
 ) -> Result<(), ApiError> {
     let settings = crate::settings::load_tx(tx, branch_id).await?;
     let new_on_hand = on_hand + delta;
@@ -803,7 +805,34 @@ async fn apply_delta_tx(
     .await?;
 
     let kind = adjustment_type(delta);
-    record_movement(tx, scope, branch_id, product_id, kind, delta.abs(), cause).await
+    record_movement_ref(
+        tx,
+        scope,
+        branch_id,
+        product_id,
+        kind,
+        delta.abs(),
+        cause,
+        reference,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_delta_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    product_id: Uuid,
+    on_hand: Decimal,
+    reserved: Decimal,
+    delta: Decimal,
+    cause: &str,
+) -> Result<(), ApiError> {
+    apply_delta_ref_tx(
+        tx, scope, branch_id, product_id, on_hand, reserved, delta, cause, None,
+    )
+    .await
 }
 
 /// Tipo de movimiento segun la direccion del ajuste.
@@ -813,18 +842,6 @@ fn adjustment_type(delta: Decimal) -> &'static str {
     } else {
         "AJUSTE_SALIDA"
     }
-}
-
-async fn record_movement(
-    tx: &mut Tx<'_>,
-    scope: &Scope,
-    branch_id: Uuid,
-    product_id: Uuid,
-    kind: &str,
-    qty: Decimal,
-    cause: &str,
-) -> Result<(), ApiError> {
-    record_movement_ref(tx, scope, branch_id, product_id, kind, qty, cause, None).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -961,7 +978,8 @@ pub async fn stock_levels(
                   when coalesce(s.on_hand, 0) - coalesce(s.reserved, 0) <= coalesce(s.min_qty, 0) then 'BAJO'
                   else 'OK'
                 end as status,
-                s.updated_at
+                s.updated_at,
+                (p.archived_at is not null) as archived
            from products p
            left join branch_products bp on bp.product_id = p.id and bp.branch_id = $1
            left join stock s on s.product_id = p.id and s.branch_id = $1

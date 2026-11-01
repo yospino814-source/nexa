@@ -785,6 +785,7 @@ async fn database_integration() {
     f1_sales_history(&app, &admin).await;
     f2_products(&app, &admin).await;
     f2_options(&app, &admin).await;
+    f2_archive(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -6140,4 +6141,173 @@ async fn f2_options(app: &PgPool, admin: &PgPool) {
     );
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn f2_archive(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch_a = seed_branch(admin, tenant).await;
+    let branch_b = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner_a = claims(owner, Some(tenant), Some(branch_a));
+    let c_owner_b = claims(owner, Some(tenant), Some(branch_b));
+    let c_owner_tenant = claims(owner, Some(tenant), None);
+
+    // 1. Crear producto con costo $5.000 y precio $10.000
+    let prod = products::create_product(
+        app,
+        &c_owner_tenant,
+        products::ProductInput {
+            name: "Producto Archivable".into(),
+            sku: Some("ARCH-01".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(5000)),
+            base_price: Some(dec(10000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 2. Reponer stock: 10 en sucursal A y 5 en sucursal B
+    inventory::replenish(
+        app,
+        &c_owner_a,
+        branch_a,
+        prod.row.id,
+        dec(10),
+        "stock branch A",
+    )
+    .await
+    .unwrap();
+    inventory::replenish(
+        app,
+        &c_owner_b,
+        branch_b,
+        prod.row.id,
+        dec(5),
+        "stock branch B",
+    )
+    .await
+    .unwrap();
+
+    // 3. [P] Sin confirmar responde 409 ARCHIVE_NEEDS_CONFIRM con el plan y total_value
+    let try_archive_no_confirm =
+        products::archive_product(app, &c_owner_tenant, prod.row.id, false).await;
+
+    match try_archive_no_confirm {
+        Err(ApiError::Domain(DomainError::Coded { code, data, .. })) => {
+            assert_eq!(code, "ARCHIVE_NEEDS_CONFIRM");
+            let data_obj = data.expect("must contain data");
+            let plan = data_obj
+                .get("plan")
+                .and_then(|v| v.as_array())
+                .expect("must have plan array");
+            assert_eq!(plan.len(), 2, "debe tener 2 ubicaciones con stock");
+            let total_val = data_obj
+                .get("total_value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // 15 unidades * 5000 = 75000.00
+            assert!(
+                total_val.starts_with("75000"),
+                "total_value debe ser 75000, got {}",
+                total_val
+            );
+        }
+        other => panic!("expected ARCHIVE_NEEDS_CONFIRM, got {:?}", other),
+    }
+
+    // 4. [P] Al confirmar, el stock queda en 0 con un movimiento por ubicación
+    let archive_confirmed = products::archive_product(app, &c_owner_tenant, prod.row.id, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        archive_confirmed.get("status").and_then(|v| v.as_str()),
+        Some("ok")
+    );
+
+    // Verificar que stock en ambas sucursales quedó en 0
+    let stock_a: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where tenant_id = $1 and branch_id = $2 and product_id = $3",
+    )
+    .bind(tenant)
+    .bind(branch_a)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(stock_a, Decimal::ZERO, "stock en sucursal A debe ser 0");
+
+    let stock_b: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where tenant_id = $1 and branch_id = $2 and product_id = $3",
+    )
+    .bind(tenant)
+    .bind(branch_b)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(stock_b, Decimal::ZERO, "stock en sucursal B debe ser 0");
+
+    // Verificar movimientos registrados con ref_type = 'ARCHIVE' y cause = 'Baja por archivo'
+    let movs_count: i64 = sqlx::query_scalar(
+        "select count(*) from inventory_movements
+          where tenant_id = $1 and product_id = $2 and ref_type = 'ARCHIVE' and ref_id = $2",
+    )
+    .bind(tenant)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        movs_count, 2,
+        "debe haber 2 movimientos de baja por archivo"
+    );
+
+    // Verificar que el producto quedó archivado
+    let is_archived: bool = sqlx::query_scalar(
+        "select archived_at is not null from products where tenant_id = $1 and id = $2",
+    )
+    .bind(tenant)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(is_archived, "producto debe estar archivado");
+
+    // 5. [P] Reactivar sin stock mediante unarchive
+    let unarchive_res = products::unarchive_product(app, &c_owner_tenant, prod.row.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        unarchive_res.get("status").and_then(|v| v.as_str()),
+        Some("ok")
+    );
+
+    let is_still_archived: bool = sqlx::query_scalar(
+        "select archived_at is not null from products where tenant_id = $1 and id = $2",
+    )
+    .bind(tenant)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(
+        !is_still_archived,
+        "producto no debe estar archivado tras unarchive"
+    );
+
+    cleanup(admin, tenant, &[owner]).await;
 }
