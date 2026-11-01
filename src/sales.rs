@@ -704,7 +704,14 @@ pub async fn checkout_tx(
     let (price_lines, prep_infos) =
         prepare_pricing_lines(tx, scope, branch, &settings, req.customer_id, &req.items).await?;
 
-    let promos = Vec::new();
+    let promos = crate::promotions::load_active_rules_tx(
+        tx,
+        scope.tenant,
+        branch,
+        req.customer_id,
+        chrono::Utc::now(),
+    )
+    .await?;
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
 
     let priced_cart = match pricing::price_cart(&price_lines, &promos, None, tip) {
@@ -884,6 +891,41 @@ pub async fn checkout_tx(
     .execute(&mut **tx)
     .await?;
 
+    // 12. Registro de uso de promociones aplicadas
+    for applied in &priced_cart.promotions {
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update promotions
+             set usage_count = usage_count + 1
+             where id = $1 and tenant_id = $2 and (usage_limit is null or usage_count < usage_limit)
+             returning id",
+        )
+        .bind(applied.id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if updated.is_none() {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "PROMOTION_EXHAUSTED",
+                "La promoción ya agotó su límite de usos",
+                Some(serde_json::json!({ "promotion_id": applied.id })),
+            ));
+        }
+
+        sqlx::query(
+            "insert into promotion_redemptions (tenant_id, promotion_id, order_id, customer_id, amount)
+             values ($1, $2, $3, $4, $5)",
+        )
+        .bind(scope.tenant)
+        .bind(applied.id)
+        .bind(req.id)
+        .bind(customer_id)
+        .bind(applied.amount)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     Ok(Checkout::Created(load_response(tx, req.id).await?))
 }
 
@@ -920,7 +962,14 @@ pub async fn quote_tx(
     let (price_lines, prep_infos) =
         prepare_pricing_lines(tx, scope, branch_id, &settings, req.customer_id, &req.items).await?;
 
-    let promos = Vec::new();
+    let promos = crate::promotions::load_active_rules_tx(
+        tx,
+        scope.tenant,
+        branch_id,
+        req.customer_id,
+        chrono::Utc::now(),
+    )
+    .await?;
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
 
     let priced_cart = match pricing::price_cart(&price_lines, &promos, None, tip) {

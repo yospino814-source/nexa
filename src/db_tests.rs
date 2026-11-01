@@ -769,6 +769,7 @@ async fn database_integration() {
     f1_sale_customer(&app, &admin).await;
     f1_pricing_db(&app, &admin).await;
     f1_tiers(&app, &admin).await;
+    f1_promotions(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -3294,6 +3295,436 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
     };
     let allowed_res = sales::checkout(app, &c_cashier, sale_allowed_tier).await;
     assert!(allowed_res.is_ok());
+
+    cleanup(admin, tenant, &[cashier, owner]).await;
+}
+
+async fn f1_promotions(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    let soda = seed_product(admin, tenant, "Gaseosa Promo", "UND", None, false).await;
+    set_base_price(admin, soda, "10000").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "100", "0").await;
+
+    let now = chrono::Utc::now();
+
+    // 1. [P] PAUSADA, PROGRAMADA y VENCIDA no se aplican
+    let p_pausada = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Pausada".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(50),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(2),
+            ends_at: None,
+            priority: Some(10),
+            usage_limit: None,
+            per_customer_limit: None,
+            skip_tier_lines: Some(true),
+            product_ids: Some(vec![soda]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_pausada.id)
+        .await
+        .unwrap();
+    crate::promotions::pause(app, &c_owner, p_pausada.id)
+        .await
+        .unwrap();
+
+    let p_programada = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Programada".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(50),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now + chrono::Duration::days(2),
+            ends_at: None,
+            priority: Some(10),
+            usage_limit: None,
+            per_customer_limit: None,
+            skip_tier_lines: Some(true),
+            product_ids: Some(vec![soda]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_programada.id)
+        .await
+        .unwrap();
+
+    let p_vencida = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Vencida".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(50),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::days(5),
+            ends_at: Some(now - chrono::Duration::days(1)),
+            priority: Some(10),
+            usage_limit: None,
+            per_customer_limit: None,
+            skip_tier_lines: Some(true),
+            product_ids: Some(vec![soda]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_vencida.id)
+        .await
+        .unwrap();
+
+    let q_res = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q_res.total, dec(10000));
+    assert!(q_res.promotions.is_empty());
+
+    // 2. [P] Con usage_limit = 1, la segunda venta no recibe el descuento
+    let p_limit = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Promo Limit 1".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            priority: Some(1),
+            usage_limit: Some(1),
+            per_customer_limit: None,
+            skip_tier_lines: Some(true),
+            product_ids: Some(vec![soda]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_limit.id)
+        .await
+        .unwrap();
+
+    let q1 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q1.total, dec(9000));
+    assert_eq!(q1.promotions.len(), 1);
+
+    let sale1 = sales::SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(9000),
+            reference: None,
+        }],
+        quoted_total: dec(9000),
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    };
+    sales::checkout(app, &c_cashier, sale1).await.unwrap();
+
+    // Segunda cotización: ya no tiene la promo
+    let q2 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q2.total, dec(10000));
+    assert!(q2.promotions.is_empty());
+
+    // 3. [P] per_customer_limit = 1 y venta sin cliente
+    let p_cust = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Promo Per Customer".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(20),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            priority: Some(5),
+            usage_limit: None,
+            per_customer_limit: Some(1),
+            skip_tier_lines: Some(true),
+            product_ids: Some(vec![soda]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_cust.id)
+        .await
+        .unwrap();
+
+    // [P] Venta sin cliente no recibe promo con per_customer_limit
+    let q_no_cust = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q_no_cust.total, dec(10000));
+
+    let cust1 = customers::create(
+        app,
+        &c_cashier,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("555111".into()),
+            dv: None,
+            name: "Cliente Uno".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let cust2 = customers::create(
+        app,
+        &c_cashier,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("555222".into()),
+            dv: None,
+            name: "Cliente Dos".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Cliente 1 cotiza: recibe 20% (8000)
+    let q_c1 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: Some(cust1.id),
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q_c1.total, dec(8000));
+
+    // Cliente 1 compra
+    let sale_c1 = sales::SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(8000),
+            reference: None,
+        }],
+        quoted_total: dec(8000),
+        tip_amount: None,
+        customer_id: Some(cust1.id),
+        customer_alias: None,
+        coupon_code: None,
+    };
+    sales::checkout(app, &c_cashier, sale_c1).await.unwrap();
+
+    // Cliente 1 cotiza por segunda vez: NO recibe descuento (10000)
+    let q_c1_again = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: Some(cust1.id),
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q_c1_again.total, dec(10000));
+
+    // [P] Cliente 2 cotiza: SÍ recibe descuento (8000)
+    let q_c2 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: Some(cust2.id),
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(q_c2.total, dec(8000));
 
     cleanup(admin, tenant, &[cashier, owner]).await;
 }

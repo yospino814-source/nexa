@@ -12,6 +12,7 @@ pub mod outbox;
 pub mod permissions;
 pub mod pricing;
 mod procurement;
+pub mod promotions;
 pub mod registers;
 pub mod routes;
 mod sales;

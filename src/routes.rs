@@ -79,6 +79,14 @@ pub fn router() -> Router<AppState> {
             "/v1/products/{id}/tier-prices",
             get(get_product_tier_prices).put(set_product_tier_prices),
         )
+        // Promociones
+        .route(
+            "/v1/promotions",
+            get(list_promotions).post(create_promotion),
+        )
+        .route("/v1/promotions/{id}", put(update_promotion))
+        .route("/v1/promotions/{id}/activate", post(activate_promotion))
+        .route("/v1/promotions/{id}/pause", post(pause_promotion))
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
         .route("/v1/sales/quote", post(sales_quote))
@@ -974,4 +982,58 @@ async fn set_product_tier_prices(
     Ok(Json(
         crate::tiers::set_product_tier_prices(&state.pool, &user.claims, id, items).await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct PromotionsQuery {
+    #[serde(default)]
+    status: Option<String>,
+}
+
+async fn list_promotions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<PromotionsQuery>,
+) -> ApiResult<Json<Vec<crate::promotions::PromotionDto>>> {
+    Ok(Json(
+        crate::promotions::list(&state.pool, &user.claims, q.status).await?,
+    ))
+}
+
+async fn create_promotion(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<crate::promotions::CreatePromotionInput>,
+) -> ApiResult<(StatusCode, Json<crate::promotions::PromotionDto>)> {
+    let promo = crate::promotions::create(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(promo)))
+}
+
+async fn update_promotion(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<crate::promotions::CreatePromotionInput>,
+) -> ApiResult<Json<crate::promotions::PromotionDto>> {
+    Ok(Json(
+        crate::promotions::update(&state.pool, &user.claims, id, req).await?,
+    ))
+}
+
+async fn activate_promotion(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    crate::promotions::activate(&state.pool, &user.claims, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn pause_promotion(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    crate::promotions::pause(&state.pool, &user.claims, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

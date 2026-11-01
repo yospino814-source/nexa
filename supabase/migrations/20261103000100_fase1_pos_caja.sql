@@ -203,3 +203,77 @@ alter table public.customers add constraint customers_tier_fkey
 
 alter table public.order_items add constraint order_items_tier_fkey
   foreign key (tenant_id, tier_id) references public.price_tiers (tenant_id, id);
+
+-- F1.7 Promociones
+create table public.promotions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid,                                   -- null = todas las sucursales
+  name text not null check (length(trim(name)) between 1 and 60),
+  kind text not null check (kind in ('PORCENTAJE','FIJO')),
+  value numeric(14,4) not null check (value > 0),
+  scope text not null check (scope in ('PEDIDO','PRODUCTO','CATEGORIA')),
+  min_qty numeric(14,4) check (min_qty > 0),
+  min_subtotal numeric(14,2) check (min_subtotal > 0),
+  max_discount numeric(14,2) check (max_discount > 0),
+  starts_at timestamptz not null,
+  ends_at timestamptz,
+  status text not null default 'BORRADOR' check (status in ('BORRADOR','ACTIVA','PAUSADA')),
+  priority integer not null default 0,
+  usage_limit integer check (usage_limit > 0),
+  usage_count integer not null default 0,
+  per_customer_limit integer check (per_customer_limit > 0),
+  skip_tier_lines boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, id),
+  check (ends_at is null or ends_at > starts_at),
+  check (kind <> 'PORCENTAJE' or value <= 100),
+  check (scope <> 'PEDIDO' or min_qty is null),
+  foreign key (tenant_id, branch_id) references public.branches (tenant_id, id)
+);
+
+create table public.promotion_targets (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  promotion_id uuid not null,
+  product_id uuid,
+  category_id uuid references public.product_categories(id),
+  foreign key (tenant_id, promotion_id) references public.promotions (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, product_id) references public.products (tenant_id, id),
+  check ((product_id is null) <> (category_id is null))
+);
+
+create table public.promotion_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  promotion_id uuid not null,
+  order_id uuid not null,
+  customer_id uuid,
+  amount numeric(14,2) not null check (amount > 0),
+  created_at timestamptz not null default now(),
+  unique (promotion_id, order_id),
+  foreign key (tenant_id, promotion_id) references public.promotions (tenant_id, id),
+  foreign key (tenant_id, order_id) references public.orders (tenant_id, id) on delete cascade
+);
+
+alter table public.promotions enable row level security;
+alter table public.promotion_targets enable row level security;
+alter table public.promotion_redemptions enable row level security;
+
+create policy promotions_tenant_isolation on public.promotions
+  for all to authenticated
+  using (tenant_id = public.current_tenant())
+  with check (tenant_id = public.current_tenant());
+
+create policy promotion_targets_tenant_isolation on public.promotion_targets
+  for all to authenticated
+  using (tenant_id = public.current_tenant())
+  with check (tenant_id = public.current_tenant());
+
+create policy promotion_redemptions_tenant_isolation on public.promotion_redemptions
+  for all to authenticated
+  using (tenant_id = public.current_tenant())
+  with check (tenant_id = public.current_tenant());
+
+grant select, insert, update, delete on public.promotions to authenticated;
+grant select, insert, update, delete on public.promotion_targets to authenticated;
+grant select, insert, update on public.promotion_redemptions to authenticated;
