@@ -449,7 +449,8 @@ pub async fn close(
 
     let expected = summary_tx(&mut tx, session_id).await?.expected_cash;
     let diff = (counted_cash - expected).abs();
-    if diff > settings.cash.close_tolerance && notes.as_ref().is_none_or(|n| n.trim().is_empty()) {
+    if diff > settings.cash.close_tolerance && notes.as_ref().map_or(true, |n| n.trim().is_empty())
+    {
         return Err(validation(
             "notes are required when cash difference exceeds tolerance",
         ));

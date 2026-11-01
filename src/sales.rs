@@ -239,10 +239,10 @@ pub async fn checkout_tx(
         if item.unit_price_override.is_some() && !settings.pos.allow_price_override {
             return Err(validation("price override is not allowed in this branch"));
         }
-        if let Some(disc) = item.discount_pct
-            && disc > settings.pos.max_discount_pct
-        {
-            return Err(validation("discount exceeds maximum allowed"));
+        if let Some(disc) = item.discount_pct {
+            if disc > settings.pos.max_discount_pct {
+                return Err(validation("discount exceeds maximum allowed"));
+            }
         }
     }
 
@@ -508,8 +508,6 @@ mod tests {
             items: vec![SaleItem {
                 product_id: Uuid::new_v4(),
                 qty: Decimal::ONE,
-                unit_price_override: None,
-                discount_pct: None,
             }],
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             tip_amount: None,
