@@ -9,7 +9,9 @@ use uuid::Uuid;
 
 use crate::auth::Claims;
 use crate::error::{self, ApiError, DomainError};
-use crate::tenancy;
+use crate::tenancy::{self, Scope};
+
+type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PriceTier {
@@ -260,6 +262,24 @@ pub async fn update_tier(
     Ok(row)
 }
 
+pub async fn get_product_tier_prices_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    product_id: Uuid,
+) -> Result<Vec<ProductTierPriceRow>, ApiError> {
+    let rows = sqlx::query_as::<_, ProductTierPriceRow>(
+        "select tier_id, price, units_per_package, barcode
+           from product_tier_prices
+          where tenant_id = $1 and product_id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(product_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    Ok(rows)
+}
+
 pub async fn get_product_tier_prices(
     pool: &PgPool,
     claims: &Claims,
@@ -268,15 +288,7 @@ pub async fn get_product_tier_prices(
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("pos:sell")?;
 
-    let rows = sqlx::query_as::<_, ProductTierPriceRow>(
-        "select tier_id, price, units_per_package, barcode
-           from product_tier_prices
-          where tenant_id = $1 and product_id = $2",
-    )
-    .bind(scope.tenant)
-    .bind(product_id)
-    .fetch_all(&mut *tx)
-    .await?;
+    let rows = get_product_tier_prices_tx(&mut tx, &scope, product_id).await?;
 
     tx.commit().await?;
     Ok(rows)

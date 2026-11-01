@@ -5,6 +5,7 @@
 //!   [`tenancy::begin`], para componerla con otras (p. ej. confirmar una orden).
 //! - `fn(pool, claims, ..)`: abre su propia transaccion y la confirma.
 
+use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -12,7 +13,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{ApiError, DomainError};
+use crate::error::{self, ApiError, DomainError};
 use crate::tenancy::{self, Action, Scope};
 
 type Tx<'a> = Transaction<'a, Postgres>;
@@ -50,6 +51,8 @@ pub struct StockLevel {
     pub barcode: Option<String>,
     pub category: Option<String>,
     pub unit: Option<String>,
+    pub kind: String,
+    pub usage: String,
     /// Precio de venta en la sucursal (sin impuesto).
     pub price: Option<Decimal>,
     pub cost_price: Option<Decimal>,
@@ -222,6 +225,7 @@ async fn check_not_variant_parent(tx: &mut Tx<'_>, product_id: Uuid) -> Result<(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn reserve_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
@@ -947,7 +951,7 @@ pub async fn stock_levels(
     scope.require(Action::ManageInventory)?;
     let rows = sqlx::query_as::<_, StockLevel>(
         "select p.id as product_id, p.name, p.sku, p.barcode::text as barcode, c.name as category,
-                u.tima_nombre as unit, bp.price, p.cost_price,
+                u.tima_nombre as unit, p.kind, p.usage, bp.price, p.cost_price,
                 coalesce(s.on_hand, 0) as on_hand,
                 coalesce(s.reserved, 0) as reserved,
                 coalesce(s.on_hand, 0) - coalesce(s.reserved, 0) as available,

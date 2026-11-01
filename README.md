@@ -136,6 +136,12 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | PUT | `/v1/users/{id}/role` | Modificar rol de usuario (protege al dueño de auto-degradarse) |
 | PUT | `/v1/users/{id}/status` | Activar o desactivar acceso de un usuario |
 | POST | `/v1/auth/login-attempt` | Registrar o verificar intento de login; tras 5 fallos en 15 min responde 429 |
+| GET | `/v1/products?branch_id=&q=&category_id=&usage=&archived=false&page=&page_size=` | Listado de productos con paginación y filtros (`inventory:read`) |
+| GET | `/v1/products/{id}?branch_id=` | Detalle completo de producto (`inventory:read`) |
+| POST | `/v1/products` | Crear nuevo producto (`inventory:adjust`) |
+| PUT | `/v1/products/{id}` | Actualizar producto (`inventory:adjust`) |
+| POST | `/v1/products/{id}/variants` | Crear variante de producto (`inventory:adjust`) |
+| PUT | `/v1/branch-products/{product_id}` | Actualizar precio y disponibilidad por sucursal (`inventory:adjust`) |
 
 ### `POST /v1/sales`
 

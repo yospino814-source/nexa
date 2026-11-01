@@ -14,8 +14,8 @@ use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment,
 use crate::test_support::*;
 use crate::{
     AppState, cash, catalog, coupons, customers, inventory, orders, outbox, permissions,
-    procurement, refunds, registers, routes, sales, sales_history, sequences, settings, tenancy,
-    users,
+    procurement, products, refunds, registers, routes, sales, sales_history, sequences, settings,
+    tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -783,6 +783,7 @@ async fn database_integration() {
     f1_refunds(&app, &admin).await;
     f1_void(&app, &admin).await;
     f1_sales_history(&app, &admin).await;
+    f2_products(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -5456,4 +5457,348 @@ async fn f1_sales_history(app: &PgPool, admin: &PgPool) {
     assert_eq!(biz.name, "itest");
 
     cleanup(admin, tenant, &[owner, cashier_a, cashier_b]).await;
+}
+
+/// F2.3 CRUD de productos y variantes
+async fn f2_products(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // 1. [P] Un SKU repetido entre un producto y una variante de otro: 409 SKU_TAKEN.
+    let prod_a = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Producto A".into(),
+            sku: Some("SKU-DUP-1".into()),
+            barcode: Some("770123456789".into()),
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "IVA19".into(),
+            cost_price: Some(dec(5000)),
+            base_price: Some(dec(10000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: true,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let prod_b = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Camiseta Padre".into(),
+            sku: Some("SKU-PADRE".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "IVA19".into(),
+            cost_price: Some(dec(8000)),
+            base_price: Some(dec(20000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: true,
+            has_variants: true,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut attrs = std::collections::BTreeMap::new();
+    attrs.insert("Talla".into(), "M".into());
+    let try_dup_variant_sku = products::create_variant(
+        app,
+        &c_owner,
+        prod_b.row.id,
+        products::CreateVariantInput {
+            sku: Some("SKU-DUP-1".into()),
+            barcode: None,
+            attrs: attrs.clone(),
+            price: dec(20000),
+            cost_price: Some(dec(8000)),
+        },
+    )
+    .await;
+    assert!(
+        matches!(&try_dup_variant_sku, Err(ApiError::Domain(DomainError::Coded { code, .. })) if *code == "SKU_TAKEN"),
+        "expected SKU_TAKEN, got {:?}",
+        try_dup_variant_sku
+    );
+
+    // 2. [P] Un insumo no aparece en /v1/catalog y venderlo da 422 PRODUCT_NOT_SELLABLE.
+    let insumo = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Harina Insumo".into(),
+            sku: Some("INS-HARINA".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "INSUMO".into(),
+            unit_measure_code: "KG".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(3000)),
+            base_price: None,
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let cat_items = catalog::catalog(app, &c_cashier, branch).await.unwrap();
+    assert!(
+        !cat_items.iter().any(|i| i.product_id == insumo.row.id),
+        "insumo must not be in catalog"
+    );
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(0))
+        .await
+        .unwrap();
+
+    let try_sell_insumo = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(insumo.row.id),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(3000),
+                reference: None,
+            }],
+            quoted_total: dec(3000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await;
+    assert!(
+        matches!(&try_sell_insumo, Err(ApiError::Domain(DomainError::Coded { code, .. })) if *code == "PRODUCT_NOT_SELLABLE"),
+        "expected PRODUCT_NOT_SELLABLE, got {:?}",
+        try_sell_insumo
+    );
+
+    // 3. [P] Vender un padre con variantes: 422 PRODUCT_IS_VARIANT_PARENT.
+    let try_sell_parent = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod_b.row.id),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(20000),
+                reference: None,
+            }],
+            quoted_total: dec(20000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await;
+    assert!(
+        matches!(&try_sell_parent, Err(ApiError::Domain(DomainError::Coded { code, .. })) if *code == "PRODUCT_IS_VARIANT_PARENT"),
+        "expected PRODUCT_IS_VARIANT_PARENT, got {:?}",
+        try_sell_parent
+    );
+
+    // 4. [P] Variantes más presentaciones: 422 VARIANTS_AND_PRESENTATIONS.
+    let pres_tier = crate::tiers::create_tier(
+        app,
+        &c_owner,
+        crate::tiers::CreatePriceTierRequest {
+            name: "Paca x6".into(),
+            kind: "PRESENTACION".into(),
+            adjustment: "PRECIO_FIJO".into(),
+            value: dec(50000),
+            units_per_package: Some(dec(6)),
+        },
+    )
+    .await
+    .unwrap();
+
+    let try_tier_on_parent = crate::tiers::set_product_tier_prices(
+        app,
+        &c_owner,
+        prod_b.row.id,
+        vec![crate::tiers::SetProductTierPriceInput {
+            tier_id: pres_tier.id,
+            price: Some(dec(50000)),
+            units_per_package: Some(dec(6)),
+            barcode: None,
+        }],
+    )
+    .await;
+    assert!(
+        matches!(&try_tier_on_parent, Err(ApiError::Domain(DomainError::Coded { code, .. })) if *code == "VARIANTS_AND_PRESENTATIONS"),
+        "expected VARIANTS_AND_PRESENTATIONS, got {:?}",
+        try_tier_on_parent
+    );
+
+    // 5. [P] Cambiar la unidad de un producto con movimientos: 409 PRODUCT_UOM_LOCKED.
+    inventory::replenish(
+        app,
+        &c_owner,
+        branch,
+        prod_a.row.id,
+        dec(10),
+        "entrada inicial",
+    )
+    .await
+    .unwrap();
+
+    let update_input = products::ProductInput {
+        name: prod_a.row.name.clone(),
+        sku: prod_a.row.sku.clone(),
+        barcode: prod_a.row.barcode.clone(),
+        kind: prod_a.row.kind.clone(),
+        usage: prod_a.row.usage.clone(),
+        unit_measure_code: "KG".into(), // Cambiando de UND a KG
+        purchase_uom_code: None,
+        purchase_factor: dec(1),
+        tax_code: "IVA19".into(),
+        cost_price: prod_a.row.cost_price,
+        base_price: prod_a.row.price,
+        reorder_qty: None,
+        max_qty: None,
+        track_lots: false,
+        allow_price_override: true,
+        has_variants: false,
+        description: None,
+    };
+
+    let try_change_uom =
+        products::update_product(app, &c_owner, prod_a.row.id, update_input.clone()).await;
+    assert!(
+        matches!(&try_change_uom, Err(ApiError::Domain(DomainError::Coded { code, .. })) if *code == "PRODUCT_UOM_LOCKED"),
+        "expected PRODUCT_UOM_LOCKED, got {:?}",
+        try_change_uom
+    );
+
+    // 6. [P] Un servicio vendido no mueve el stock.
+    let servicio = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Servicio Corte".into(),
+            sku: Some("SRV-CORTE".into()),
+            barcode: None,
+            kind: "SERVICIO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: None,
+            base_price: Some(dec(15000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let _srv_sale = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(servicio.row.id),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(15000),
+                reference: None,
+            }],
+            quoted_total: dec(15000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mov_count: i64 = sqlx::query_scalar(
+        "select count(*) from inventory_movements where tenant_id = $1 and product_id = $2",
+    )
+    .bind(tenant)
+    .bind(servicio.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        mov_count, 0,
+        "Servicio no debe generar movimientos de stock"
+    );
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

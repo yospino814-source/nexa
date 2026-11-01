@@ -17,7 +17,7 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
     AppState, audit, cash, catalog, customers, inventory, orders, permissions, procurement,
-    refunds, registers, sales, sales_history, settings, tenancy, users,
+    products, refunds, registers, sales, sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -67,6 +67,14 @@ pub fn router() -> Router<AppState> {
         // Catalogo
         .route("/v1/catalog", get(catalog_list))
         .route("/v1/products/{id}/recipe", get(recipe))
+        // Productos (F2.3)
+        .route("/v1/products", get(list_products).post(create_product))
+        .route("/v1/products/{id}", get(get_product).put(update_product))
+        .route("/v1/products/{id}/variants", post(create_variant))
+        .route(
+            "/v1/branch-products/{product_id}",
+            put(update_branch_product),
+        )
         // Clientes
         .route("/v1/customers", get(search_customers).post(create_customer))
         // Tarifas y presentaciones
@@ -226,6 +234,70 @@ async fn recipe(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<catalog::RecipeItem>>> {
     Ok(Json(catalog::recipe(&state.pool, &user.claims, id).await?))
+}
+
+// --------------------------------------------------------------- productos (F2.3)
+
+async fn list_products(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(params): Query<products::ProductListParams>,
+) -> ApiResult<Json<products::ProductListResponse>> {
+    Ok(Json(
+        products::list_products(&state.pool, &user.claims, params).await?,
+    ))
+}
+
+async fn get_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Query(params): Query<products::ProductListParams>,
+) -> ApiResult<Json<products::ProductDetail>> {
+    Ok(Json(
+        products::get_product(&state.pool, &user.claims, id, params.branch_id).await?,
+    ))
+}
+
+async fn create_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(input): Body<products::ProductInput>,
+) -> ApiResult<(StatusCode, Json<products::ProductDetail>)> {
+    let detail = products::create_product(&state.pool, &user.claims, input).await?;
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+async fn update_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<products::ProductInput>,
+) -> ApiResult<Json<products::ProductDetail>> {
+    Ok(Json(
+        products::update_product(&state.pool, &user.claims, id, input).await?,
+    ))
+}
+
+async fn create_variant(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<products::CreateVariantInput>,
+) -> ApiResult<(StatusCode, Json<products::ProductDetail>)> {
+    let detail = products::create_variant(&state.pool, &user.claims, id, input).await?;
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+async fn update_branch_product(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(product_id): Path<Uuid>,
+    Body(input): Body<products::UpdateBranchProductInput>,
+) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(
+        products::update_branch_product(&state.pool, &user.claims, product_id, input).await?,
+    ))
 }
 
 // ------------------------------------------------------------ venta y caja
