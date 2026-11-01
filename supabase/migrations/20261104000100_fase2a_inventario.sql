@@ -130,3 +130,23 @@ create policy import_sessions_tenant_isolation on public.import_sessions
 
 grant select, insert, update on public.import_sessions to authenticated;
 
+-- ============================================================
+-- F2.7 Etiquetas con código de barras
+-- ============================================================
+
+create table public.tenant_counters (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null,
+  next_value bigint not null default 1,
+  primary key (tenant_id, name)
+);
+
+alter table public.tenant_counters enable row level security;
+
+create policy tenant_counters_tenant_isolation on public.tenant_counters
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+grant select, insert, update on public.tenant_counters to authenticated;
+

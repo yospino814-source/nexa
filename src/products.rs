@@ -1467,3 +1467,98 @@ pub async fn unarchive_product(
         "unarchived_ids": product_ids,
     }))
 }
+
+pub fn ean13_check(digits: &str) -> u8 {
+    let mut sum = 0u32;
+    for (i, ch) in digits.chars().take(12).enumerate() {
+        let d = ch.to_digit(10).unwrap_or(0);
+        let weight = if i % 2 == 1 { 3 } else { 1 };
+        sum += d * weight;
+    }
+    ((10 - (sum % 10)) % 10) as u8
+}
+
+pub async fn generate_barcode(
+    pool: &PgPool,
+    claims: &Claims,
+    product_id: Uuid,
+) -> Result<String, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:adjust")?;
+
+    let existing: Option<Option<String>> =
+        sqlx::query_scalar("select barcode from products where tenant_id = $1 and id = $2")
+            .bind(scope.tenant)
+            .bind(product_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let existing_barcode = existing.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    if let Some(bc) = existing_barcode {
+        if !bc.trim().is_empty() {
+            return Err(error::state("BARCODE_EXISTS"));
+        }
+    }
+
+    let barcode = loop {
+        let next_val: i64 = sqlx::query_scalar(
+            "insert into tenant_counters (tenant_id, name, next_value)
+             values ($1, 'EAN_INTERNO', 2)
+             on conflict (tenant_id, name)
+             do update set next_value = tenant_counters.next_value + 1
+             returning tenant_counters.next_value - 1",
+        )
+        .bind(scope.tenant)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let base12 = format!("20{:010}", next_val);
+        let check = ean13_check(&base12);
+        let candidate = format!("{}{}", base12, check);
+
+        let exists: bool = sqlx::query_scalar(
+            "select exists(select 1 from products where tenant_id = $1 and barcode = $2)",
+        )
+        .bind(scope.tenant)
+        .bind(&candidate)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if !exists {
+            break candidate;
+        }
+    };
+
+    sqlx::query("update products set barcode = $1 where tenant_id = $2 and id = $3")
+        .bind(&barcode)
+        .bind(scope.tenant)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?;
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "PRODUCTO_CODIGO_GENERADO",
+        "products",
+        product_id,
+        None,
+        Some(serde_json::json!({ "barcode": barcode })),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(barcode)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ean13_check_digit() {
+        assert_eq!(ean13_check("200000000001"), 5);
+    }
+}

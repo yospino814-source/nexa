@@ -76,6 +76,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/products/{id}/variants", post(create_variant))
         .route("/v1/products/{id}/archive", post(archive_product))
         .route("/v1/products/{id}/unarchive", post(unarchive_product))
+        .route("/v1/products/{id}/generate-barcode", post(generate_barcode))
         .route(
             "/v1/branch-products/{product_id}",
             put(update_branch_product),
@@ -332,6 +333,15 @@ async fn unarchive_product(
 ) -> ApiResult<Json<serde_json::Value>> {
     let res = products::unarchive_product(&state.pool, &user.claims, id).await?;
     Ok(Json(res))
+}
+
+async fn generate_barcode(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let barcode = products::generate_barcode(&state.pool, &user.claims, id).await?;
+    Ok(Json(json!({ "barcode": barcode })))
 }
 
 // ----------------------------------------------------------- modificadores (F2.4)
