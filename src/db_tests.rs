@@ -789,6 +789,7 @@ async fn database_integration() {
     f2_import(&app, &admin).await;
     f2_locations(&app, &admin).await;
     f2_pipeline(&app, &admin).await;
+    f2_costing(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -6893,6 +6894,379 @@ async fn f2_pipeline(app: &PgPool, admin: &PgPool) {
             .iter()
             .any(|a| a.product_id == prod_id && a.kind == "NEGATIVO" && a.resolved_at.is_none()),
         "debe existir una alerta NEGATIVO abierta"
+    );
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+/// Costeo promedio y PEPS (F2.10).
+async fn f2_costing(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let annex = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let (_scope, mut tx) = tenancy::begin(app, &c_owner).await.unwrap();
+    let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+        .await
+        .unwrap();
+    let annex_loc = crate::locations::default_location_id_tx(&mut tx, annex)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let reg = crate::registers::create(
+        app,
+        &c_owner,
+        crate::registers::CreateRegisterRequest {
+            branch_id: branch,
+            code: "CAJA-COST".to_string(),
+            name: "Caja Costeo".to_string(),
+            default_opening: dec(100000),
+            location_id: Some(def_loc),
+        },
+    )
+    .await
+    .unwrap();
+
+    let _session = crate::cash::open(app, &c_owner, branch, reg.id, dec(100000))
+        .await
+        .unwrap();
+
+    // 1. [P] Promedio: entran 10 a $100 y 10 a $200, y el promedio queda en $150.
+    // Luego salen 5 con un costo de venta de $750.
+    let p_prom = seed_product(admin, tenant, "Prod Promedio", "UND", None, false).await;
+    set_base_price(admin, p_prom, "1000").await;
+    seed_branch_product(admin, tenant, branch, p_prom, None, None).await;
+
+    // Entrada 1: 10 @ 100
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    crate::inventory::apply_delta_tx(
+        &mut tx,
+        &scope,
+        crate::inventory::StockDelta {
+            branch_id: branch,
+            location_id: def_loc,
+            product_id: p_prom,
+            delta: dec(10),
+            movement: "REPOSICION",
+            unit_cost: Some(dec(100)),
+            lot_id: None,
+            ref_type: "test",
+            ref_id: Uuid::new_v4(),
+            cause: Some("Entrada 1".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Entrada 2: 10 @ 200
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    crate::inventory::apply_delta_tx(
+        &mut tx,
+        &scope,
+        crate::inventory::StockDelta {
+            branch_id: branch,
+            location_id: def_loc,
+            product_id: p_prom,
+            delta: dec(10),
+            movement: "REPOSICION",
+            unit_cost: Some(dec(200)),
+            lot_id: None,
+            ref_type: "test",
+            ref_id: Uuid::new_v4(),
+            cause: Some("Entrada 2".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Verificar avg_cost en stock
+    let avg: Decimal =
+        sqlx::query_scalar("select avg_cost from stock where location_id = $1 and product_id = $2")
+            .bind(def_loc)
+            .bind(p_prom)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(avg, dec(150), "promedio ponderado debe ser 150");
+
+    // Salen 5 unidades mediante checkout
+    let sale_prom = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(p_prom, 5)],
+        &[(crate::sales::PaymentMethod::Efectivo, 5000)],
+        dec(5000),
+    );
+    let s_resp = created(
+        crate::sales::checkout(app, &c_owner, sale_prom)
+            .await
+            .unwrap(),
+    );
+
+    // Verificar order_items
+    let (cost_tot, cost_u, cost_miss): (Decimal, Decimal, bool) = sqlx::query_as(
+        "select cost_total, unit_cost, cost_missing from order_items where order_id = $1",
+    )
+    .bind(s_resp.order.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        cost_tot,
+        dec(750),
+        "costo de venta en promedio de 5 @ 150 debe ser 750"
+    );
+    assert_eq!(cost_u, dec(150), "costo unitario debe ser 150");
+    assert!(!cost_miss, "cost_missing debe ser falso");
+
+    // 2. [P] PEPS con las mismas entradas: salen 15 y el costo es 10 × 100 + 5 × 200 = $2.000.
+    let mut st = crate::settings::get_settings(app, &c_owner, branch)
+        .await
+        .unwrap();
+    st.inventory.costing = "PEPS".to_string();
+    crate::settings::update_settings(
+        app,
+        &c_owner,
+        crate::settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: st,
+        },
+    )
+    .await
+    .unwrap();
+
+    let p_peps = seed_product(admin, tenant, "Prod PEPS", "UND", None, false).await;
+    set_base_price(admin, p_peps, "1000").await;
+    seed_branch_product(admin, tenant, branch, p_peps, None, None).await;
+
+    // Entrada 1: 10 @ 100
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    crate::inventory::apply_delta_tx(
+        &mut tx,
+        &scope,
+        crate::inventory::StockDelta {
+            branch_id: branch,
+            location_id: def_loc,
+            product_id: p_peps,
+            delta: dec(10),
+            movement: "REPOSICION",
+            unit_cost: Some(dec(100)),
+            lot_id: None,
+            ref_type: "test",
+            ref_id: Uuid::new_v4(),
+            cause: Some("Entrada 1 PEPS".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Entrada 2: 10 @ 200
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    crate::inventory::apply_delta_tx(
+        &mut tx,
+        &scope,
+        crate::inventory::StockDelta {
+            branch_id: branch,
+            location_id: def_loc,
+            product_id: p_peps,
+            delta: dec(10),
+            movement: "REPOSICION",
+            unit_cost: Some(dec(200)),
+            lot_id: None,
+            ref_type: "test",
+            ref_id: Uuid::new_v4(),
+            cause: Some("Entrada 2 PEPS".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Salen 15 unidades en venta
+    let sale_peps = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(p_peps, 15)],
+        &[(crate::sales::PaymentMethod::Efectivo, 15000)],
+        dec(15000),
+    );
+    let s_peps_resp = created(
+        crate::sales::checkout(app, &c_owner, sale_peps)
+            .await
+            .unwrap(),
+    );
+    let (c_tot_peps, _, c_miss_peps): (Decimal, Decimal, bool) = sqlx::query_as(
+        "select cost_total, unit_cost, cost_missing from order_items where order_id = $1",
+    )
+    .bind(s_peps_resp.order.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        c_tot_peps,
+        dec(2000),
+        "costo PEPS para 15 unidades debe ser 10*100 + 5*200 = 2000"
+    );
+    assert!(!c_miss_peps, "cost_missing debe ser falso");
+
+    // 3. [P] Respaldo: un producto sin capas, sin promedio y con cost_price = 80 cuesta 80 por unidad.
+    // Si cost_price es nulo, el costo es 0 y cost_missing = true.
+    let mut st = crate::settings::get_settings(app, &c_owner, branch)
+        .await
+        .unwrap();
+    st.inventory.allow_negative_stock = true;
+    crate::settings::update_settings(
+        app,
+        &c_owner,
+        crate::settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: st,
+        },
+    )
+    .await
+    .unwrap();
+
+    let p_respaldo_80 = seed_product(admin, tenant, "Prod Respaldo 80", "UND", None, false).await;
+    set_base_price(admin, p_respaldo_80, "1000").await;
+    seed_branch_product(admin, tenant, branch, p_respaldo_80, None, None).await;
+    sqlx::query("update products set cost_price = 80 where id = $1")
+        .bind(p_respaldo_80)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let sale_respaldo = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(p_respaldo_80, 2)],
+        &[(crate::sales::PaymentMethod::Efectivo, 2000)],
+        dec(2000),
+    );
+    let s_resp_80 = created(
+        crate::sales::checkout(app, &c_owner, sale_respaldo)
+            .await
+            .unwrap(),
+    );
+    let (cost_tot_80, cost_u_80, cost_miss_80): (Decimal, Decimal, bool) = sqlx::query_as(
+        "select cost_total, unit_cost, cost_missing from order_items where order_id = $1",
+    )
+    .bind(s_resp_80.order.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(cost_tot_80, dec(160), "2 * 80 = 160");
+    assert_eq!(cost_u_80, dec(80));
+    assert!(!cost_miss_80);
+
+    let p_respaldo_null =
+        seed_product(admin, tenant, "Prod Respaldo Null", "UND", None, false).await;
+    set_base_price(admin, p_respaldo_null, "1000").await;
+    seed_branch_product(admin, tenant, branch, p_respaldo_null, None, None).await;
+    sqlx::query("update products set cost_price = null where id = $1")
+        .bind(p_respaldo_null)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let sale_null = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(p_respaldo_null, 2)],
+        &[(crate::sales::PaymentMethod::Efectivo, 2000)],
+        dec(2000),
+    );
+    let s_resp_null = created(
+        crate::sales::checkout(app, &c_owner, sale_null)
+            .await
+            .unwrap(),
+    );
+    let (cost_tot_null, cost_u_null, cost_miss_null): (Decimal, Decimal, bool) = sqlx::query_as(
+        "select cost_total, unit_cost, cost_missing from order_items where order_id = $1",
+    )
+    .bind(s_resp_null.order.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(cost_tot_null, dec(0));
+    assert_eq!(cost_u_null, dec(0));
+    assert!(
+        cost_miss_null,
+        "cost_missing debe ser verdadero cuando cost_price es null"
+    );
+
+    // 4. [P] Un traslado conserva el costo de origen.
+    let p_trans = seed_product(admin, tenant, "Prod Traslado", "UND", None, false).await;
+    set_base_price(admin, p_trans, "2000").await;
+    seed_branch_product(admin, tenant, branch, p_trans, None, None).await;
+    seed_branch_product(admin, tenant, annex, p_trans, None, None).await;
+
+    // Entrada en branch de 10 @ 120
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    crate::inventory::apply_delta_tx(
+        &mut tx,
+        &scope,
+        crate::inventory::StockDelta {
+            branch_id: branch,
+            location_id: def_loc,
+            product_id: p_trans,
+            delta: dec(10),
+            movement: "REPOSICION",
+            unit_cost: Some(dec(120)),
+            lot_id: None,
+            ref_type: "test",
+            ref_id: Uuid::new_v4(),
+            cause: Some("Entrada origen".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Trasladar 4 unidades de branch a annex
+    crate::inventory::transfer_locations(
+        app,
+        &c_owner,
+        crate::inventory::TransferArgs {
+            from_branch_id: Some(branch),
+            to_branch_id: Some(annex),
+            from_location_id: Some(def_loc),
+            to_location_id: Some(annex_loc),
+            product_id: p_trans,
+            qty: dec(4),
+            cause: "Traslado a anexo".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let avg_annex: Decimal =
+        sqlx::query_scalar("select avg_cost from stock where location_id = $1 and product_id = $2")
+            .bind(annex_loc)
+            .bind(p_trans)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        avg_annex,
+        dec(120),
+        "destino debe conservar costo unitario del origen (120)"
     );
 
     cleanup(admin, tenant, &[owner]).await;

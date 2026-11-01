@@ -39,6 +39,10 @@ fn default_ticket_width() -> i32 {
     80
 }
 
+fn default_costing() -> String {
+    "PROMEDIO".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosSettings {
     #[serde(default = "default_true")]
@@ -94,6 +98,8 @@ pub struct InventorySettings {
     pub allow_negative_stock: bool,
     #[serde(default = "default_low_stock")]
     pub low_stock_default: i32,
+    #[serde(default = "default_costing")]
+    pub costing: String,
 }
 
 impl Default for InventorySettings {
@@ -101,6 +107,7 @@ impl Default for InventorySettings {
         Self {
             allow_negative_stock: false,
             low_stock_default: 5,
+            costing: "PROMEDIO".to_string(),
         }
     }
 }
@@ -204,6 +211,9 @@ pub async fn update_settings(
     }
     if req.settings.inventory.low_stock_default < 0 {
         return Err(validation("inventory.low_stock_default must be >= 0"));
+    }
+    if req.settings.inventory.costing != "PROMEDIO" && req.settings.inventory.costing != "PEPS" {
+        return Err(validation("inventory.costing must be PROMEDIO or PEPS"));
     }
     if req.settings.tips.suggested_pct < Decimal::ZERO
         || req.settings.tips.suggested_pct > Decimal::new(100, 0)

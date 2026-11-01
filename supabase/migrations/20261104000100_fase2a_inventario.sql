@@ -258,5 +258,44 @@ create policy stock_alerts_tenant_isolation on public.stock_alerts
 
 grant select, insert, update on public.stock_alerts to authenticated;
 
+-- F2.10 Costeo
+alter table public.stock add column if not exists avg_cost numeric(14,4) not null default 0 check (avg_cost >= 0);
+update public.stock s set avg_cost = coalesce(p.cost_price, 0) from public.products p where p.id = s.product_id;
+
+create table if not exists public.cost_layers (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid not null,
+  location_id uuid not null,
+  product_id uuid not null,
+  qty_remaining numeric(14,4) not null check (qty_remaining >= 0),
+  unit_cost numeric(14,4) not null check (unit_cost >= 0),
+  source_type text not null,
+  source_id uuid,
+  received_at timestamptz not null default now(),
+  foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id),
+  foreign key (tenant_id, product_id) references public.products (tenant_id, id)
+);
+
+create index if not exists cost_layers_fifo on public.cost_layers (location_id, product_id, received_at, id) where qty_remaining > 0;
+
+insert into public.cost_layers (tenant_id, branch_id, location_id, product_id, qty_remaining, unit_cost, source_type)
+select tenant_id, branch_id, location_id, product_id, on_hand, avg_cost, 'MIGRACION' from public.stock where on_hand > 0;
+
+alter table public.order_items
+  add column if not exists unit_cost numeric(14,4),
+  add column if not exists cost_total numeric(14,2),
+  add column if not exists cost_missing boolean not null default false;
+
+alter table public.cost_layers enable row level security;
+
+create policy cost_layers_tenant_isolation on public.cost_layers
+  for all to authenticated
+  using (in_scope(tenant_id, branch_id))
+  with check (in_scope(tenant_id, branch_id));
+
+grant select, insert, update on public.cost_layers to authenticated;
+
+
 
 
