@@ -787,6 +787,7 @@ async fn database_integration() {
     f2_options(&app, &admin).await;
     f2_archive(&app, &admin).await;
     f2_import(&app, &admin).await;
+    f2_locations(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -808,7 +809,7 @@ async fn stock_levels_and_transfer_checks(app: &PgPool, admin: &PgPool) {
     let oil = seed_product(admin, tenant, "Aceite", "UND", None, false).await;
     seed_branch_product(admin, tenant, main, oil, None, None).await;
 
-    let levels = inventory::stock_levels(app, &c, main).await.unwrap();
+    let levels = inventory::stock_levels(app, &c, main, None).await.unwrap();
     let row = |levels: &[inventory::StockLevel], p: Uuid| {
         let r = levels.iter().find(|l| l.product_id == p).unwrap();
         (r.available.normalize(), r.status.clone())
@@ -821,7 +822,7 @@ async fn stock_levels_and_transfer_checks(app: &PgPool, admin: &PgPool) {
     inventory::set_min_qty(app, &c, main, rice, dec(10))
         .await
         .unwrap();
-    let levels = inventory::stock_levels(app, &c, main).await.unwrap();
+    let levels = inventory::stock_levels(app, &c, main, None).await.unwrap();
     assert_eq!(row(&levels, rice).1, "BAJO");
 
     // Conteo fisico: 7 contadas -> salida de 3; mismo conteo no registra nada.
@@ -866,7 +867,7 @@ async fn stock_levels_and_transfer_checks(app: &PgPool, admin: &PgPool) {
     ));
 
     // Kardex del arroz en la principal: mas reciente primero y saldo correcto.
-    let kx = inventory::kardex(app, &c, main, Some(rice), 50)
+    let kx = inventory::kardex(app, &c, main, Some(rice), None, 50)
         .await
         .unwrap();
     let seq: Vec<(String, Decimal)> = kx
@@ -886,7 +887,9 @@ async fn stock_levels_and_transfer_checks(app: &PgPool, admin: &PgPool) {
         ]
     );
     assert_eq!(kx[0].product_name, "Arroz");
-    let annex_kx = inventory::kardex(app, &c, annex, None, 50).await.unwrap();
+    let annex_kx = inventory::kardex(app, &c, annex, None, None, 50)
+        .await
+        .unwrap();
     assert_eq!(annex_kx.len(), 1);
     assert_eq!(annex_kx[0].movement_type, "TRASLADO_ENTRADA");
     assert_eq!(annex_kx[0].ref_id, kx[0].ref_id);
@@ -2408,6 +2411,7 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
         &c_cashier1,
         registers::CreateRegisterRequest {
             branch_id: branch,
+            location_id: None,
             name: "Caja 2".to_string(),
             code: "CAJA-2".to_string(),
             default_opening: dec(100000),
@@ -2422,6 +2426,7 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
         &c_owner,
         registers::CreateRegisterRequest {
             branch_id: branch,
+            location_id: None,
             name: "Caja 2".to_string(),
             code: "CAJA-2".to_string(),
             default_opening: dec(100000),
@@ -2468,6 +2473,7 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
         &c_owner,
         reg1_id,
         registers::UpdateRegisterRequest {
+            location_id: None,
             name: "Caja 1".to_string(),
             code: "CAJA-1".to_string(),
             default_opening: dec(50000),
@@ -2505,6 +2511,7 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
         &c_owner,
         reg1_id,
         registers::UpdateRegisterRequest {
+            location_id: None,
             name: "Caja 1".to_string(),
             code: "CAJA-1".to_string(),
             default_opening: dec(50000),
@@ -2741,6 +2748,7 @@ async fn f1_cash_state(app: &PgPool, admin: &PgPool) {
         &c_owner,
         registers::CreateRegisterRequest {
             branch_id: branch,
+            location_id: None,
             name: "Caja State".into(),
             code: "CAJA-ST".into(),
             default_opening: dec(50000),
@@ -6472,6 +6480,259 @@ async fn f2_import(app: &PgPool, admin: &PgPool) {
     .await
     .unwrap();
     assert_eq!(stock_solo, dec(10), "gorra debe tener 10 de stock inicial");
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_locations(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    // 1. [P] Las ubicaciones AVERIADOS y CUARENTENA no se pueden marcar vendibles
+    let err_averiados = crate::locations::create_location(
+        app,
+        &c_owner,
+        crate::locations::CreateLocationInput {
+            branch_id: branch,
+            name: "Averiados Vendible".into(),
+            kind: "AVERIADOS".into(),
+            sellable: true,
+            is_default: Some(false),
+        },
+    )
+    .await;
+    assert!(is_validation(&err_averiados));
+
+    let err_cuarentena = crate::locations::create_location(
+        app,
+        &c_owner,
+        crate::locations::CreateLocationInput {
+            branch_id: branch,
+            name: "Cuarentena Vendible".into(),
+            kind: "CUARENTENA".into(),
+            sellable: true,
+            is_default: Some(false),
+        },
+    )
+    .await;
+    assert!(is_validation(&err_cuarentena));
+
+    // Crear AVERIADOS no vendible es válido
+    let loc_averiados = crate::locations::create_location(
+        app,
+        &c_owner,
+        crate::locations::CreateLocationInput {
+            branch_id: branch,
+            name: "Merma y Daños".into(),
+            kind: "AVERIADOS".into(),
+            sellable: false,
+            is_default: Some(false),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!loc_averiados.sellable);
+
+    // Intentar cambiarla a vendible mediante update da 422 LOCATION_INVALID
+    let err_update = crate::locations::update_location(
+        app,
+        &c_owner,
+        loc_averiados.id,
+        crate::locations::UpdateLocationInput {
+            name: None,
+            kind: None,
+            sellable: Some(true),
+            is_default: None,
+            active: None,
+        },
+    )
+    .await;
+    assert!(is_validation(&err_update));
+
+    // 2. [P] Venta descuenta de la ubicación de la caja
+    // Obtener ubicación Principal creada automáticamente
+    let principal_id: Uuid = sqlx::query_scalar(
+        "select id from locations where branch_id = $1 and is_default = true limit 1",
+    )
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    // Crear "Bodega Auxiliar" vendible
+    let bodega_aux = crate::locations::create_location(
+        app,
+        &c_owner,
+        crate::locations::CreateLocationInput {
+            branch_id: branch,
+            name: "Bodega Auxiliar".into(),
+            kind: "BODEGA".into(),
+            sellable: true,
+            is_default: Some(false),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Producto de prueba
+    let prod = seed_product(admin, tenant, "Arroz Diana 1kg", "UND", None, false).await;
+    set_base_price(admin, prod, "5000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+
+    // Stock: 10 en Principal, 20 en Bodega Auxiliar
+    seed_stock_location(admin, tenant, branch, principal_id, prod, "10", "0").await;
+    seed_stock_location(admin, tenant, branch, bodega_aux.id, prod, "20", "0").await;
+
+    // Crear caja vinculada a Bodega Auxiliar
+    let reg_aux = crate::registers::create(
+        app,
+        &c_owner,
+        crate::registers::CreateRegisterRequest {
+            branch_id: branch,
+            code: "CAJA-AUX".into(),
+            name: "Caja Auxiliar".into(),
+            default_opening: dec(10000),
+            location_id: Some(bodega_aux.id),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Abrir turno en reg_aux
+    let _session = crate::cash::open(app, &c_owner, branch, reg_aux.id, dec(10000))
+        .await
+        .unwrap();
+
+    // Vender 2 unidades
+    let sale_req = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(prod, 2)],
+        &[(crate::sales::PaymentMethod::Efectivo, 10000)],
+        dec(10000),
+    );
+    let s_resp = created(
+        crate::sales::checkout(app, &c_owner, sale_req)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(s_resp.order.status, "COBRADA");
+
+    // Verificar existencias:
+    // Bodega Auxiliar debe haber bajado de 20 a 18
+    let stock_aux: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(bodega_aux.id)
+            .bind(prod)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock_aux,
+        dec(18),
+        "Bodega Auxiliar debe tener 18 tras la venta"
+    );
+
+    // Principal debe mantenerse intacta en 10
+    let stock_princ: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(principal_id)
+            .bind(prod)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(stock_princ, dec(10), "Principal debe permanecer en 10");
+
+    // 3. [P] Un traslado interno mueve el stock entre dos ubicaciones de la misma sucursal y deja dos movimientos
+    let transfer_res = crate::inventory::transfer_locations(
+        app,
+        &c_owner,
+        crate::inventory::TransferArgs {
+            from_branch_id: None,
+            to_branch_id: None,
+            from_location_id: Some(principal_id),
+            to_location_id: Some(bodega_aux.id),
+            product_id: prod,
+            qty: dec(3),
+            cause: "Traslado interno a bodega auxiliar".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Existencias post-traslado:
+    // Principal: 10 - 3 = 7
+    let stock_princ_after: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(principal_id)
+            .bind(prod)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock_princ_after,
+        dec(7),
+        "Principal debe tener 7 tras traslado"
+    );
+
+    // Bodega Auxiliar: 18 + 3 = 21
+    let stock_aux_after: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(bodega_aux.id)
+            .bind(prod)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock_aux_after,
+        dec(21),
+        "Bodega Auxiliar debe tener 21 tras traslado"
+    );
+
+    // Verificar que se generaron dos movimientos de inventario con el mismo ref_id
+    let movements: Vec<(String, Uuid, Decimal)> = sqlx::query_as(
+        "select t.tima_codigo, im.location_id, im.qty
+         from inventory_movements im
+         join tbl_tipos_maestra t on t.tima_id = im.movement_type_id
+         where im.ref_id = $1
+         order by im.created_at asc",
+    )
+    .bind(transfer_res)
+    .fetch_all(admin)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        movements.len(),
+        2,
+        "deben existir dos movimientos por traslado"
+    );
+    assert_eq!(movements[0].0, "TRASLADO_SALIDA");
+    assert_eq!(movements[0].1, principal_id);
+    assert_eq!(movements[0].2, dec(3));
+
+    assert_eq!(movements[1].0, "TRASLADO_ENTRADA");
+    assert_eq!(movements[1].1, bodega_aux.id);
+    assert_eq!(movements[1].2, dec(3));
+
+    // Intentar desactivar bodega con stock: 409 LOCATION_HAS_STOCK
+    let err_deact = crate::locations::update_location(
+        app,
+        &c_owner,
+        bodega_aux.id,
+        crate::locations::UpdateLocationInput {
+            name: None,
+            kind: None,
+            sellable: None,
+            is_default: None,
+            active: Some(false),
+        },
+    )
+    .await;
+    assert!(is_conflict(&err_deact));
 
     cleanup(admin, tenant, &[owner]).await;
 }

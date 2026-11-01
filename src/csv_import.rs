@@ -839,14 +839,21 @@ async fn apply_initial_stock(
     qty: Decimal,
     cost: Decimal,
 ) -> Result<(), ApiError> {
+    let loc_id: Uuid =
+        sqlx::query_scalar("select id from locations where branch_id = $1 and is_default = true")
+            .bind(branch_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
     sqlx::query(
-        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
-         values ($1, $2, $3, $4, 0)
-         on conflict (branch_id, product_id)
+        "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
+         values ($1, $2, $3, $4, $5, 0)
+         on conflict (location_id, product_id)
          do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
     )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(loc_id)
     .bind(product_id)
     .bind(qty)
     .execute(&mut **tx)
@@ -854,11 +861,12 @@ async fn apply_initial_stock(
 
     sqlx::query(
         "insert into inventory_movements
-           (tenant_id, branch_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
-         values ($1, $2, $3, public.tipo_id('MOV', 'AJUSTE_ENTRADA'), $4, 'Carga inicial', 'IMPORT', $3, $5)",
+           (tenant_id, branch_id, location_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
+         values ($1, $2, $3, $4, public.tipo_id('MOV', 'AJUSTE_ENTRADA'), $5, 'Carga inicial', 'IMPORT', $4, $6)",
     )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(loc_id)
     .bind(product_id)
     .bind(qty)
     .bind(scope.user)

@@ -23,6 +23,7 @@ pub struct OpenSessionBrief {
 pub struct Register {
     pub id: Uuid,
     pub branch_id: Uuid,
+    pub location_id: Option<Uuid>,
     pub name: String,
     pub code: String,
     pub default_opening: Decimal,
@@ -33,6 +34,8 @@ pub struct Register {
 #[derive(Debug, Deserialize)]
 pub struct CreateRegisterRequest {
     pub branch_id: Uuid,
+    #[serde(default)]
+    pub location_id: Option<Uuid>,
     pub name: String,
     pub code: String,
     pub default_opening: Decimal,
@@ -44,6 +47,8 @@ pub struct UpdateRegisterRequest {
     pub code: String,
     pub default_opening: Decimal,
     pub active: bool,
+    #[serde(default)]
+    pub location_id: Option<Uuid>,
 }
 
 fn validate_code(code: &str) -> bool {
@@ -70,6 +75,7 @@ pub async fn list(
     struct Row {
         id: Uuid,
         branch_id: Uuid,
+        location_id: Option<Uuid>,
         name: String,
         code: String,
         default_opening: Decimal,
@@ -81,7 +87,7 @@ pub async fn list(
     }
 
     let rows = sqlx::query_as::<_, Row>(
-        "select r.id, r.branch_id, r.name, r.code, r.default_opening, r.active,
+        "select r.id, r.branch_id, r.location_id, r.name, r.code, r.default_opening, r.active,
                 s.id as session_id, s.opened_by, u.full_name as opened_by_name, s.opened_at
          from cash_registers r
          left join cash_sessions s on s.register_id = r.id and s.closed_at is null
@@ -99,6 +105,7 @@ pub async fn list(
         .map(|r| Register {
             id: r.id,
             branch_id: r.branch_id,
+            location_id: r.location_id,
             name: r.name,
             code: r.code,
             default_opening: r.default_opening,
@@ -172,13 +179,19 @@ pub async fn create(
         ));
     }
 
+    let location_id = match req.location_id {
+        Some(loc) => loc,
+        None => crate::locations::default_location_id_tx(&mut tx, req.branch_id).await?,
+    };
+
     let id: Uuid = sqlx::query_scalar(
-        "insert into cash_registers (tenant_id, branch_id, name, code, default_opening, active)
-         values ($1, $2, $3, $4, $5, true)
+        "insert into cash_registers (tenant_id, branch_id, location_id, name, code, default_opening, active)
+         values ($1, $2, $3, $4, $5, $6, true)
          returning id",
     )
     .bind(scope.tenant)
     .bind(req.branch_id)
+    .bind(location_id)
     .bind(name)
     .bind(&code)
     .bind(req.default_opening)
@@ -188,6 +201,7 @@ pub async fn create(
     let register = Register {
         id,
         branch_id: req.branch_id,
+        location_id: Some(location_id),
         name: name.to_string(),
         code: code.clone(),
         default_opening: req.default_opening,
@@ -254,6 +268,7 @@ pub async fn update(
     #[derive(sqlx::FromRow)]
     struct CurrentRow {
         branch_id: Uuid,
+        location_id: Option<Uuid>,
         name: String,
         code: String,
         default_opening: Decimal,
@@ -261,7 +276,7 @@ pub async fn update(
     }
 
     let current = sqlx::query_as::<_, CurrentRow>(
-        "select branch_id, name, code, default_opening, active
+        "select branch_id, location_id, name, code, default_opening, active
          from cash_registers
          where id = $1 for update",
     )
@@ -316,15 +331,18 @@ pub async fn update(
         "active": current.active,
     });
 
+    let new_location_id = req.location_id.or(current.location_id);
+
     sqlx::query(
         "update cash_registers
-         set name = $1, code = $2, default_opening = $3, active = $4
-         where id = $5",
+         set name = $1, code = $2, default_opening = $3, active = $4, location_id = $5
+         where id = $6",
     )
     .bind(name)
     .bind(&code)
     .bind(req.default_opening)
     .bind(req.active)
+    .bind(new_location_id)
     .bind(id)
     .execute(&mut *tx)
     .await?;
@@ -332,6 +350,7 @@ pub async fn update(
     let after = serde_json::json!({
         "id": id,
         "branch_id": current.branch_id,
+        "location_id": new_location_id,
         "name": name,
         "code": code,
         "default_opening": req.default_opening,
@@ -364,6 +383,7 @@ pub async fn update(
     let updated = Register {
         id,
         branch_id: current.branch_id,
+        location_id: new_location_id,
         name: name.to_string(),
         code: code.to_string(),
         default_opening: req.default_opening,

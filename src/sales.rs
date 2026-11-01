@@ -1212,7 +1212,27 @@ pub async fn checkout_tx(
         }
     }
     if !stock_lines.is_empty() {
-        inventory::sell_tx(tx, scope, branch, req.id, &stock_lines).await?;
+        let loc_id = if let Some(sess_id) = session {
+            let reg_loc: Option<Option<Uuid>> = sqlx::query_scalar(
+                "select r.location_id
+                 from cash_sessions cs
+                 join cash_registers r on r.id = cs.register_id
+                 where cs.id = $1",
+            )
+            .bind(sess_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            reg_loc.flatten()
+        } else {
+            None
+        };
+
+        let loc_id = match loc_id {
+            Some(id) => id,
+            None => crate::locations::default_location_id_tx(tx, branch).await?,
+        };
+
+        inventory::sell_tx(tx, scope, branch, loc_id, req.id, &stock_lines).await?;
     }
 
     // 11. Totales y propina

@@ -164,18 +164,48 @@ pub async fn seed_stock(
     on_hand: &str,
     reserved: &str,
 ) {
+    let location_id: Uuid = sqlx::query_scalar(
+        "select id from locations where branch_id = $1 and is_default = true limit 1",
+    )
+    .bind(branch)
+    .fetch_one(pool)
+    .await
+    .expect("seed_stock default location");
+
+    seed_stock_location(
+        pool,
+        tenant,
+        branch,
+        location_id,
+        product,
+        on_hand,
+        reserved,
+    )
+    .await;
+}
+
+pub async fn seed_stock_location(
+    pool: &PgPool,
+    tenant: Uuid,
+    branch: Uuid,
+    location_id: Uuid,
+    product: Uuid,
+    on_hand: &str,
+    reserved: &str,
+) {
     sqlx::query(
-        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
-         values ($1, $2, $3, $4::numeric, $5::numeric)",
+        "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
+         values ($1, $2, $3, $4, $5::numeric, $6::numeric)",
     )
     .bind(tenant)
     .bind(branch)
+    .bind(location_id)
     .bind(product)
     .bind(on_hand)
     .bind(reserved)
     .execute(pool)
     .await
-    .expect("seed stock");
+    .expect("seed stock location");
 }
 
 pub async fn seed_recipe(pool: &PgPool, tenant: Uuid, product: Uuid) -> Uuid {

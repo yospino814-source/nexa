@@ -8,7 +8,7 @@
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -67,8 +67,8 @@ pub struct StockLevel {
     pub archived: bool,
 }
 
-/// Fila de reserva: (id, branch_id, product_id, qty).
-type ReservationRow = (Uuid, Uuid, Uuid, Decimal);
+/// Fila de reserva: (id, branch_id, location_id, product_id, qty).
+type ReservationRow = (Uuid, Uuid, Uuid, Uuid, Decimal);
 
 const AVAILABLE_SQL: &str = r#"
 select case
@@ -76,13 +76,22 @@ select case
     (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
        from recipe_items ri
        join recipes r2 on r2.id = ri.recipe_id
-       left join stock si
-         on si.product_id = ri.input_product_id and si.branch_id = $1
+       left join (
+         select product_id, sum(on_hand) as on_hand, sum(reserved) as reserved
+           from stock
+          where branch_id = $1
+          group by product_id
+       ) si on si.product_id = ri.input_product_id
       where r2.product_id = p.id)
   else coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
 end
 from products p
-left join stock s on s.product_id = p.id and s.branch_id = $1
+left join (
+  select product_id, sum(on_hand) as on_hand, sum(reserved) as reserved
+    from stock
+   where branch_id = $1
+   group by product_id
+) s on s.product_id = p.id
 where p.id = $2
 "#;
 
@@ -255,12 +264,13 @@ pub async fn reserve_tx(
 
     let mut ids = Vec::new();
     for (stock_product, need) in comps {
+        let loc_id = crate::locations::default_location_id_tx(tx, branch_id).await?;
         let row: Option<(Decimal, Decimal)> = sqlx::query_as(
             "select on_hand, reserved from stock
-              where branch_id = $1 and product_id = $2
+              where location_id = $1 and product_id = $2
               for update",
         )
-        .bind(branch_id)
+        .bind(loc_id)
         .bind(stock_product)
         .fetch_optional(&mut **tx)
         .await?;
@@ -272,22 +282,23 @@ pub async fn reserve_tx(
 
         sqlx::query(
             "update stock set reserved = reserved + $1, updated_at = now()
-              where branch_id = $2 and product_id = $3",
+              where location_id = $2 and product_id = $3",
         )
         .bind(need)
-        .bind(branch_id)
+        .bind(loc_id)
         .bind(stock_product)
         .execute(&mut **tx)
         .await?;
 
         let id: Uuid = sqlx::query_scalar(
             "insert into stock_reservations
-               (tenant_id, branch_id, order_id, order_item_id, product_id, qty, status_id, expires_at)
-             values ($1, $2, $3, $4, $5, $6, public.tipo_id('RES', 'ACTIVA'), $7)
+               (tenant_id, branch_id, location_id, order_id, order_item_id, product_id, qty, status_id, expires_at)
+             values ($1, $2, $3, $4, $5, $6, $7, public.tipo_id('RES', 'ACTIVA'), $8)
              returning id",
         )
         .bind(scope.tenant)
         .bind(branch_id)
+        .bind(loc_id)
         .bind(order_id)
         .bind(order_item_id)
         .bind(stock_product)
@@ -325,7 +336,7 @@ pub async fn consume_tx(
     reservation_ids: &[Uuid],
 ) -> Result<u64, ApiError> {
     let rows: Vec<ReservationRow> = sqlx::query_as(
-        "select id, branch_id, product_id, qty from stock_reservations
+        "select id, branch_id, location_id, product_id, qty from stock_reservations
           where id = any($1) and status_id = public.tipo_id('RES', 'ACTIVA')
           order by product_id
           for update",
@@ -343,7 +354,7 @@ pub async fn consume_order_tx(
     order_id: Uuid,
 ) -> Result<u64, ApiError> {
     let rows: Vec<ReservationRow> = sqlx::query_as(
-        "select id, branch_id, product_id, qty from stock_reservations
+        "select id, branch_id, location_id, product_id, qty from stock_reservations
           where order_id = $1 and status_id = public.tipo_id('RES', 'ACTIVA')
           order by product_id
           for update",
@@ -360,25 +371,26 @@ async fn consume_rows(
     rows: Vec<ReservationRow>,
 ) -> Result<u64, ApiError> {
     let mut count = 0u64;
-    for (id, branch_id, product_id, qty) in rows {
+    for (id, branch_id, location_id, product_id, qty) in rows {
         sqlx::query(
             "update stock
                 set on_hand = on_hand - $1, reserved = reserved - $1, updated_at = now()
-              where branch_id = $2 and product_id = $3",
+              where location_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .execute(&mut **tx)
         .await?;
 
         sqlx::query(
             "insert into inventory_movements
-               (tenant_id, branch_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
-             values ($1, $2, $3, public.tipo_id('MOV', 'DESCUENTO'), $4, 'consumo', 'reservation', $5, $6)",
+               (tenant_id, branch_id, location_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
+             values ($1, $2, $3, $4, public.tipo_id('MOV', 'DESCUENTO'), $5, 'consumo', 'reservation', $6, $7)",
         )
         .bind(scope.tenant)
         .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .bind(qty)
         .bind(id)
@@ -392,7 +404,6 @@ async fn consume_rows(
         .bind(id)
         .execute(&mut **tx)
         .await?;
-
         count += 1;
     }
     Ok(count)
@@ -408,6 +419,7 @@ pub async fn sell_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
     branch_id: Uuid,
+    location_id: Uuid,
     order_id: Uuid,
     lines: &[(Uuid, Decimal)],
 ) -> Result<(), ApiError> {
@@ -428,10 +440,10 @@ pub async fn sell_tx(
     for (product_id, need) in needs {
         let row: Option<(Decimal, Decimal)> = sqlx::query_as(
             "select on_hand, reserved from stock
-              where branch_id = $1 and product_id = $2
+              where location_id = $1 and product_id = $2
               for update",
         )
-        .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .fetch_optional(&mut **tx)
         .await?;
@@ -444,21 +456,22 @@ pub async fn sell_tx(
 
         sqlx::query(
             "update stock set on_hand = on_hand - $1, updated_at = now()
-              where branch_id = $2 and product_id = $3",
+              where location_id = $2 and product_id = $3",
         )
         .bind(need)
-        .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .execute(&mut **tx)
         .await?;
 
         sqlx::query(
             "insert into inventory_movements
-               (tenant_id, branch_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
-             values ($1, $2, $3, public.tipo_id('MOV', 'DESCUENTO'), $4, 'venta', 'order', $5, $6)",
+               (tenant_id, branch_id, location_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
+             values ($1, $2, $3, $4, public.tipo_id('MOV', 'DESCUENTO'), $5, 'venta', 'order', $6, $7)",
         )
         .bind(scope.tenant)
         .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .bind(need)
         .bind(order_id)
@@ -490,7 +503,7 @@ pub async fn release_tx(tx: &mut Tx<'_>, reservation_ids: &[Uuid]) -> Result<u64
     let rows: Vec<ReservationRow> = sqlx::query_as(
         "update stock_reservations set status_id = public.tipo_id('RES', 'LIBERADA'), updated_at = now()
           where id = any($1) and status_id = public.tipo_id('RES', 'ACTIVA')
-          returning id, branch_id, product_id, qty",
+          returning id, branch_id, location_id, product_id, qty",
     )
     .bind(reservation_ids)
     .fetch_all(&mut **tx)
@@ -503,7 +516,7 @@ pub async fn release_order_tx(tx: &mut Tx<'_>, order_id: Uuid) -> Result<u64, Ap
     let rows: Vec<ReservationRow> = sqlx::query_as(
         "update stock_reservations set status_id = public.tipo_id('RES', 'LIBERADA'), updated_at = now()
           where order_id = $1 and status_id = public.tipo_id('RES', 'ACTIVA')
-          returning id, branch_id, product_id, qty",
+          returning id, branch_id, location_id, product_id, qty",
     )
     .bind(order_id)
     .fetch_all(&mut **tx)
@@ -513,13 +526,13 @@ pub async fn release_order_tx(tx: &mut Tx<'_>, order_id: Uuid) -> Result<u64, Ap
 
 /// Devuelve al disponible las unidades de reservas ya marcadas como no activas.
 async fn return_reserved(tx: &mut Tx<'_>, rows: &[ReservationRow]) -> Result<u64, ApiError> {
-    for (_id, branch_id, product_id, qty) in rows {
+    for (_id, _branch_id, location_id, product_id, qty) in rows {
         sqlx::query(
             "update stock set reserved = reserved - $1, updated_at = now()
-              where branch_id = $2 and product_id = $3",
+              where location_id = $2 and product_id = $3",
         )
         .bind(qty)
-        .bind(branch_id)
+        .bind(location_id)
         .bind(product_id)
         .execute(&mut **tx)
         .await?;
@@ -531,7 +544,7 @@ async fn expire_due_tx(tx: &mut Tx<'_>) -> Result<u64, ApiError> {
     let expired: Vec<ReservationRow> = sqlx::query_as(
         "update stock_reservations set status_id = public.tipo_id('RES', 'EXPIRADA'), updated_at = now()
           where status_id = public.tipo_id('RES', 'ACTIVA') and expires_at is not null and expires_at < now()
-          returning id, branch_id, product_id, qty",
+          returning id, branch_id, location_id, product_id, qty",
     )
     .fetch_all(&mut **tx)
     .await?;
@@ -590,14 +603,17 @@ pub async fn replenish_ref_tx(
     positive(qty)?;
     check_not_variant_parent(tx, product_id).await?;
 
+    let loc_id = crate::locations::default_location_id_tx(tx, branch_id).await?;
+
     sqlx::query(
-        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
-         values ($1, $2, $3, $4, 0)
-         on conflict (branch_id, product_id)
+        "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
+         values ($1, $2, $3, $4, $5, 0)
+         on conflict (location_id, product_id)
          do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
     )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(loc_id)
     .bind(product_id)
     .bind(qty)
     .execute(&mut **tx)
@@ -607,6 +623,7 @@ pub async fn replenish_ref_tx(
         tx,
         scope,
         branch_id,
+        loc_id,
         product_id,
         "REPOSICION",
         qty,
@@ -631,15 +648,17 @@ pub async fn return_tx(
     reference: (&str, Uuid),
 ) -> Result<(), ApiError> {
     positive(qty)?;
+    let loc_id = crate::locations::default_location_id_tx(tx, branch_id).await?;
     for (component, need) in components(tx, product_id, qty).await? {
         sqlx::query(
-            "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
-             values ($1, $2, $3, $4, 0)
-             on conflict (branch_id, product_id)
+            "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
+             values ($1, $2, $3, $4, $5, 0)
+             on conflict (location_id, product_id)
              do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
         )
         .bind(scope.tenant)
         .bind(branch_id)
+        .bind(loc_id)
         .bind(component)
         .bind(need)
         .execute(&mut **tx)
@@ -648,6 +667,7 @@ pub async fn return_tx(
             tx,
             scope,
             branch_id,
+            loc_id,
             component,
             "DEVOLUCION",
             need,
@@ -742,34 +762,51 @@ pub async fn count(
 
 /// Bloquea la fila de stock; si el producto nunca tuvo stock en la sucursal,
 /// la crea en cero (el producto debe ser del negocio).
-async fn lock_or_create_stock_tx(
+pub async fn default_location_id_tx(tx: &mut Tx<'_>, branch_id: Uuid) -> Result<Uuid, ApiError> {
+    crate::locations::default_location_id_tx(tx, branch_id).await
+}
+
+pub async fn lock_or_create_stock_location_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
     branch_id: Uuid,
+    location_id: Uuid,
     product_id: Uuid,
 ) -> Result<(Decimal, Decimal), ApiError> {
+    check_not_variant_parent(tx, product_id).await?;
     sqlx::query(
-        "insert into stock (tenant_id, branch_id, product_id, on_hand, reserved)
-         select $1, $2, p.id, 0, 0 from products p
-          where p.id = $3 and p.tenant_id = $1 and not p.is_composed
-         on conflict (branch_id, product_id) do nothing",
+        "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
+         select $1, $2, $3, p.id, 0, 0 from products p
+          where p.id = $4 and p.tenant_id = $1 and not p.is_composed
+         on conflict (location_id, product_id) do nothing",
     )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(location_id)
     .bind(product_id)
     .execute(&mut **tx)
     .await?;
 
     let row: Option<(Decimal, Decimal)> = sqlx::query_as(
         "select on_hand, reserved from stock
-          where branch_id = $1 and product_id = $2
+          where location_id = $1 and product_id = $2
           for update",
     )
-    .bind(branch_id)
+    .bind(location_id)
     .bind(product_id)
     .fetch_optional(&mut **tx)
     .await?;
     row.ok_or(ApiError::Domain(DomainError::NotFound))
+}
+
+async fn lock_or_create_stock_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    product_id: Uuid,
+) -> Result<(Decimal, Decimal), ApiError> {
+    let loc_id = default_location_id_tx(tx, branch_id).await?;
+    lock_or_create_stock_location_tx(tx, scope, branch_id, loc_id, product_id).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -777,6 +814,26 @@ pub(crate) async fn apply_delta_ref_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
     branch_id: Uuid,
+    product_id: Uuid,
+    on_hand: Decimal,
+    reserved: Decimal,
+    delta: Decimal,
+    cause: &str,
+    reference: Option<(&str, Uuid)>,
+) -> Result<(), ApiError> {
+    let loc_id = default_location_id_tx(tx, branch_id).await?;
+    apply_delta_ref_location_tx(
+        tx, scope, branch_id, loc_id, product_id, on_hand, reserved, delta, cause, reference,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn apply_delta_ref_location_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    location_id: Uuid,
     product_id: Uuid,
     on_hand: Decimal,
     reserved: Decimal,
@@ -796,10 +853,10 @@ pub(crate) async fn apply_delta_ref_tx(
 
     sqlx::query(
         "update stock set on_hand = $1, updated_at = now()
-          where branch_id = $2 and product_id = $3",
+          where location_id = $2 and product_id = $3",
     )
     .bind(new_on_hand)
-    .bind(branch_id)
+    .bind(location_id)
     .bind(product_id)
     .execute(&mut **tx)
     .await?;
@@ -809,6 +866,7 @@ pub(crate) async fn apply_delta_ref_tx(
         tx,
         scope,
         branch_id,
+        location_id,
         product_id,
         kind,
         delta.abs(),
@@ -849,6 +907,7 @@ async fn record_movement_ref(
     tx: &mut Tx<'_>,
     scope: &Scope,
     branch_id: Uuid,
+    location_id: Uuid,
     product_id: Uuid,
     kind: &str,
     qty: Decimal,
@@ -857,11 +916,12 @@ async fn record_movement_ref(
 ) -> Result<(), ApiError> {
     sqlx::query(
         "insert into inventory_movements
-           (tenant_id, branch_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
-         values ($1, $2, $3, public.tipo_id('MOV', $4), $5, $6, $7, $8, $9)",
+           (tenant_id, branch_id, location_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
+         values ($1, $2, $3, $4, public.tipo_id('MOV', $5), $6, $7, $8, $9, $10)",
     )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(location_id)
     .bind(product_id)
     .bind(kind)
     .bind(qty)
@@ -876,8 +936,189 @@ async fn record_movement_ref(
 
 // -------------------------------------------------------------- traslados
 
-/// Traslada unidades de una sucursal a otra en una sola transaccion. Exige
-/// permiso de inventario en ambas; las dos patas comparten `ref_id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TransferArgs {
+    pub from_branch_id: Option<Uuid>,
+    pub to_branch_id: Option<Uuid>,
+    pub from_location_id: Option<Uuid>,
+    pub to_location_id: Option<Uuid>,
+    pub product_id: Uuid,
+    pub qty: Decimal,
+    pub cause: String,
+}
+
+pub async fn transfer_locations(
+    pool: &PgPool,
+    claims: &Claims,
+    args: TransferArgs,
+) -> Result<Uuid, ApiError> {
+    positive(args.qty)?;
+
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    crate::db::set_scope(&mut tx, scope.tenant, None).await?;
+
+    let from_loc_id = match args.from_location_id {
+        Some(id) => id,
+        None => {
+            let bid = args.from_branch_id.ok_or_else(|| {
+                error::validation("from_location_id or from_branch_id is required")
+            })?;
+            default_location_id_tx(&mut tx, bid).await?
+        }
+    };
+
+    let to_loc_id = match args.to_location_id {
+        Some(id) => id,
+        None => {
+            let bid = args
+                .to_branch_id
+                .ok_or_else(|| error::validation("to_location_id or to_branch_id is required"))?;
+            default_location_id_tx(&mut tx, bid).await?
+        }
+    };
+
+    if from_loc_id == to_loc_id {
+        return Err(ApiError::Domain(DomainError::Validation(
+            "source and destination locations must differ".into(),
+        )));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct LocInfo {
+        #[allow(dead_code)]
+        id: Uuid,
+        branch_id: Uuid,
+    }
+
+    let from_info: LocInfo =
+        sqlx::query_as("select id, branch_id from locations where tenant_id = $1 and id = $2")
+            .bind(scope.tenant)
+            .bind(from_loc_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                error::coded(
+                    StatusCode::NOT_FOUND,
+                    "LOCATION_NOT_FOUND",
+                    "Ubicación de origen no encontrada",
+                    None,
+                )
+            })?;
+
+    let to_info: LocInfo =
+        sqlx::query_as("select id, branch_id from locations where tenant_id = $1 and id = $2")
+            .bind(scope.tenant)
+            .bind(to_loc_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                error::coded(
+                    StatusCode::NOT_FOUND,
+                    "LOCATION_NOT_FOUND",
+                    "Ubicación de destino no encontrada",
+                    None,
+                )
+            })?;
+
+    tenancy::require_in_branch_tx(
+        &mut tx,
+        &scope,
+        from_info.branch_id,
+        Action::ManageInventory,
+    )
+    .await?;
+    if to_info.branch_id != from_info.branch_id {
+        tenancy::require_in_branch_tx(&mut tx, &scope, to_info.branch_id, Action::ManageInventory)
+            .await?;
+    }
+
+    crate::db::set_scope(&mut tx, scope.tenant, None).await?;
+    let wide = Scope {
+        branch: None,
+        ..scope.clone()
+    };
+
+    let (first_loc, second_loc, first_bid, second_bid) = if from_loc_id < to_loc_id {
+        (
+            from_loc_id,
+            to_loc_id,
+            from_info.branch_id,
+            to_info.branch_id,
+        )
+    } else {
+        (
+            to_loc_id,
+            from_loc_id,
+            to_info.branch_id,
+            from_info.branch_id,
+        )
+    };
+
+    let a = lock_or_create_stock_location_tx(&mut tx, &wide, first_bid, first_loc, args.product_id)
+        .await?;
+    let b =
+        lock_or_create_stock_location_tx(&mut tx, &wide, second_bid, second_loc, args.product_id)
+            .await?;
+    let (on_hand, reserved) = if first_loc == from_loc_id { a } else { b };
+
+    if on_hand - reserved < args.qty {
+        return Err(crate::error::state("insufficient stock for transfer"));
+    }
+
+    sqlx::query(
+        "update stock set on_hand = on_hand - $1, updated_at = now()
+         where location_id = $2 and product_id = $3",
+    )
+    .bind(args.qty)
+    .bind(from_loc_id)
+    .bind(args.product_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "update stock set on_hand = on_hand + $1, updated_at = now()
+         where location_id = $2 and product_id = $3",
+    )
+    .bind(args.qty)
+    .bind(to_loc_id)
+    .bind(args.product_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let reference = Uuid::new_v4();
+    let r = Some(("TRASLADO", reference));
+    record_movement_ref(
+        &mut tx,
+        &wide,
+        from_info.branch_id,
+        from_loc_id,
+        args.product_id,
+        "TRASLADO_SALIDA",
+        args.qty,
+        &args.cause,
+        r,
+    )
+    .await?;
+
+    record_movement_ref(
+        &mut tx,
+        &wide,
+        to_info.branch_id,
+        to_loc_id,
+        args.product_id,
+        "TRASLADO_ENTRADA",
+        args.qty,
+        &args.cause,
+        r,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(reference)
+}
+
+/// Traslada unidades de una sucursal a otra (o entre bodegas) en una sola transaccion.
+#[allow(dead_code)]
 pub async fn transfer(
     pool: &PgPool,
     claims: &Claims,
@@ -887,72 +1128,25 @@ pub async fn transfer(
     qty: Decimal,
     cause: &str,
 ) -> Result<Uuid, ApiError> {
-    positive(qty)?;
     if from == to {
         return Err(ApiError::Domain(DomainError::Validation(
             "source and destination branches must differ".into(),
         )));
     }
-    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, from).await?;
-    scope.require(Action::ManageInventory)?;
-    tenancy::require_in_branch_tx(&mut tx, &scope, to, Action::ManageInventory).await?;
-
-    // Ya validados los permisos, se opera a nivel de negocio para ver las
-    // dos sucursales bajo RLS.
-    crate::db::set_scope(&mut tx, scope.tenant, None).await?;
-    let wide = Scope {
-        branch: None,
-        ..scope.clone()
-    };
-
-    // Orden estable de bloqueo para que dos traslados cruzados no se traben.
-    let (first, second) = if from < to { (from, to) } else { (to, from) };
-    let a = lock_or_create_stock_tx(&mut tx, &wide, first, product_id).await?;
-    let b = lock_or_create_stock_tx(&mut tx, &wide, second, product_id).await?;
-    let (on_hand, reserved) = if first == from { a } else { b };
-    if on_hand - reserved < qty {
-        return Err(crate::error::state("insufficient stock for transfer"));
-    }
-
-    sqlx::query(
-        "update stock
-            set on_hand = on_hand + case when branch_id = $2 then -$4 else $4 end,
-                updated_at = now()
-          where product_id = $1 and branch_id in ($2, $3)",
+    transfer_locations(
+        pool,
+        claims,
+        TransferArgs {
+            from_branch_id: Some(from),
+            to_branch_id: Some(to),
+            from_location_id: None,
+            to_location_id: None,
+            product_id,
+            qty,
+            cause: cause.to_string(),
+        },
     )
-    .bind(product_id)
-    .bind(from)
-    .bind(to)
-    .bind(qty)
-    .execute(&mut *tx)
-    .await?;
-
-    let reference = Uuid::new_v4();
-    let r = Some(("TRASLADO", reference));
-    record_movement_ref(
-        &mut tx,
-        &wide,
-        from,
-        product_id,
-        "TRASLADO_SALIDA",
-        qty,
-        cause,
-        r,
-    )
-    .await?;
-    record_movement_ref(
-        &mut tx,
-        &wide,
-        to,
-        product_id,
-        "TRASLADO_ENTRADA",
-        qty,
-        cause,
-        r,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(reference)
+    .await
 }
 
 // ------------------------------------------------------------- existencias
@@ -963,6 +1157,7 @@ pub async fn stock_levels(
     pool: &PgPool,
     claims: &Claims,
     branch_id: Uuid,
+    location_id: Option<Uuid>,
 ) -> Result<Vec<StockLevel>, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
     scope.require(Action::ManageInventory)?;
@@ -982,14 +1177,21 @@ pub async fn stock_levels(
                 (p.archived_at is not null) as archived
            from products p
            left join branch_products bp on bp.product_id = p.id and bp.branch_id = $1
-           left join stock s on s.product_id = p.id and s.branch_id = $1
+           left join (
+             select product_id, sum(on_hand) as on_hand, sum(reserved) as reserved,
+                    max(min_qty) as min_qty, max(updated_at) as updated_at
+               from stock
+              where branch_id = $1 and ($2::uuid is null or location_id = $2)
+              group by product_id
+           ) s on s.product_id = p.id
            left join product_categories c on c.id = bp.category_id
            left join tbl_tipos_maestra u on u.tima_id = p.unit_measure_id
           where p.active and not p.is_composed
-            and (bp.id is not null or s.id is not null)
+            and (bp.id is not null or s.product_id is not null)
           order by p.name",
     )
     .bind(branch_id)
+    .bind(location_id)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -1011,9 +1213,10 @@ pub async fn set_min_qty(
             "min_qty must be >= 0".into(),
         )));
     }
-    lock_or_create_stock_tx(&mut tx, &scope, branch_id, product_id).await?;
-    sqlx::query("update stock set min_qty = $3 where branch_id = $1 and product_id = $2")
-        .bind(branch_id)
+    let loc_id = default_location_id_tx(&mut tx, branch_id).await?;
+    lock_or_create_stock_location_tx(&mut tx, &scope, branch_id, loc_id, product_id).await?;
+    sqlx::query("update stock set min_qty = $3 where location_id = $1 and product_id = $2")
+        .bind(loc_id)
         .bind(product_id)
         .bind(min_qty)
         .execute(&mut *tx)
@@ -1031,7 +1234,7 @@ pub async fn movements(
     claims: &Claims,
     branch_id: Uuid,
 ) -> Result<Vec<Movement>, ApiError> {
-    kardex(pool, claims, branch_id, None, 500).await
+    kardex(pool, claims, branch_id, None, None, 500).await
 }
 
 /// Kardex: movimientos mas recientes primero, opcionalmente de un producto,
@@ -1041,6 +1244,7 @@ pub async fn kardex(
     claims: &Claims,
     branch_id: Uuid,
     product_id: Option<Uuid>,
+    location_id: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<Movement>, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
@@ -1055,7 +1259,9 @@ pub async fn kardex(
                   im.cause, im.ref_type, im.ref_id, im.created_by, im.branch_id, im.created_at
              from inventory_movements im
              join tbl_tipos_maestra t on t.tima_id = im.movement_type_id
-            where im.branch_id = $1 and ($2::uuid is null or im.product_id = $2)
+            where im.branch_id = $1
+              and ($2::uuid is null or im.product_id = $2)
+              and ($3::uuid is null or im.location_id = $3)
          )
          select m.id, m.product_id, p.name as product_name, p.sku, m.movement_type, m.qty, m.delta,
                 coalesce(s.on_hand, 0) - coalesce(sum(coalesce(m.delta, 0)) over (
@@ -1064,13 +1270,19 @@ pub async fn kardex(
                 m.cause, m.ref_type, m.ref_id, u.full_name as user_name, m.branch_id, m.created_at
            from m
            join products p on p.id = m.product_id
-           left join stock s on s.product_id = m.product_id and s.branch_id = m.branch_id
+           left join (
+             select product_id, sum(on_hand) as on_hand
+               from stock
+              where branch_id = $1 and ($3::uuid is null or location_id = $3)
+              group by product_id
+           ) s on s.product_id = m.product_id
            left join users u on u.id = m.created_by
           order by m.created_at desc, m.id desc
-          limit $3",
+          limit $4",
     )
     .bind(branch_id)
     .bind(product_id)
+    .bind(location_id)
     .bind(limit.clamp(1, 1000))
     .fetch_all(&mut *tx)
     .await?;

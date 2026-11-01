@@ -8,6 +8,7 @@ pub mod customers;
 mod db;
 mod error;
 mod inventory;
+pub mod locations;
 pub mod money;
 pub mod options;
 mod orders;

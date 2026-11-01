@@ -58,8 +58,12 @@ select
       (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
          from recipe_items ri
          join recipes r2 on r2.id = ri.recipe_id
-         left join stock si
-           on si.product_id = ri.input_product_id and si.branch_id = $1
+         left join (
+           select product_id, sum(on_hand) as on_hand, sum(reserved) as reserved
+             from stock
+            where branch_id = $1
+            group by product_id
+         ) si on si.product_id = ri.input_product_id
         where r2.product_id = p.id)
     else coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
   end as available
@@ -67,7 +71,12 @@ from branch_products bp
 join products p on p.id = bp.product_id
 left join product_categories c on c.id = bp.category_id
 left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
-left join stock s on s.product_id = p.id and s.branch_id = $1
+left join (
+  select product_id, sum(on_hand) as on_hand, sum(reserved) as reserved
+    from stock
+   where branch_id = $1
+   group by product_id
+) s on s.product_id = p.id
 where bp.branch_id = $1 and bp.is_available and p.active
   and p.archived_at is null and p.usage = 'VENTA' and not p.has_variants
 order by c.sort_order nulls first, p.name

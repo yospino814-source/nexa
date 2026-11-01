@@ -150,3 +150,76 @@ create policy tenant_counters_tenant_isolation on public.tenant_counters
 
 grant select, insert, update on public.tenant_counters to authenticated;
 
+-- ============================================================
+-- F2.8 Bodegas (ubicaciones)
+-- ============================================================
+
+create table public.locations (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  branch_id uuid not null,
+  name text not null check (length(trim(name)) between 1 and 40),
+  kind text not null check (kind in ('PISO_VENTA','BODEGA','PRODUCCION','RECEPCION','DESPACHO','CUARENTENA','AVERIADOS')),
+  sellable boolean not null,
+  is_default boolean not null default false,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, id),
+  unique (tenant_id, branch_id, id),
+  unique (branch_id, name),
+  foreign key (tenant_id, branch_id) references public.branches (tenant_id, id),
+  check (not (kind in ('CUARENTENA','AVERIADOS') and sellable)),
+  check (not is_default or (sellable and active))
+);
+create unique index locations_one_default on public.locations (branch_id) where is_default;
+
+alter table public.locations enable row level security;
+
+create policy locations_tenant_isolation on public.locations
+  for all to authenticated
+  using (in_scope(tenant_id, branch_id))
+  with check (in_scope(tenant_id, branch_id));
+
+grant select, insert, update on public.locations to authenticated;
+
+insert into public.locations (tenant_id, branch_id, name, kind, sellable, is_default)
+select tenant_id, id, 'Principal', 'PISO_VENTA', true, true from public.branches;
+
+create or replace function public.branch_default_register() returns trigger language plpgsql as $$
+declare
+  v_loc_id uuid;
+begin
+  insert into public.locations (tenant_id, branch_id, name, kind, sellable, is_default)
+  values (new.tenant_id, new.id, 'Principal', 'PISO_VENTA', true, true)
+  returning id into v_loc_id;
+
+  insert into public.cash_registers (tenant_id, branch_id, name, code, location_id)
+  values (new.tenant_id, new.id, 'Caja 1', 'CAJA-1', v_loc_id);
+  return new;
+end $$;
+
+alter table public.stock add column location_id uuid;
+update public.stock s set location_id = l.id from public.locations l where l.branch_id = s.branch_id and l.is_default;
+alter table public.stock alter column location_id set not null;
+alter table public.stock add constraint stock_location_fkey
+  foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id);
+alter table public.stock drop constraint stock_branch_id_product_id_key;
+alter table public.stock add constraint stock_location_product_key unique (location_id, product_id);
+
+alter table public.inventory_movements add column location_id uuid;
+update public.inventory_movements m set location_id = l.id from public.locations l where l.branch_id = m.branch_id and l.is_default;
+alter table public.inventory_movements alter column location_id set not null;
+alter table public.inventory_movements add constraint inventory_movements_location_fkey
+  foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id);
+
+alter table public.stock_reservations add column location_id uuid;
+update public.stock_reservations r set location_id = l.id from public.locations l where l.branch_id = r.branch_id and l.is_default;
+alter table public.stock_reservations alter column location_id set not null;
+alter table public.stock_reservations add constraint stock_reservations_location_fkey
+  foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id);
+
+alter table public.cash_registers add column location_id uuid,
+  add constraint cash_registers_location_fkey foreign key (tenant_id, branch_id, location_id) references public.locations (tenant_id, branch_id, id);
+update public.cash_registers c set location_id = l.id from public.locations l where l.branch_id = c.branch_id and l.is_default;
+
+

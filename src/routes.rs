@@ -16,7 +16,7 @@ use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, inventory, options, orders, permissions,
+    AppState, audit, cash, catalog, customers, inventory, locations, options, orders, permissions,
     procurement, products, refunds, registers, sales, sales_history, settings, tenancy, users,
 };
 
@@ -153,6 +153,9 @@ pub fn router() -> Router<AppState> {
         .route("/v1/inventory/transfer", post(transfer))
         .route("/v1/inventory/stock", get(stock_levels))
         .route("/v1/inventory/min-qty", put(set_min_qty))
+        // Bodegas / Ubicaciones (F2.8)
+        .route("/v1/locations", get(list_locations).post(create_location))
+        .route("/v1/locations/{id}", put(update_location))
         // Proveedores
         .route("/v1/suppliers", get(list_suppliers).post(create_supplier))
         .route("/v1/suppliers/{id}", put(update_supplier))
@@ -688,6 +691,8 @@ struct KardexQuery {
     #[serde(default)]
     product_id: Option<Uuid>,
     #[serde(default)]
+    location_id: Option<Uuid>,
+    #[serde(default)]
     limit: Option<i64>,
 }
 
@@ -703,20 +708,28 @@ async fn movements(
             &user.claims,
             q.branch_id,
             q.product_id,
+            q.location_id,
             q.limit.unwrap_or(200),
         )
         .await?,
     ))
 }
 
+#[derive(Deserialize)]
+struct StockLevelsQuery {
+    branch_id: Uuid,
+    #[serde(default)]
+    location_id: Option<Uuid>,
+}
+
 /// Existencias de la sucursal con estado frente al punto de reorden.
 async fn stock_levels(
     State(state): State<AppState>,
     user: AuthUser,
-    Query(q): Query<BranchQuery>,
+    Query(q): Query<StockLevelsQuery>,
 ) -> ApiResult<Json<Vec<inventory::StockLevel>>> {
     Ok(Json(
-        inventory::stock_levels(&state.pool, &user.claims, q.branch_id).await?,
+        inventory::stock_levels(&state.pool, &user.claims, q.branch_id, q.location_id).await?,
     ))
 }
 
@@ -749,27 +762,37 @@ async fn count(
 
 #[derive(Deserialize)]
 struct TransferBody {
-    from_branch_id: Uuid,
-    to_branch_id: Uuid,
+    #[serde(default)]
+    from_branch_id: Option<Uuid>,
+    #[serde(default)]
+    to_branch_id: Option<Uuid>,
+    #[serde(default)]
+    from_location_id: Option<Uuid>,
+    #[serde(default)]
+    to_location_id: Option<Uuid>,
     product_id: Uuid,
     qty: Decimal,
     cause: String,
 }
 
-/// Traslado de unidades entre sucursales del mismo negocio.
+/// Traslado de unidades entre sucursales o entre bodegas del mismo negocio.
 async fn transfer(
     State(state): State<AppState>,
     user: AuthUser,
     Body(req): Body<TransferBody>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
-    let reference = inventory::transfer(
+    let reference = inventory::transfer_locations(
         &state.pool,
         &user.claims,
-        req.from_branch_id,
-        req.to_branch_id,
-        req.product_id,
-        req.qty,
-        &req.cause,
+        inventory::TransferArgs {
+            from_branch_id: req.from_branch_id,
+            to_branch_id: req.to_branch_id,
+            from_location_id: req.from_location_id,
+            to_location_id: req.to_location_id,
+            product_id: req.product_id,
+            qty: req.qty,
+            cause: req.cause,
+        },
     )
     .await?;
     Ok((
@@ -800,6 +823,41 @@ async fn set_min_qty(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct LocationListQuery {
+    branch_id: Uuid,
+}
+
+async fn list_locations(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<LocationListQuery>,
+) -> ApiResult<Json<Vec<locations::LocationRow>>> {
+    Ok(Json(
+        locations::list_locations(&state.pool, &user.claims, q.branch_id).await?,
+    ))
+}
+
+async fn create_location(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(input): Body<locations::CreateLocationInput>,
+) -> ApiResult<(StatusCode, Json<locations::LocationRow>)> {
+    let loc = locations::create_location(&state.pool, &user.claims, input).await?;
+    Ok((StatusCode::CREATED, Json(loc)))
+}
+
+async fn update_location(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<locations::UpdateLocationInput>,
+) -> ApiResult<Json<locations::LocationRow>> {
+    Ok(Json(
+        locations::update_location(&state.pool, &user.claims, id, input).await?,
+    ))
 }
 
 #[derive(Deserialize)]
