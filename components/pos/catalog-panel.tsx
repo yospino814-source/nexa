@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type RefObject } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import {
   AlertTriangle,
   Apple,
@@ -55,6 +55,9 @@ export function CatalogPanel({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  // F1.14: marcas de tiempo de las teclas, para distinguir el lector del tecleo humano.
+  const keyTimes = useRef<number[]>([]);
 
   const categories = useMemo(
     () => [...new Set(items.map((item) => item.category).filter((c): c is string => !!c))],
@@ -74,16 +77,47 @@ export function CatalogPanel({
     );
   }, [items, query, category]);
 
-  // Enter agrega el primer resultado disponible (flujo de lector de codigo de barras).
+  /** Lector: 6 o más caracteres con menos de 50 ms entre teclas, terminados en Enter. */
+  function isScannerBurst(code: string): boolean {
+    // La primera tecla puede llegar por "escribir para buscar" (fuera del
+    // buscador), así que se aceptan code.length − 1 marcas de tiempo.
+    const times = keyTimes.current;
+    const n = Math.min(times.length, code.length);
+    if (code.length < 6 || n < code.length - 1) return false;
+    const last = times.slice(-n);
+    return last.every((t, i) => i === 0 || t - last[i - 1] < 50);
+  }
+
+  /** Busca el código exacto en productos y presentaciones y agrega una unidad. */
+  function addByBarcode(code: string) {
+    for (const item of items) {
+      if (item.barcode === code) {
+        onAdd(item);
+        return true;
+      }
+      const tb = item.tier_barcodes?.find((b) => b.barcode === code);
+      if (tb) {
+        onAdd(item, { tierId: tb.tier_id, tierName: "Presentación" });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Enter: código del lector, o el primer resultado disponible al teclear a mano.
   function handleEnter() {
-    const q = query.trim().toLowerCase();
+    const code = query.trim();
+    keyTimes.current = [];
+    if (isScannerBurst(code)) {
+      setQuery("");
+      setScanMessage(addByBarcode(code) ? null : `Código no encontrado: ${code}`);
+      return;
+    }
+    const q = code.toLowerCase();
     for (const item of items) {
       const tb = item.tier_barcodes?.find((b) => b.barcode.toLowerCase() === q);
       if (tb && (toNumber(item.available) ?? 1) > 0) {
-        onAdd(item, {
-          tierId: tb.tier_id,
-          tierName: "Tarifa",
-        });
+        onAdd(item, { tierId: tb.tier_id, tierName: "Presentación" });
         setQuery("");
         return;
       }
@@ -104,7 +138,10 @@ export function CatalogPanel({
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleEnter()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleEnter();
+            else if (e.key.length === 1) keyTimes.current = [...keyTimes.current.slice(-40), performance.now()];
+          }}
           placeholder="Buscar o escanear código de barras (F2)"
           className="h-9 flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
         />
@@ -125,6 +162,15 @@ export function CatalogPanel({
           </button>
         )}
       </div>
+
+      {scanMessage && (
+        <p className="flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          {scanMessage}
+          <button onClick={() => setScanMessage(null)} className="text-xs font-semibold underline">
+            Cerrar
+          </button>
+        </p>
+      )}
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {[null, ...categories].map((name) => (

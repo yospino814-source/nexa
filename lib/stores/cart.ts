@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-import type { CatalogItem, Customer, CustomTax, QuoteItemInput } from "@/lib/api";
+import type { CatalogItem, Customer, CustomTax, QuoteItemInput, QuoteResponse } from "@/lib/api";
 import { toNumber } from "@/lib/format";
 
 /**
@@ -57,7 +57,28 @@ const CUSTOM_TAX_RATES: Record<CustomTax, number | null> = {
   EXENTO: null,
 };
 
+/** Venta guardada en espera (F1.14): se retoma con el mismo id de venta. */
+export type HeldCart = {
+  id: string;
+  label: string;
+  created_at: string;
+  cart: {
+    lines: CartLine[];
+    customer: Customer | null;
+    customerAlias: string | null;
+    couponCode: string | null;
+  };
+};
+
 type CartState = {
+  /** Id de la venta (clave de idempotencia); cambia al vaciar el carrito. */
+  saleId: string;
+  /** Línea seleccionada (destino de F6). */
+  selectedKey: string | null;
+  /** Última cotización del servidor (F1.14): la única fuente de los totales. */
+  quote: QuoteResponse | null;
+  quoteLoading: boolean;
+  quoteError: string | null;
   lines: CartLine[];
   customer: Customer | null;
   customerAlias: string | null;
@@ -73,6 +94,11 @@ type CartState = {
   ) => void;
   setPriceOverride: (key: string, price: number | null, reason: string | null) => void;
   remove: (key: string) => void;
+  select: (key: string | null) => void;
+  setDiscount: (key: string, pct: number | null) => void;
+  setQuote: (quote: QuoteResponse | null, error?: string | null) => void;
+  setQuoteLoading: (loading: boolean) => void;
+  restore: (held: HeldCart) => void;
   setCustomer: (customer: Customer | null) => void;
   setCustomerAlias: (alias: string | null) => void;
   setCoupon: (code: string | null) => void;
@@ -86,6 +112,11 @@ function newKey(): string {
 }
 
 export const useCart = create<CartState>((set) => ({
+  saleId: newKey(),
+  selectedKey: null,
+  quote: null,
+  quoteLoading: false,
+  quoteError: null,
   lines: [],
   customer: null,
   customerAlias: null,
@@ -133,6 +164,7 @@ export const useCart = create<CartState>((set) => ({
       if (existing) {
         if (existing.maxQty != null && existing.qty >= existing.maxQty) return state;
         return {
+          selectedKey: existing.key,
           lines: state.lines.map((line) =>
             line === existing ? { ...line, qty: line.qty + 1 } : line,
           ),
@@ -145,11 +177,13 @@ export const useCart = create<CartState>((set) => ({
       const tierName = tier?.tierName ?? null;
       const unitsPerPackage = tier?.unitsPerPackage ?? 1;
 
+      const key = newKey();
       return {
+        selectedKey: key,
         lines: [
           ...state.lines,
           {
-            key: newKey(),
+            key,
             productId: item.product_id,
             name: item.name,
             basePrice,
@@ -215,9 +249,36 @@ export const useCart = create<CartState>((set) => ({
         .filter((line) => line.qty > 0),
     })),
   remove: (key) =>
-    set((state) => ({ lines: state.lines.filter((line) => line.key !== key) })),
+    set((state) => ({
+      lines: state.lines.filter((line) => line.key !== key),
+      selectedKey: state.selectedKey === key ? null : state.selectedKey,
+    })),
+  select: (selectedKey) => set({ selectedKey }),
+  setDiscount: (key, pct) =>
+    set((state) => ({
+      lines: state.lines.map((line) => (line.key === key ? { ...line, discountPct: pct } : line)),
+    })),
+  setQuote: (quote, error = null) => set({ quote, quoteError: error, quoteLoading: false }),
+  setQuoteLoading: (quoteLoading) => set({ quoteLoading }),
+  restore: (held) =>
+    set({
+      saleId: held.id,
+      selectedKey: null,
+      lines: held.cart.lines,
+      customer: held.cart.customer,
+      customerAlias: held.cart.customerAlias,
+      couponCode: held.cart.couponCode,
+      couponDiscount: 0,
+      couponError: null,
+      quote: null,
+      quoteError: null,
+    }),
   clear: () =>
     set({
+      saleId: newKey(),
+      selectedKey: null,
+      quote: null,
+      quoteError: null,
       lines: [],
       customer: null,
       customerAlias: null,

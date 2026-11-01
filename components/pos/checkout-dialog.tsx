@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { Banknote, Check, CheckCircle2, Loader2, PlusCircle, Printer, ShoppingBag } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { api, friendlyError, type CheckoutResponse, type PaymentMethod, type Waiter } from "@/lib/api";
+import { api, ApiError, friendlyError, type CheckoutResponse, type PaymentMethod, type QuoteResponse, type Waiter } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
-import { cartTotals, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
+import { toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { MoneyInput } from "@/components/caja/money-input";
@@ -16,12 +16,16 @@ import { PAYMENT_METHODS } from "./payment-methods";
 import { PrintTicket, ticketFromSale, type TicketMeta } from "./print-ticket";
 import { useBusinessInfo } from "@/lib/api/use-business";
 
-/** Billetes sugeridos por encima del total (exacto + 3 redondeos). */
-function quickAmounts(total: number): number[] {
-  const options = [10_000, 20_000, 50_000, 100_000]
-    .map((step) => Math.ceil(total / step) * step)
+/**
+ * Efectivo rápido (F1.14): el total exacto y ceil(total / d) * d para
+ * d = 1.000, 5.000, 10.000, 20.000 y 50.000, sin repetidos ni menores al total,
+ * de menor a mayor.
+ */
+export function quickAmounts(total: number): number[] {
+  const rounded = [1_000, 5_000, 10_000, 20_000, 50_000]
+    .map((d) => Math.ceil(total / d) * d)
     .filter((amount) => amount > total);
-  return [total, ...new Set(options)].slice(0, 4);
+  return [total, ...[...new Set(rounded)].sort((a, b) => a - b)];
 }
 
 type Receipt = { response: CheckoutResponse; lines: CartLine[]; received: number; method: PaymentMethod };
@@ -59,14 +63,15 @@ export function CheckoutDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
-  // Clave de idempotencia de esta venta: se reusa en cada reintento para que
-  // un doble clic o un corte de red no cobren dos veces.
-  const [saleId, setSaleId] = useState(() => crypto.randomUUID());
+  // Clave de idempotencia: la del carrito. Se reusa en cada reintento (y al
+  // retomar una venta en espera) para que nada se cobre dos veces.
+  const saleId = useCart((s) => s.saleId);
+  const quote = useCart((s) => s.quote);
+  const setQuote = useCart((s) => s.setQuote);
   const cashierName = useSession((s) => s.name);
   const customer = useCart((s) => s.customer);
   const customerAlias = useCart((s) => s.customerAlias);
   const couponCode = useCart((s) => s.couponCode);
-  const couponDiscount = useCart((s) => s.couponDiscount);
   const [tipMode, setTipMode] = useState<"NONE" | "SUGGESTED" | "CUSTOM">("NONE");
   const [customTip, setCustomTip] = useState(0);
   const [waiterId, setWaiterId] = useState<string | null>(null);
@@ -93,14 +98,17 @@ export function CheckoutDialog({
       setReceived(null);
       setError(null);
       setReceipt(null);
-      setSaleId(crypto.randomUUID());
       setTipMode("NONE");
       setCustomTip(0);
       setWaiterId(null);
     }
   }
 
-  const { total: saleTotal, subtotal, units } = cartTotals(lines, couponDiscount);
+  // Totales de la última cotización del servidor (F1.14). La propina va
+  // después del impuesto y no cambia nada más, así que se suma aquí.
+  const saleTotal = Number(quote?.total ?? 0);
+  const subtotal = Number(quote?.subtotal ?? 0);
+  const units = lines.reduce((s, l) => s + l.qty, 0);
   // Propina sin impuesto, sumada después del IVA (F1.10).
   const suggestedTip = Math.round((subtotal * suggestedTipPct) / 100);
   const tip = !tipsEnabled
@@ -135,6 +143,11 @@ export function CheckoutDialog({
       });
       setReceipt({ response, lines, received: paid, method });
     } catch (e) {
+      if (e instanceof ApiError && e.code === "PRICE_CHANGED" && e.data) {
+        // El servidor manda la cotización correcta: se actualiza y el diálogo sigue abierto.
+        const fresh = e.data as QuoteResponse;
+        setQuote({ ...fresh, total: String(Number(fresh.total) - Number(fresh.tip_amount ?? 0)) });
+      }
       setError(friendlyError(e));
     } finally {
       setSubmitting(false);
@@ -151,6 +164,15 @@ export function CheckoutDialog({
       <DialogContent
         className="max-h-[95vh] gap-0 overflow-y-auto rounded-3xl p-6 sm:max-w-lg sm:p-8"
         onKeyDown={(e) => {
+          if (e.key === "F10") {
+            // F1.14: efectivo exacto.
+            e.preventDefault();
+            if (!receipt) {
+              setMethod("EFECTIVO");
+              setReceived(total);
+            }
+            return;
+          }
           if (e.key !== "Enter") return;
           e.preventDefault();
           if (receipt) finish();
@@ -264,7 +286,7 @@ export function CheckoutDialog({
                     className="w-full bg-transparent text-3xl font-bold tabular-nums outline-none"
                   />
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {quickAmounts(total).map((amount, i) => (
                     <button
                       key={amount}

@@ -263,6 +263,27 @@ let receiptSeq = 0;
 const mockSales = new Map<Uuid, { body: string; response: CheckoutResponse; at: string }>();
 /** Turno al que pertenece cada venta mock. */
 const sessionOf = new Map<Uuid, Uuid>();
+const mockRegisters: CashRegister[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000c01",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Caja 1",
+    code: "CAJA-1",
+    default_opening: "200000.00",
+    active: true,
+    open_session: null,
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000c02",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Caja 2",
+    code: "CAJA-2",
+    default_opening: "100000.00",
+    active: true,
+    open_session: null,
+  },
+];
+
 /** El demo arranca con la caja abierta para poder vender sin configurar nada. */
 let mockCash: CashSession | null = newMockSession(100_000);
 /** Ingresos y retiros de efectivo de los turnos mock. */
@@ -318,26 +339,6 @@ function seedClosedSessions(): CashSummary[] {
   });
 }
 
-const mockRegisters: CashRegister[] = [
-  {
-    id: "00000000-0000-4000-8000-000000000c01",
-    branch_id: MOCK_BRANCH_ID,
-    name: "Caja 1",
-    code: "CAJA-1",
-    default_opening: "200000.00",
-    active: true,
-    open_session: null,
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000c02",
-    branch_id: MOCK_BRANCH_ID,
-    name: "Caja 2",
-    code: "CAJA-2",
-    default_opening: "100000.00",
-    active: true,
-    open_session: null,
-  },
-];
 
 const mockCustomers: Customer[] = [
   {
@@ -536,106 +537,166 @@ function mockActivity(sessionId: Uuid): CashActivityReport {
 
 
 
+/**
+ * Precio por unidad vendida de una línea con tarifa (mismo orden que
+ * src/pricing.rs::resolve_tier): precio fijo del producto, luego la regla de la
+ * tarifa sobre precio base x unidades, y nunca negativo.
+ */
+function mockResolveTier(productId: Uuid, base: number, tierId: Uuid | null | undefined) {
+  if (!tierId) return { unitPrice: base, units: 1, listPrice: base };
+  const tier = mockTiers.find((t) => t.id === tierId && t.active);
+  if (!tier) throw new ApiError(422, "tier is not valid for this line", "TIER_INVALID");
+  const own = (mockProductTierPrices.get(productId) ?? []).find((p) => p.tier_id === tierId);
+  let units = 1;
+  if (tier.kind === "PRESENTACION") {
+    const u = own?.units_per_package ?? tier.units_per_package;
+    if (!u) throw new ApiError(422, "presentation has no units", "TIER_MISSING_UNITS");
+    units = Number(u);
+  }
+  const listPrice = cents(base * units);
+  if (own?.price != null) return { unitPrice: cents(Number(own.price)), units, listPrice };
+  const v = Number(tier.value);
+  const b = base * units;
+  const raw =
+    tier.adjustment === "DESCUENTO_PCT" ? b * (1 - v / 100)
+    : tier.adjustment === "RECARGO_PCT" ? b * (1 + v / 100)
+    : tier.adjustment === "DESCUENTO_FIJO" ? b - v
+    : tier.adjustment === "RECARGO_FIJO" ? b + v
+    : tier.adjustment === "PRECIO_FIJO" ? v
+    : b;
+  return { unitPrice: cents(Math.max(0, raw)), units, listPrice };
+}
+
+/** Reparto por peso con el resto en centavos (src/pricing.rs::allocate). */
+function mockAllocate(amount: number, weights: number[]): number[] {
+  const total = weights.reduce((s, w) => s + w, 0);
+  if (total <= 0) return weights.map(() => 0);
+  const shares = weights.map((w) => Math.floor(((amount * w) / total) * 100) / 100);
+  let rest = Math.round((amount - shares.reduce((s, x) => s + x, 0)) * 100);
+  const order = weights.map((w, i) => ({ w, i })).sort((a, b) => b.w - a.w || a.i - b.i);
+  while (rest > 0) {
+    let moved = false;
+    for (const { i, w } of order) {
+      if (rest <= 0) break;
+      if (shares[i] + 0.01 <= w + 1e-9) {
+        shares[i] = cents(shares[i] + 0.01);
+        rest -= 1;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return shares;
+}
+
+/**
+ * Cotización del modo demo. Aplica tarifas, cambio de precio, descuentos
+ * manuales y cupones con el mismo reparto y redondeo del servidor. Las
+ * promociones del demo solo se muestran en su pantalla y NO afectan esta
+ * cotización (F1.14).
+ */
 function mockQuote(req: QuoteRequest): QuoteResponse {
   const products = new Map(mockCatalog.map((p) => [p.product_id, p]));
-  let subtotalGross = 0;
+  const customRates: Record<string, number> = { IVA19: 0.19, IVA5: 0.05, INC8: 0.08, EXENTO: 0 };
+
+  const base = req.items.map((item) => {
+    const product = item.product_id ? products.get(item.product_id) : undefined;
+    const qty = Number(item.qty);
+    const catalogPrice = product?.price ? Number(product.price) : 0;
+    const tier = item.product_id
+      ? mockResolveTier(item.product_id, catalogPrice, item.tier_id)
+      : { unitPrice: Number(item.unit_price_override ?? 0), units: 1, listPrice: Number(item.unit_price_override ?? 0) };
+    const override = item.product_id && item.unit_price_override != null ? cents(Number(item.unit_price_override)) : null;
+    const overridden = override != null && Math.abs(override - tier.unitPrice) >= 0.01;
+    const unitPrice = overridden ? (override as number) : tier.unitPrice;
+    const gross = cents(qty * unitPrice);
+    const manual = cents(gross * (Number(item.discount_pct ?? 0) / 100));
+    const rate = item.product_id ? Number(product?.tax_rate ?? 0) : customRates[item.custom_tax ?? "EXENTO"] ?? 0;
+    return {
+      item,
+      name: item.custom_name || product?.name || "Ítem libre",
+      qty,
+      units: tier.units,
+      listPrice: tier.listPrice,
+      unitPrice,
+      gross,
+      manual,
+      rate,
+      eligible: !overridden,
+    };
+  });
+
+  const subtotalGross = cents(base.reduce((s, l) => s + l.gross, 0));
+  let coupon = base.map(() => 0);
+  let couponApplied: QuoteResponse["coupon"] = null;
+  let couponError: QuoteResponse["coupon_error"] = null;
+
+  if (req.coupon_code) {
+    const code = req.coupon_code.trim().toUpperCase();
+    const found = mockCoupons.find((c) => c.code === code);
+    const weights = base.map((l) => (l.eligible ? l.gross - l.manual : 0));
+    const eligibleBase = cents(weights.reduce((s, w) => s + w, 0));
+    if (!found) {
+      couponError = { code: "COUPON_NOT_FOUND", message: ERROR_MESSAGES.COUPON_NOT_FOUND };
+    } else if (found.status === "INACTIVO") {
+      couponError = { code: "COUPON_INACTIVE", message: ERROR_MESSAGES.COUPON_INACTIVE };
+    } else if (eligibleBase <= 0) {
+      couponError = { code: "COUPON_NOT_APPLICABLE", message: ERROR_MESSAGES.COUPON_NOT_APPLICABLE };
+    } else if (found.min_subtotal && subtotalGross < Number(found.min_subtotal)) {
+      couponError = { code: "COUPON_MIN_SUBTOTAL", message: ERROR_MESSAGES.COUPON_MIN_SUBTOTAL };
+    } else {
+      let amount =
+        found.kind === "PORCENTAJE"
+          ? cents(eligibleBase * (Number(found.value) / 100))
+          : Math.min(Number(found.value), eligibleBase);
+      if (found.max_discount) amount = Math.min(amount, Number(found.max_discount));
+      coupon = mockAllocate(amount, weights);
+      couponApplied = { id: found.id, code: found.code, amount: dec(amount) };
+    }
+  }
+
   let discountTotal = 0;
   let subtotal = 0;
   let taxTotal = 0;
-
-  const lines: QuoteLine[] = req.items.map((item, index) => {
-    const product = item.product_id ? products.get(item.product_id) : undefined;
-    const name = item.custom_name || product?.name || "Ítem libre";
-    const qty = Number(item.qty);
-    const unitPrice = item.unit_price_override ? Number(item.unit_price_override) : (product?.price ? Number(product.price) : 0);
-    const gross = cents(qty * unitPrice);
-    const discPct = item.discount_pct ? Number(item.discount_pct) : 0;
-    const manualDisc = cents(gross * (discPct / 100));
-    const lineTotal = cents(gross - manualDisc);
-    const customRates: Record<string, number> = { IVA19: 0.19, IVA5: 0.05, INC8: 0.08, EXENTO: 0 };
-    const rate = item.product_id
-      ? Number(product?.tax_rate ?? 0)
-      : customRates[item.custom_tax ?? "EXENTO"] ?? 0;
-    const taxAmount = cents(lineTotal * rate);
-
-    subtotalGross += gross;
-    discountTotal += manualDisc;
+  const lines: QuoteLine[] = base.map((l, index) => {
+    const total = cents(l.manual + coupon[index]);
+    const lineTotal = cents(l.gross - total);
+    const taxAmount = cents(lineTotal * l.rate);
+    discountTotal += total;
     subtotal += lineTotal;
     taxTotal += taxAmount;
-
     return {
       index,
-      product_id: item.product_id ?? null,
-      name,
-      qty: item.qty,
-      units_per_package: "1",
-      list_price: dec(unitPrice),
-      unit_price: dec(unitPrice),
-      gross: dec(gross),
+      product_id: l.item.product_id ?? null,
+      name: l.name,
+      qty: l.item.qty,
+      units_per_package: String(l.units),
+      list_price: dec(l.listPrice),
+      unit_price: dec(l.unitPrice),
+      gross: dec(l.gross),
       discount: {
-        manual: dec(manualDisc),
+        manual: dec(l.manual),
         promotion: "0.00",
         order: "0.00",
-        coupon: "0.00",
-        total: dec(manualDisc),
+        coupon: dec(coupon[index]),
+        total: dec(total),
       },
       promotion_id: null,
       line_total: dec(lineTotal),
-      tax_rate: rate.toFixed(4),
+      tax_rate: l.rate.toFixed(4),
       tax_amount: dec(taxAmount),
     };
   });
 
   const tip = req.tip_amount ? Number(req.tip_amount) : 0;
-  let couponApplied: { id: Uuid; code: string; name: string; amount: Decimal } | null = null;
-  let couponError: { code: string; message: string } | null = null;
-  let finalSubtotal = subtotal;
-  let finalDiscountTotal = discountTotal;
-
-  if (req.coupon_code) {
-    const code = req.coupon_code.trim().toUpperCase();
-    const found = mockCoupons.find((c) => c.code === code);
-    if (!found) {
-      couponError = { code: "COUPON_NOT_FOUND", message: ERROR_MESSAGES.COUPON_NOT_FOUND };
-    } else if (found.status === "INACTIVO") {
-      couponError = { code: "COUPON_INACTIVE", message: ERROR_MESSAGES.COUPON_INACTIVE };
-    } else if (found.min_subtotal && subtotalGross < Number(found.min_subtotal)) {
-      couponError = { code: "COUPON_MIN_SUBTOTAL", message: ERROR_MESSAGES.COUPON_MIN_SUBTOTAL };
-    } else {
-      let disc = 0;
-      if (found.kind === "PORCENTAJE") {
-        disc = cents(finalSubtotal * (Number(found.value) / 100));
-      } else {
-        disc = Math.min(Number(found.value), finalSubtotal);
-      }
-      if (found.max_discount) {
-        disc = Math.min(disc, Number(found.max_discount));
-      }
-      if (disc > 0) {
-        finalSubtotal = cents(finalSubtotal - disc);
-        finalDiscountTotal = cents(finalDiscountTotal + disc);
-        couponApplied = {
-          id: found.id,
-          code: found.code,
-          name: found.name,
-          amount: dec(disc),
-        };
-      } else {
-        couponError = { code: "COUPON_NOT_APPLICABLE", message: ERROR_MESSAGES.COUPON_NOT_APPLICABLE };
-      }
-    }
-  }
-
-  const total = cents(finalSubtotal + taxTotal + tip);
-
   return {
     lines,
     subtotal_gross: dec(subtotalGross),
-    discount_total: dec(finalDiscountTotal),
-    subtotal: dec(finalSubtotal),
+    discount_total: dec(discountTotal),
+    subtotal: dec(subtotal),
     tax_total: dec(taxTotal),
     tip_amount: dec(tip),
-    total: dec(total),
+    total: dec(subtotal + taxTotal + tip),
     promotions: [],
     coupon: couponApplied,
     coupon_error: couponError,
