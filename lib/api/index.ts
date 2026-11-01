@@ -47,10 +47,12 @@ import type {
   BranchSettings,
   CashActivity,
   CashMovementKind,
+  CashMovementReasonCode,
   CashRegister,
   CashSession,
   CashSessionRow,
   CashSummary,
+  MovementByKind,
   CatalogItem,
   CheckoutRequest,
   CheckoutResponse,
@@ -97,7 +99,14 @@ const sessionOf = new Map<Uuid, Uuid>();
 /** El demo arranca con la caja abierta para poder vender sin configurar nada. */
 let mockCash: CashSession | null = newMockSession(100_000);
 /** Ingresos y retiros de efectivo de los turnos mock. */
-const mockCashMoves: { sessionId: Uuid; kind: CashMovementKind; amount: number; reason: string; at: string }[] = [];
+const mockCashMoves: {
+  sessionId: Uuid;
+  kind: CashMovementKind;
+  amount: number;
+  reason: string;
+  reason_code?: CashMovementReasonCode | null;
+  at: string;
+}[] = [];
 /** Turnos cerrados (los dos primeros son de dias anteriores, para el historial). */
 const mockClosed: CashSummary[] = seedClosedSessions();
 
@@ -130,9 +139,13 @@ function seedClosedSessions(): CashSummary[] {
       sales_count: count,
       sales_total: dec(sales),
       by_method: [{ method: "EFECTIVO", amount: dec(cash), count }],
+      movements_by_kind: [],
       cash_in: "0.00",
       cash_out: "0.00",
       expected_cash: dec(expected),
+      tips_total: "0.00",
+      tips_paid: "0.00",
+      tips_pending: "0.00",
     };
   });
 }
@@ -197,9 +210,49 @@ function mockSummary(session: CashSession): CashSummary {
   }
   const cash = byMethod.get("EFECTIVO")?.amount ?? 0;
   const moves = mockCashMoves.filter((m) => m.sessionId === session.id);
-  const sum = (kind: CashMovementKind) => moves.filter((m) => m.kind === kind).reduce((s, m) => s + m.amount, 0);
-  const cashIn = sum("INGRESO");
-  const cashOut = sum("RETIRO");
+  const movementMeta: Record<CashMovementKind, { label: string; is_inflow: boolean }> = {
+    INGRESO: { label: "Entrada general", is_inflow: true },
+    ABONO_CARTERA: { label: "Abono cartera", is_inflow: true },
+    ABONO_SEPARADO: { label: "Abono plan separado", is_inflow: true },
+    RECARGA_SALDO: { label: "Recarga saldo a favor", is_inflow: true },
+    RETIRO: { label: "Retiro general", is_inflow: false },
+    DEVOLUCION: { label: "Devolución", is_inflow: false },
+    PROPINA_PAGADA: { label: "Pago de propina", is_inflow: false },
+    PAGO_PROVEEDOR: { label: "Pago a proveedor", is_inflow: false },
+    GASTO: { label: "Gasto menor", is_inflow: false },
+  };
+
+  const byKindMap = new Map<CashMovementKind, { amount: number; count: number }>();
+  let cashIn = 0;
+  let cashOut = 0;
+  let tipsPaid = 0;
+  for (const m of moves) {
+    const meta = movementMeta[m.kind];
+    const acc = byKindMap.get(m.kind) ?? { amount: 0, count: 0 };
+    acc.amount += m.amount;
+    acc.count += 1;
+    byKindMap.set(m.kind, acc);
+    if (meta.is_inflow) {
+      cashIn += m.amount;
+    } else {
+      cashOut += m.amount;
+    }
+    if (m.kind === "PROPINA_PAGADA") {
+      tipsPaid += m.amount;
+    }
+  }
+
+  const movementsByKind: MovementByKind[] = [...byKindMap.entries()].map(([k, v]) => ({
+    kind: k,
+    code: k,
+    label: movementMeta[k].label,
+    amount: dec(v.amount),
+    count: v.count,
+    is_inflow: movementMeta[k].is_inflow,
+  }));
+  const tipsTotal = 0;
+  const tipsPending = Math.max(0, tipsTotal - tipsPaid);
+
   return {
     session,
     sales_count: sales.length,
@@ -209,9 +262,13 @@ function mockSummary(session: CashSession): CashSummary {
       amount: dec(v.amount),
       count: v.count,
     })),
+    movements_by_kind: movementsByKind,
     cash_in: dec(cashIn),
     cash_out: dec(cashOut),
     expected_cash: dec(Number(session.opening_amount) + cash + cashIn - cashOut),
+    tips_total: dec(tipsTotal),
+    tips_paid: dec(tipsPaid),
+    tips_pending: dec(tipsPending),
   };
 }
 
@@ -449,22 +506,55 @@ export const api = {
       return structuredClone(summary);
     },
 
-    /** POST /v1/cash-sessions/{id}/movements — ingreso o retiro; devuelve el resumen. */
-    async addMovement(sessionId: Uuid, kind: CashMovementKind, amount: Decimal, reason: string): Promise<CashSummary> {
+    /** POST /v1/cash-sessions/{id}/movements — ingreso, retiro o pago de propina; devuelve el resumen. */
+    async addMovement(
+      sessionId: Uuid,
+      kind: CashMovementKind,
+      amount: Decimal,
+      reason?: string | null,
+      reasonCode?: CashMovementReasonCode | null,
+    ): Promise<CashSummary> {
       if (!USE_MOCKS) {
         return request(`/v1/cash-sessions/${sessionId}/movements`, {
           method: "POST",
-          body: JSON.stringify({ kind, amount, reason }),
+          body: JSON.stringify({ kind, amount, reason, reason_code: reasonCode }),
         });
       }
       await delay();
       if (!mockCash || mockCash.id !== sessionId) throw new ApiError(409, "cash session is already closed");
       if (Number(amount) <= 0) throw new ApiError(422, "validation: amount must be > 0");
-      if (!reason.trim()) throw new ApiError(422, "validation: reason is required");
-      if (kind === "RETIRO" && Number(amount) > Number(mockSummary(mockCash).expected_cash)) {
-        throw new ApiError(409, "withdrawal exceeds the cash in the drawer");
+      if (!["INGRESO", "RETIRO", "PROPINA_PAGADA"].includes(kind)) {
+        throw new ApiError(422, "tipo no permitido", "CASH_KIND_NOT_ALLOWED");
       }
-      mockCashMoves.push({ sessionId, kind, amount: Number(amount), reason: reason.trim(), at: new Date().toISOString() });
+      const trimmedReason = reason?.trim() || "";
+      if (kind === "INGRESO" && (!trimmedReason || trimmedReason.length < 3 || trimmedReason.length > 200)) {
+        throw new ApiError(422, "validation: reason must be between 3 and 200 chars");
+      }
+      if (kind === "RETIRO") {
+        if (!reasonCode) {
+          throw new ApiError(422, "validation: reason_code is required for withdrawal");
+        }
+        if (reasonCode === "OTRO" && (!trimmedReason || trimmedReason.length < 3 || trimmedReason.length > 200)) {
+          throw new ApiError(422, "validation: reason must be between 3 and 200 chars when reason_code is OTRO");
+        }
+      }
+      if (kind === "PROPINA_PAGADA" && !trimmedReason) {
+        throw new ApiError(422, "validation: waiter name is required");
+      }
+      if (
+        (kind === "RETIRO" || kind === "PROPINA_PAGADA") &&
+        Number(amount) > Number(mockSummary(mockCash).expected_cash)
+      ) {
+        throw new ApiError(409, "withdrawal exceeds the cash in the drawer", "INSUFFICIENT_CASH");
+      }
+      mockCashMoves.push({
+        sessionId,
+        kind,
+        amount: Number(amount),
+        reason: trimmedReason || reasonCode || "",
+        reason_code: reasonCode ?? null,
+        at: new Date().toISOString(),
+      });
       return structuredClone(mockSummary(mockCash));
     },
 

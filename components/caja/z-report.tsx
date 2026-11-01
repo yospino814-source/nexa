@@ -10,15 +10,31 @@ import { cn } from "@/lib/utils";
 
 const methodLabel = (m: string) => PAYMENT_METHODS.find((p) => p.id === m)?.label ?? m;
 
-/** Lineas del reporte Z, compartidas por la pantalla y la tirilla. */
+/** Líneas del reporte Z, compartidas por la pantalla y la tirilla. */
 function zLines(summary: CashSummary) {
   const s = summary.session;
-  return [
+  const lines: [string, number][] = [
     ["Base inicial", Number(s.opening_amount)],
-    ...summary.by_method.map((m) => [`Ventas ${methodLabel(m.method)} (${m.count})`, Number(m.amount)] as const),
-    ["Ingresos de efectivo", Number(summary.cash_in)],
-    ["Retiros de efectivo", -Number(summary.cash_out)],
-  ] as const;
+    ...summary.by_method.map((m) => [`Ventas ${methodLabel(m.method)} (${m.count})`, Number(m.amount)] as [string, number]),
+  ];
+
+  if (summary.movements_by_kind && summary.movements_by_kind.length > 0) {
+    for (const m of summary.movements_by_kind) {
+      const amt = Number(m.amount);
+      if (amt !== 0) {
+        lines.push([`${m.label} (${m.count})`, m.is_inflow ? amt : -amt]);
+      }
+    }
+  } else {
+    if (Number(summary.cash_in) > 0) {
+      lines.push(["Ingresos de efectivo", Number(summary.cash_in)]);
+    }
+    if (Number(summary.cash_out) > 0) {
+      lines.push(["Retiros de efectivo", -Number(summary.cash_out)]);
+    }
+  }
+
+  return lines;
 }
 
 /** Resultado del cierre: reporte Z en pantalla y en tirilla. */
@@ -38,6 +54,11 @@ export function ZReport({
   const counted = Number(s.counted_cash ?? 0);
   const difference = Number(s.difference ?? 0);
 
+  const tipsTotal = Number(summary.tips_total ?? 0);
+  const tipsPaid = Number(summary.tips_paid ?? 0);
+  const tipsPending = Number(summary.tips_pending ?? 0);
+  const hasTips = tipsTotal > 0 || tipsPaid > 0;
+
   return (
     <div className="mx-auto mt-8 max-w-lg rounded-3xl border border-slate-200/60 bg-white p-8 shadow-sm">
       <PrintArea>
@@ -52,6 +73,14 @@ export function ZReport({
         {zLines(summary).map(([label, amount]) => (
           <p key={label} className="t-row"><span>{label}</span><span>{formatCOP(amount)}</span></p>
         ))}
+        {hasTips && (
+          <>
+            <hr />
+            <p className="t-row"><span>Propinas recibidas</span><span>{formatCOP(tipsTotal)}</span></p>
+            <p className="t-row"><span>Propinas pagadas</span><span>{formatCOP(tipsPaid)}</span></p>
+            <p className="t-row t-bold"><span>Propinas por pagar</span><span>{formatCOP(tipsPending)}</span></p>
+          </>
+        )}
         <hr />
         <p className="t-row t-bold"><span>Efectivo esperado</span><span>{formatCOP(expected)}</span></p>
         <p className="t-row t-bold"><span>Efectivo contado</span><span>{formatCOP(counted)}</span></p>
@@ -74,6 +103,22 @@ export function ZReport({
             <span className="tabular-nums">{formatCOP(amount)}</span>
           </div>
         ))}
+        {hasTips && (
+          <div className="border-t border-slate-200 pt-2 text-xs text-slate-600">
+            <div className="flex justify-between">
+              <span>Propinas recibidas</span>
+              <span className="tabular-nums font-medium">{formatCOP(tipsTotal)}</span>
+            </div>
+            <div className="flex justify-between mt-0.5">
+              <span>Propinas pagadas a meseros</span>
+              <span className="tabular-nums font-medium text-amber-700">{formatCOP(tipsPaid)}</span>
+            </div>
+            <div className="flex justify-between mt-0.5 font-semibold text-slate-800">
+              <span>Propinas pendientes</span>
+              <span className="tabular-nums">{formatCOP(tipsPending)}</span>
+            </div>
+          </div>
+        )}
         <div className="flex justify-between border-t border-slate-200 pt-2 font-medium">
           <span>Efectivo esperado</span>
           <span className="tabular-nums">{formatCOP(expected)}</span>

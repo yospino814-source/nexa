@@ -178,21 +178,45 @@ export type CashSession = {
   notes: string | null;
 };
 
+export type CashMovementKind =
+  | "INGRESO"
+  | "ABONO_CARTERA"
+  | "ABONO_SEPARADO"
+  | "RECARGA_SALDO"
+  | "RETIRO"
+  | "DEVOLUCION"
+  | "PROPINA_PAGADA"
+  | "PAGO_PROVEEDOR"
+  | "GASTO";
+
+export type CashMovementReasonCode = "CONSIGNACION" | "GASTO_MENOR" | "PRESTAMO" | "OTRO";
+
+export type MovementByKind = {
+  kind: CashMovementKind;
+  code: string;
+  label: string;
+  amount: Decimal;
+  count: number;
+  is_inflow: boolean;
+};
+
 /** GET /v1/cash-sessions/current y POST /v1/cash-sessions/{id}/close */
 export type CashSummary = {
   session: CashSession;
   sales_count: number;
   sales_total: Decimal;
   by_method: { method: PaymentMethod; amount: Decimal; count: number }[];
+  movements_by_kind: MovementByKind[];
   /** Ingresos de efectivo que no son ventas. */
   cash_in: Decimal;
   /** Retiros de efectivo de la gaveta. */
   cash_out: Decimal;
   /** Base + efectivo cobrado + ingresos - retiros. */
   expected_cash: Decimal;
+  tips_total: Decimal;
+  tips_paid: Decimal;
+  tips_pending: Decimal;
 };
-
-export type CashMovementKind = "INGRESO" | "RETIRO";
 
 /** GET /v1/cash-sessions/{id}/activity — src/cash.rs::ActivityEntry */
 export type CashActivity = {
