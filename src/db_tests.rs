@@ -765,6 +765,7 @@ async fn database_integration() {
     context_returns_permissions(&app, &admin).await;
     f1_registers(&app, &admin).await;
     f1_cash_kinds(&app, &admin).await;
+    f1_cash_state(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1289,15 +1290,23 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
         && e.methods.as_deref() == Some("EFECTIVO")));
 
     // Cierre con arqueo: faltan 25.
-    let closed = cash::close(app, &c, session.id, dec(63900), Some("faltante".into()))
-        .await
-        .unwrap();
+    let cur_session = cash::current(app, &c, branch).await.unwrap().unwrap();
+    let closed = cash::close(
+        app,
+        &c,
+        session.id,
+        dec(63900),
+        Some("faltante".into()),
+        &cur_session.state_token,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         closed.session.difference.map(|d| d.normalize()),
         Some(dec(-25))
     );
     assert!(is_state(
-        &cash::close(app, &c, session.id, dec(0), None).await
+        &cash::close(app, &c, session.id, dec(0), None, &cur_session.state_token).await
     ));
     assert!(cash::current(app, &c, branch).await.unwrap().is_none());
 
@@ -2032,8 +2041,15 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     // Diferencia esperada: contado 40000 vs esperado (50000 base + 4500 venta = 54500)
     // Diferencia ~14500 > 1000 de tolerancia, sin notas -> validation error
-    let try_close_no_notes =
-        cash::close(app, &c_cashier, cur_session.session.id, dec(40000), None).await;
+    let try_close_no_notes = cash::close(
+        app,
+        &c_cashier,
+        cur_session.session.id,
+        dec(40000),
+        None,
+        &cur_session.state_token,
+    )
+    .await;
     assert!(is_validation(&try_close_no_notes));
 
     // Cerrando con nota -> éxito
@@ -2043,6 +2059,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         cur_session.session.id,
         dec(40000),
         Some("Faltante justificado por pago de flete menor".into()),
+        &cur_session.state_token,
     )
     .await
     .unwrap();
@@ -2329,9 +2346,20 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
     }
 
     // Cerrar el turno de Caja 1
-    cash::close(app, &c_cashier1, s1.id, dec(50000), None)
+    let cur_s1 = cash::current(app, &c_cashier1, branch)
         .await
-        .expect("close session");
+        .unwrap()
+        .unwrap();
+    cash::close(
+        app,
+        &c_cashier1,
+        s1.id,
+        dec(50000),
+        None,
+        &cur_s1.state_token,
+    )
+    .await
+    .expect("close session");
 
     // Ahora sí se puede desactivar Caja 1
     let deactivated = registers::update(
@@ -2555,4 +2583,92 @@ async fn f1_cash_kinds(app: &PgPool, admin: &PgPool) {
     assert!(is_validation(&try_no_rc));
 
     cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f1_cash_state(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let reg = registers::create(
+        app,
+        &c_owner,
+        registers::CreateRegisterRequest {
+            branch_id: branch,
+            name: "Caja State".into(),
+            code: "CAJA-ST".into(),
+            default_opening: dec(50000),
+        },
+    )
+    .await
+    .unwrap();
+
+    let session = cash::open(app, &c_cashier, branch, reg.id, dec(50000))
+        .await
+        .unwrap();
+
+    let soda = seed_product(admin, tenant, "Soda State", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "100", "0").await;
+
+    // 1. Lee el token inicial del turno abierto
+    let summary1 = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    let old_token = summary1.state_token.clone();
+    assert!(!old_token.is_empty());
+
+    // 2. Registra una venta en el turno mientras se "arquea"
+    let sale_id = Uuid::new_v4();
+    let s = sale(
+        sale_id,
+        branch,
+        &[(soda, 1)],
+        &[(PaymentMethod::Efectivo, 2975)],
+    );
+    sales::checkout(app, &c_cashier, s).await.unwrap();
+
+    // 3. Intenta cerrar con el token viejo: 409 CASH_STATE_CHANGED sin data
+    let try_old = cash::close(app, &c_cashier, session.id, dec(52975), None, &old_token).await;
+
+    match try_old {
+        Err(ApiError::Domain(DomainError::Coded {
+            status, code, data, ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "CASH_STATE_CHANGED");
+            assert!(data.is_none());
+        }
+        other => panic!("Expected Coded CASH_STATE_CHANGED, got {:?}", other),
+    }
+
+    // 4. Con el token nuevo el cierre funciona
+    let summary2 = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(summary2.state_token, old_token);
+
+    let closed = cash::close(
+        app,
+        &c_cashier,
+        session.id,
+        dec(52975),
+        None,
+        &summary2.state_token,
+    )
+    .await
+    .expect("close with updated token should succeed");
+
+    assert!(closed.session.closed_at.is_some());
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

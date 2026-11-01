@@ -277,6 +277,7 @@ async fn current_cash_session(
 #[derive(Deserialize)]
 struct CloseCashSession {
     counted_cash: Decimal,
+    state_token: String,
     #[serde(default)]
     notes: Option<String>,
 }
@@ -288,7 +289,15 @@ async fn close_cash_session(
     Body(req): Body<CloseCashSession>,
 ) -> ApiResult<Json<cash::CashSummary>> {
     Ok(Json(
-        cash::close(&state.pool, &user.claims, id, req.counted_cash, req.notes).await?,
+        cash::close(
+            &state.pool,
+            &user.claims,
+            id,
+            req.counted_cash,
+            req.notes,
+            &req.state_token,
+        )
+        .await?,
     ))
 }
 
@@ -327,7 +336,7 @@ async fn cash_activity(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Vec<cash::ActivityEntry>>> {
+) -> ApiResult<Json<cash::ActivityResponse>> {
     Ok(Json(cash::activity(&state.pool, &user.claims, id).await?))
 }
 

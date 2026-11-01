@@ -2,9 +2,11 @@
 //! esperado por metodo de pago y cierre con arqueo (diferencia entre lo
 //! contado y lo esperado).
 
+use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -63,6 +65,7 @@ pub struct CashSummary {
     pub tips_total: Decimal,
     pub tips_paid: Decimal,
     pub tips_pending: Decimal,
+    pub state_token: String,
 }
 
 /// Tipo de movimiento de efectivo del turno (9 tipos).
@@ -133,7 +136,7 @@ impl CashMovementKind {
 }
 
 /// Una linea de la bitacora del turno: apertura, venta, ingreso, retiro o cierre.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ActivityEntry {
     pub at: DateTime<Utc>,
     /// APERTURA | VENTA | INGRESO | RETIRO | CIERRE
@@ -143,6 +146,20 @@ pub struct ActivityEntry {
     pub methods: Option<String>,
     pub amount: Decimal,
     pub user_name: Option<String>,
+}
+
+/// Respuesta de bitácora del turno con token de estado.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ActivityResponse {
+    pub state_token: String,
+    pub items: Vec<ActivityEntry>,
+}
+
+impl std::ops::Deref for ActivityResponse {
+    type Target = [ActivityEntry];
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
 }
 
 /// Turno en el historial de la sucursal.
@@ -392,6 +409,7 @@ pub async fn summary_tx(tx: &mut Tx<'_>, session_id: Uuid) -> Result<CashSummary
     let tips_pending = tips_total - tips_paid;
     let expected_cash =
         crate::money::money(session.opening_amount + cash_sales + cash_in - cash_out);
+    let state_token = calculate_state_token(tx, session_id).await?;
 
     Ok(CashSummary {
         session,
@@ -405,7 +423,34 @@ pub async fn summary_tx(tx: &mut Tx<'_>, session_id: Uuid) -> Result<CashSummary
         tips_total,
         tips_paid,
         tips_pending,
+        state_token,
     })
+}
+
+/// Calcula el token de estado (SHA-256 de los IDs ordenados de payments y cash_movements).
+pub async fn calculate_state_token(tx: &mut Tx<'_>, session_id: Uuid) -> Result<String, ApiError> {
+    let payment_ids: Vec<Uuid> =
+        sqlx::query_scalar("select id from payments where cash_session_id = $1")
+            .bind(session_id)
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let movement_ids: Vec<Uuid> =
+        sqlx::query_scalar("select id from cash_movements where cash_session_id = $1")
+            .bind(session_id)
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let mut ids: Vec<String> = payment_ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .chain(movement_ids.into_iter().map(|id| id.to_string()))
+        .collect();
+    ids.sort();
+    let payload = ids.join(",");
+    let mut hasher = Sha256::new();
+    hasher.update(payload.as_bytes());
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// Bloquea el turno y valida que siga abierto y que el usuario pueda operarlo
@@ -612,7 +657,7 @@ pub async fn activity(
     pool: &PgPool,
     claims: &Claims,
     session_id: Uuid,
-) -> Result<Vec<ActivityEntry>, ApiError> {
+) -> Result<ActivityResponse, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require(Action::ManageCash)?;
 
@@ -660,8 +705,13 @@ pub async fn activity(
     .bind(session_id)
     .fetch_all(&mut *tx)
     .await?;
+
+    let state_token = calculate_state_token(&mut tx, session_id).await?;
     tx.commit().await?;
-    Ok(rows)
+    Ok(ActivityResponse {
+        state_token,
+        items: rows,
+    })
 }
 
 // ------------------------------------------------------------------ historial
@@ -712,6 +762,7 @@ pub async fn close(
     session_id: Uuid,
     counted_cash: Decimal,
     notes: Option<String>,
+    state_token: &str,
 ) -> Result<CashSummary, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require(Action::ManageCash)?;
@@ -721,6 +772,17 @@ pub async fn close(
 
     // Bloqueo exclusivo: espera a que terminen las ventas en curso del turno.
     let branch_id = lock_open_session_tx(&mut tx, &scope, session_id).await?;
+
+    let current_token = calculate_state_token(&mut tx, session_id).await?;
+    if current_token != state_token {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "CASH_STATE_CHANGED",
+            "Hubo movimientos nuevos mientras contabas. Volvé a contar.",
+            None,
+        ));
+    }
+
     let settings = crate::settings::load_tx(&mut tx, branch_id).await?;
 
     let expected = summary_tx(&mut tx, session_id).await?.expected_cash;
