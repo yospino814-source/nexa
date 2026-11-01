@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   ShoppingCart,
+  Sparkles,
   Truck,
   Users,
   UtensilsCrossed,
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/mesas", label: "Restaurante", icon: UtensilsCrossed, match: ["/mesas", "/comanda", "/cocina"] },
   { href: "/rutas", label: "Rutas y mayorista", icon: Truck, match: ["/rutas", "/mayorista", "/repartidor"] },
+  { href: "/marketing/promociones", label: "Marketing", icon: Sparkles, match: ["/marketing"], permission: "settings:write" },
   { href: "/configuracion/negocio", label: "Configuración", icon: Settings, match: ["/configuracion"], permission: "settings:write" },
 ];
 

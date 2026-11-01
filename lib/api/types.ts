@@ -745,3 +745,54 @@ export type TierBarcode = {
   tier_id: Uuid;
   barcode: string;
 };
+
+// ----------------------------------------------------------------- promociones
+
+export type PromotionEffectiveStatus = "BORRADOR" | "ACTIVA" | "PROGRAMADA" | "PAUSADA" | "VENCIDA";
+export type PromotionScope = "PEDIDO" | "PRODUCTO" | "CATEGORIA";
+export type PromotionKind = "PORCENTAJE" | "FIJO";
+
+export type Promotion = {
+  id: Uuid;
+  branch_id: Uuid | null;
+  name: string;
+  kind: PromotionKind;
+  value: Decimal;
+  scope: PromotionScope;
+  min_qty: Decimal | null;
+  min_subtotal: Decimal | null;
+  max_discount: Decimal | null;
+  starts_at: string;
+  ends_at: string | null;
+  status: "BORRADOR" | "ACTIVA" | "PAUSADA";
+  effective_status: PromotionEffectiveStatus;
+  priority: number;
+  usage_limit: number | null;
+  usage_count: number;
+  per_customer_limit: number | null;
+  skip_tier_lines: boolean;
+  created_at: string;
+  product_ids: Uuid[];
+  category_ids: Uuid[];
+};
+
+export type CreatePromotionInput = {
+  branch_id?: Uuid | null;
+  name: string;
+  kind: PromotionKind;
+  value: Decimal | number;
+  scope: PromotionScope;
+  min_qty?: Decimal | number | null;
+  min_subtotal?: Decimal | number | null;
+  max_discount?: Decimal | number | null;
+  starts_at: string;
+  ends_at?: string | null;
+  priority?: number;
+  usage_limit?: number | null;
+  per_customer_limit?: number | null;
+  skip_tier_lines?: boolean;
+  product_ids?: Uuid[];
+  category_ids?: Uuid[];
+};
+
+export type UpdatePromotionInput = CreatePromotionInput;

@@ -128,6 +128,11 @@ export function CartPanel({
                     {formatCOP(line.unitPrice)} c/u · {taxLabel(line.taxRate)}
                     {line.unitsPerPackage && line.unitsPerPackage > 1 ? ` · x${line.unitsPerPackage} un.` : ""}
                   </p>
+                  {line.promotionName && (
+                    <span className="inline-block mt-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      {line.promotionName} {line.promotionDiscount ? `−${formatCOP(line.promotionDiscount * line.qty)}` : ""}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1">
                   <button
@@ -167,6 +172,12 @@ export function CartPanel({
             <dt>Subtotal</dt>
             <dd className="tabular-nums">{formatCOP(totals.subtotal)}</dd>
           </div>
+          {totals.discountTotal > 0 && (
+            <div className="flex justify-between text-emerald-600 font-medium">
+              <dt>Descuentos</dt>
+              <dd className="tabular-nums">−{formatCOP(totals.discountTotal)}</dd>
+            </div>
+          )}
           <div className="flex justify-between">
             <dt>Impuestos (IVA)</dt>
             <dd className="tabular-nums">{formatCOP(totals.tax)}</dd>

@@ -15,7 +15,8 @@ export type ModuleId =
   | "ventas"
   | "clientes"
   | "ecommerce"
-  | "configuracion";
+  | "configuracion"
+  | "marketing";
 
 export type Screen = {
   /** Numero de la pantalla en design/specs y design/stitch. */
@@ -39,6 +40,7 @@ export const modules: Record<ModuleId, { title: string; folder: string }> = {
   clientes: { title: "Clientes y Mayorista B2B", folder: "05_Clientes_Mayorista_B2B" },
   ecommerce: { title: "E-commerce Público", folder: "06_Ecommerce_Publico" },
   configuracion: { title: "Configuración y DIAN", folder: "07_Configuracion_DIAN" },
+  marketing: { title: "Marketing y Fidelización", folder: "08_Marketing" },
 };
 
 function s(
@@ -103,6 +105,8 @@ export const screens: Screen[] = [
   s("20", "pagos-impuestos-y-facturacion", "Pagos, impuestos y DIAN", "/configuracion/facturacion", "configuracion", "admin"),
   s("32", "cajas", "Cajas registradoras", "/configuracion/cajas", "configuracion", "admin", "react"),
   s("33", "tarifas", "Tarifas y presentaciones", "/configuracion/tarifas", "configuracion", "admin", "react"),
+  // Marketing
+  s("34", "promociones", "Promociones", "/marketing/promociones", "marketing", "admin", "react"),
 ];
 
 export function screenByRoute(route: string): Screen | undefined {

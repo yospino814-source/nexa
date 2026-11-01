@@ -65,6 +65,9 @@ import type {
   UpdatePriceTierInput,
   ProductTierPrice,
   SetProductTierPriceInput,
+  Promotion,
+  CreatePromotionInput,
+  UpdatePromotionInput,
   CreateCustomerInput,
   CreatePurchaseInput,
   CreateSupplierInput,
@@ -142,6 +145,78 @@ const mockTiers: PriceTier[] = [
   },
 ];
 const mockProductTierPrices = new Map<Uuid, ProductTierPrice[]>();
+
+const mockPromotions: Promotion[] = [
+  {
+    id: "p1111111-1111-1111-1111-111111111111",
+    branch_id: null,
+    name: "Arroz 5 %",
+    kind: "PORCENTAJE",
+    value: "5.0000",
+    scope: "PRODUCTO",
+    min_qty: null,
+    min_subtotal: null,
+    max_discount: null,
+    starts_at: new Date(Date.now() - 86400000).toISOString(),
+    ends_at: null,
+    status: "ACTIVA",
+    effective_status: "ACTIVA",
+    priority: 1,
+    usage_limit: null,
+    usage_count: 14,
+    per_customer_limit: null,
+    skip_tier_lines: true,
+    created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+    product_ids: ["p1111111-1111-1111-1111-111111111111"],
+    category_ids: [],
+  },
+  {
+    id: "p2222222-2222-2222-2222-222222222222",
+    branch_id: null,
+    name: "Lleva 3 gaseosas",
+    kind: "PORCENTAJE",
+    value: "10.0000",
+    scope: "CATEGORIA",
+    min_qty: "3.0000",
+    min_subtotal: null,
+    max_discount: null,
+    starts_at: new Date(Date.now() - 86400000).toISOString(),
+    ends_at: null,
+    status: "ACTIVA",
+    effective_status: "ACTIVA",
+    priority: 2,
+    usage_limit: 100,
+    usage_count: 28,
+    per_customer_limit: 3,
+    skip_tier_lines: true,
+    created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+    product_ids: [],
+    category_ids: ["cat-bebidas"],
+  },
+  {
+    id: "p3333333-3333-3333-3333-333333333333",
+    branch_id: null,
+    name: "Compras desde $100.000",
+    kind: "FIJO",
+    value: "5000.0000",
+    scope: "PEDIDO",
+    min_qty: null,
+    min_subtotal: "100000.00",
+    max_discount: "5000.00",
+    starts_at: new Date(Date.now() - 86400000).toISOString(),
+    ends_at: null,
+    status: "ACTIVA",
+    effective_status: "ACTIVA",
+    priority: 0,
+    usage_limit: null,
+    usage_count: 5,
+    per_customer_limit: 1,
+    skip_tier_lines: true,
+    created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+    product_ids: [],
+    category_ids: [],
+  },
+];
 
 let receiptSeq = 0;
 const mockSales = new Map<Uuid, { body: string; response: CheckoutResponse; at: string }>();
@@ -1127,6 +1202,101 @@ export const api = {
       await delay();
       mockProductTierPrices.set(productId, items);
       return structuredClone(items);
+    },
+  },
+
+  promotions: {
+    async list(status?: string): Promise<Promotion[]> {
+      if (USE_MOCKS) {
+        await delay();
+        if (status) return mockPromotions.filter((p) => p.effective_status === status);
+        return structuredClone(mockPromotions);
+      }
+      const q = status ? `?status=${encodeURIComponent(status)}` : "";
+      return request(`/v1/promotions${q}`);
+    },
+    async create(input: CreatePromotionInput): Promise<Promotion> {
+      if (!USE_MOCKS) {
+        return request("/v1/promotions", { method: "POST", body: JSON.stringify(input) });
+      }
+      await delay();
+      const p: Promotion = {
+        id: crypto.randomUUID(),
+        branch_id: input.branch_id ?? null,
+        name: input.name,
+        kind: input.kind,
+        value: String(input.value),
+        scope: input.scope,
+        min_qty: input.min_qty ? String(input.min_qty) : null,
+        min_subtotal: input.min_subtotal ? String(input.min_subtotal) : null,
+        max_discount: input.max_discount ? String(input.max_discount) : null,
+        starts_at: input.starts_at,
+        ends_at: input.ends_at ?? null,
+        status: "BORRADOR",
+        effective_status: "BORRADOR",
+        priority: input.priority ?? 0,
+        usage_limit: input.usage_limit ?? null,
+        usage_count: 0,
+        per_customer_limit: input.per_customer_limit ?? null,
+        skip_tier_lines: input.skip_tier_lines ?? true,
+        created_at: new Date().toISOString(),
+        product_ids: input.product_ids ?? [],
+        category_ids: input.category_ids ?? [],
+      };
+      mockPromotions.unshift(p);
+      return p;
+    },
+    async update(id: string, input: UpdatePromotionInput): Promise<Promotion> {
+      if (!USE_MOCKS) {
+        return request(`/v1/promotions/${id}`, { method: "PUT", body: JSON.stringify(input) });
+      }
+      await delay();
+      const idx = mockPromotions.findIndex((p) => p.id === id);
+      if (idx === -1) throw new ApiError(404, "Promoción no encontrada");
+      const current = mockPromotions[idx];
+      const updated: Promotion = {
+        ...current,
+        branch_id: input.branch_id ?? null,
+        name: input.name,
+        kind: input.kind,
+        value: String(input.value),
+        scope: input.scope,
+        min_qty: input.min_qty ? String(input.min_qty) : null,
+        min_subtotal: input.min_subtotal ? String(input.min_subtotal) : null,
+        max_discount: input.max_discount ? String(input.max_discount) : null,
+        starts_at: input.starts_at,
+        ends_at: input.ends_at ?? null,
+        priority: input.priority ?? current.priority,
+        usage_limit: input.usage_limit ?? null,
+        per_customer_limit: input.per_customer_limit ?? null,
+        skip_tier_lines: input.skip_tier_lines ?? current.skip_tier_lines,
+        product_ids: input.product_ids ?? current.product_ids,
+        category_ids: input.category_ids ?? current.category_ids,
+      };
+      mockPromotions[idx] = updated;
+      return updated;
+    },
+    async activate(id: string): Promise<void> {
+      if (!USE_MOCKS) {
+        return request(`/v1/promotions/${id}/activate`, { method: "POST" });
+      }
+      await delay();
+      const p = mockPromotions.find((item) => item.id === id);
+      if (p) {
+        p.status = "ACTIVA";
+        p.effective_status = "ACTIVA";
+      }
+    },
+    async pause(id: string): Promise<void> {
+      if (!USE_MOCKS) {
+        return request(`/v1/promotions/${id}/pause`, { method: "POST" });
+      }
+      await delay();
+      const p = mockPromotions.find((item) => item.id === id);
+      if (p) {
+        p.status = "PAUSADA";
+        p.effective_status = "PAUSADA";
+      }
     },
   },
 

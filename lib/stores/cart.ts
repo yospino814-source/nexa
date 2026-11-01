@@ -18,6 +18,8 @@ export type CartLine = {
   tierId?: string | null;
   tierName?: string | null;
   unitsPerPackage?: number | null;
+  promotionName?: string | null;
+  promotionDiscount?: number | null;
 };
 
 export type AddItemTier = {
@@ -137,7 +139,7 @@ export const useCart = create<CartState>((set) => ({
   clear: () => set({ lines: [], customer: null, customerAlias: null }),
 }));
 
-export type CartTotals = { subtotal: number; tax: number; total: number; units: number };
+export type CartTotals = { subtotal: number; tax: number; total: number; units: number; discountTotal: number };
 
 /** Redondeo a centavos como `numeric(14,2)` de Postgres (mitad hacia afuera). */
 function roundCents(value: number): number {
@@ -153,13 +155,18 @@ export function cartTotals(lines: CartLine[]): CartTotals {
   let subtotal = 0;
   let tax = 0;
   let units = 0;
+  let discountTotal = 0;
   for (const line of lines) {
-    const base = roundCents(line.unitPrice * line.qty);
+    const gross = roundCents(line.unitPrice * line.qty);
+    const promoDisc = roundCents((line.promotionDiscount ?? 0) * line.qty);
+    const base = Math.max(0, gross - promoDisc);
     subtotal += base;
+    discountTotal += promoDisc;
     tax += line.taxRate ? roundCents(base * line.taxRate) : 0;
     units += line.qty;
   }
   subtotal = roundCents(subtotal);
+  discountTotal = roundCents(discountTotal);
   tax = roundCents(tax);
-  return { subtotal, tax, total: roundCents(subtotal + tax), units };
+  return { subtotal, tax, total: roundCents(subtotal + tax), units, discountTotal };
 }
