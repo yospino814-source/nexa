@@ -34,11 +34,17 @@ export function RegistersScreen() {
     reload,
   } = useApi(() => api.cashRegisters.list(selectedBranchId), selectedBranchId);
 
+  const { data: locations } = useApi(
+    () => api.locations.list(selectedBranchId),
+    selectedBranchId
+  );
+
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRegister, setEditingRegister] = useState<CashRegister | null>(null);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [locationId, setLocationId] = useState<string>("");
   const [defaultOpening, setDefaultOpening] = useState(100_000);
   const [active, setActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,6 +54,7 @@ export function RegistersScreen() {
     setEditingRegister(null);
     setName("");
     setCode("");
+    setLocationId("");
     setDefaultOpening(100_000);
     setActive(true);
     setFormError(null);
@@ -58,6 +65,7 @@ export function RegistersScreen() {
     setEditingRegister(reg);
     setName(reg.name);
     setCode(reg.code);
+    setLocationId(reg.location_id ?? "");
     setDefaultOpening(Number(reg.default_opening));
     setActive(reg.active);
     setFormError(null);
@@ -91,6 +99,7 @@ export function RegistersScreen() {
           code: cleanCode,
           default_opening: defaultOpening,
           active,
+          location_id: locationId ? locationId : null,
         });
         setToast("Caja registradora actualizada");
       } else {
@@ -99,6 +108,7 @@ export function RegistersScreen() {
           name: cleanName,
           code: cleanCode,
           default_opening: defaultOpening,
+          location_id: locationId ? locationId : null,
         });
         setToast("Caja registradora creada");
       }
@@ -202,6 +212,7 @@ export function RegistersScreen() {
                 <tr>
                   <th className="px-6 py-4">Código</th>
                   <th className="px-6 py-4">Nombre</th>
+                  <th className="px-6 py-4">Bodega</th>
                   <th className="px-6 py-4">Base sugerida</th>
                   <th className="px-6 py-4">Estado</th>
                   <th className="px-6 py-4">Turno activo</th>
@@ -213,6 +224,11 @@ export function RegistersScreen() {
                   <tr key={reg.id} className="hover:bg-slate-50/50">
                     <td className="px-6 py-4 font-mono font-bold text-slate-900">{reg.code}</td>
                     <td className="px-6 py-4 font-bold text-slate-900">{reg.name}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800">
+                        {locations?.find((l) => l.id === reg.location_id)?.name ?? "Principal (defecto)"}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 font-semibold text-slate-900">
                       {formatCOP(Number(reg.default_opening))}
                     </td>
@@ -310,6 +326,29 @@ export function RegistersScreen() {
                 />
                 <span className="mt-1 block text-xs text-slate-400">
                   Hasta 10 caracteres: letras mayúsculas, números o guiones.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Bodega de la caja
+                </label>
+                <select
+                  value={locationId}
+                  onChange={(e) => setLocationId(e.target.value)}
+                  className="mt-1.5 block w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 focus:border-brand focus:ring-1 focus:ring-brand"
+                >
+                  <option value="">Bodega principal (por defecto)</option>
+                  {(locations ?? [])
+                    .filter((l) => l.active && l.sellable)
+                    .map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name} {loc.is_default ? "(Principal)" : ""}
+                      </option>
+                    ))}
+                </select>
+                <span className="mt-1 block text-xs text-slate-400">
+                  Las ventas cobradas en esta caja descontarán stock exclusivamente de esta bodega.
                 </span>
               </div>
 

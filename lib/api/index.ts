@@ -127,6 +127,9 @@ import type {
   AnalyzeResponse,
   CommitResponse,
   ImportRowResult,
+  LocationRow,
+  CreateLocationInput,
+  UpdateLocationInput,
 } from "./types";
 
 export * from "./types";
@@ -337,10 +340,36 @@ let receiptSeq = 0;
 const mockSales = new Map<Uuid, { body: string; response: CheckoutResponse; at: string }>();
 /** Turno al que pertenece cada venta mock. */
 const sessionOf = new Map<Uuid, Uuid>();
+const mockLocations: LocationRow[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000b01",
+    tenant_id: "00000000-0000-4000-8000-000000000001",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Principal",
+    kind: "PISO_VENTA",
+    sellable: true,
+    is_default: true,
+    active: true,
+    created_at: "2026-01-01T00:00:00Z",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000b02",
+    tenant_id: "00000000-0000-4000-8000-000000000001",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Bodega de Reserva",
+    kind: "BODEGA",
+    sellable: true,
+    is_default: false,
+    active: true,
+    created_at: "2026-01-01T00:00:00Z",
+  },
+];
+
 const mockRegisters: CashRegister[] = [
   {
     id: "00000000-0000-4000-8000-000000000c01",
     branch_id: MOCK_BRANCH_ID,
+    location_id: "00000000-0000-4000-8000-000000000b01",
     name: "Caja 1",
     code: "CAJA-1",
     default_opening: "200000.00",
@@ -350,6 +379,7 @@ const mockRegisters: CashRegister[] = [
   {
     id: "00000000-0000-4000-8000-000000000c02",
     branch_id: MOCK_BRANCH_ID,
+    location_id: "00000000-0000-4000-8000-000000000b01",
     name: "Caja 2",
     code: "CAJA-2",
     default_opening: "100000.00",
@@ -1452,7 +1482,7 @@ export const api = {
       return structuredClone(mockRegisters.filter((r) => r.branch_id === branchId || branchId === MOCK_BRANCH_ID));
     },
 
-    async create(req: { branch_id: Uuid; name: string; code: string; default_opening: number }): Promise<CashRegister> {
+    async create(req: { branch_id: Uuid; name: string; code: string; default_opening: number; location_id?: Uuid | null }): Promise<CashRegister> {
       if (!USE_MOCKS) {
         return request("/v1/cash-registers", {
           method: "POST",
@@ -1467,6 +1497,7 @@ export const api = {
       const newReg: CashRegister = {
         id: crypto.randomUUID(),
         branch_id: req.branch_id,
+        location_id: req.location_id ?? null,
         name: req.name.trim(),
         code,
         default_opening: dec(req.default_opening),
@@ -1479,7 +1510,7 @@ export const api = {
 
     async update(
       id: Uuid,
-      req: { name: string; code: string; default_opening: number; active: boolean },
+      req: { name: string; code: string; default_opening: number; active: boolean; location_id?: Uuid | null },
     ): Promise<CashRegister> {
       if (!USE_MOCKS) {
         return request(`/v1/cash-registers/${id}`, {
@@ -1504,29 +1535,105 @@ export const api = {
         code,
         default_opening: dec(req.default_opening),
         active: req.active,
+        location_id: req.location_id !== undefined ? req.location_id : current.location_id,
       };
       return structuredClone(mockRegisters[idx]);
     },
   },
 
+  locations: {
+    async list(branchId: Uuid): Promise<LocationRow[]> {
+      if (!USE_MOCKS) {
+        return request(`/v1/locations?branch_id=${branchId}`);
+      }
+      await delay();
+      return structuredClone(
+        mockLocations.filter((l) => l.branch_id === branchId || branchId === MOCK_BRANCH_ID),
+      );
+    },
+
+    async create(input: CreateLocationInput): Promise<LocationRow> {
+      if (!USE_MOCKS) {
+        return request("/v1/locations", {
+          method: "POST",
+          body: JSON.stringify(input),
+        });
+      }
+      await delay();
+      const isDef = input.is_default ?? false;
+      if (isDef) {
+        for (const loc of mockLocations) {
+          if (loc.branch_id === input.branch_id) {
+            loc.is_default = false;
+          }
+        }
+      }
+      const newLoc: LocationRow = {
+        id: crypto.randomUUID(),
+        tenant_id: "00000000-0000-4000-8000-000000000001",
+        branch_id: input.branch_id,
+        name: input.name.trim(),
+        kind: input.kind,
+        sellable: input.sellable,
+        is_default: isDef,
+        active: true,
+        created_at: new Date().toISOString(),
+      };
+      mockLocations.push(newLoc);
+      return structuredClone(newLoc);
+    },
+
+    async update(id: Uuid, input: UpdateLocationInput): Promise<LocationRow> {
+      if (!USE_MOCKS) {
+        return request(`/v1/locations/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        });
+      }
+      await delay();
+      const idx = mockLocations.findIndex((l) => l.id === id);
+      if (idx === -1) throw new ApiError(404, "Bodega no encontrada");
+      const current = mockLocations[idx];
+      const isDef = input.is_default ?? current.is_default;
+      if (isDef && !current.is_default) {
+        for (const loc of mockLocations) {
+          if (loc.branch_id === current.branch_id) {
+            loc.is_default = false;
+          }
+        }
+      }
+      mockLocations[idx] = {
+        ...current,
+        name: input.name !== undefined ? input.name.trim() : current.name,
+        kind: input.kind ?? current.kind,
+        sellable: input.sellable !== undefined ? input.sellable : current.sellable,
+        is_default: isDef,
+        active: input.active !== undefined ? input.active : current.active,
+      };
+      return structuredClone(mockLocations[idx]);
+    },
+  },
+
   inventory: {
     /** GET /v1/inventory/stock?branch_id= — existencias con estado frente al punto de reorden. */
-    async stock(branchId: Uuid): Promise<StockLevel[]> {
+    async stock(branchId: Uuid, locationId?: Uuid | null): Promise<StockLevel[]> {
       if (USE_MOCKS) {
         await delay();
         return structuredClone(mockStockLevels());
       }
-      return request(`/v1/inventory/stock?branch_id=${branchId}`);
+      const loc = locationId ? `&location_id=${locationId}` : "";
+      return request(`/v1/inventory/stock?branch_id=${branchId}${loc}`);
     },
 
     /** GET /v1/inventory/movements — kardex, mas reciente primero. */
-    async movements(branchId: Uuid, productId?: Uuid | null, limit = 200): Promise<Movement[]> {
+    async movements(branchId: Uuid, productId?: Uuid | null, limit = 200, locationId?: Uuid | null): Promise<Movement[]> {
       if (USE_MOCKS) {
         await delay();
         return structuredClone(mockKardex(productId).slice(0, limit));
       }
       const product = productId ? `&product_id=${productId}` : "";
-      return request(`/v1/inventory/movements?branch_id=${branchId}${product}&limit=${limit}`);
+      const loc = locationId ? `&location_id=${locationId}` : "";
+      return request(`/v1/inventory/movements?branch_id=${branchId}${product}${loc}&limit=${limit}`);
     },
 
     /** POST /v1/inventory/replenish — entrada de mercancia. */
@@ -1565,15 +1672,51 @@ export const api = {
       });
     },
 
-    /** POST /v1/inventory/transfer — traslado entre sucursales del negocio. */
-    async transfer(fromBranchId: Uuid, toBranchId: Uuid, productId: Uuid, qty: Decimal, cause: string): Promise<{ transfer_id: Uuid }> {
+    /** POST /v1/inventory/transfer — traslado entre sucursales o entre bodegas del negocio. */
+    async transfer(
+      fromBranchOrParams:
+        | Uuid
+        | {
+            fromBranchId?: Uuid;
+            toBranchId?: Uuid;
+            fromLocationId?: Uuid;
+            toLocationId?: Uuid;
+            productId: Uuid;
+            qty: Decimal;
+            cause: string;
+          },
+      toBranchId?: Uuid,
+      productId?: Uuid,
+      qty?: Decimal,
+      cause?: string,
+    ): Promise<{ transfer_id: Uuid }> {
+      let body: Record<string, unknown>;
+      if (typeof fromBranchOrParams === "object") {
+        body = {
+          from_branch_id: fromBranchOrParams.fromBranchId,
+          to_branch_id: fromBranchOrParams.toBranchId,
+          from_location_id: fromBranchOrParams.fromLocationId,
+          to_location_id: fromBranchOrParams.toLocationId,
+          product_id: fromBranchOrParams.productId,
+          qty: fromBranchOrParams.qty,
+          cause: fromBranchOrParams.cause,
+        };
+      } else {
+        body = {
+          from_branch_id: fromBranchOrParams,
+          to_branch_id: toBranchId,
+          product_id: productId,
+          qty,
+          cause,
+        };
+      }
       if (USE_MOCKS) {
         await delay();
-        throw new ApiError(403, "forbidden");
+        return { transfer_id: crypto.randomUUID() };
       }
       return request("/v1/inventory/transfer", {
         method: "POST",
-        body: JSON.stringify({ from_branch_id: fromBranchId, to_branch_id: toBranchId, product_id: productId, qty, cause }),
+        body: JSON.stringify(body),
       });
     },
 

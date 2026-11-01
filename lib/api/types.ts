@@ -252,6 +252,7 @@ export type CheckoutResponse = {
 export type CashRegister = {
   id: Uuid;
   branch_id: Uuid;
+  location_id?: Uuid | null;
   name: string;
   code: string;
   default_opening: Decimal;
@@ -262,6 +263,45 @@ export type CashRegister = {
     opened_by_name: string | null;
     opened_at: string;
   };
+};
+
+// ------------------------------------------------------------- bodegas y ubicaciones (F2.8)
+
+export type LocationKind =
+  | "PISO_VENTA"
+  | "BODEGA"
+  | "PRODUCCION"
+  | "RECEPCION"
+  | "DESPACHO"
+  | "CUARENTENA"
+  | "AVERIADOS";
+
+export type LocationRow = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  name: string;
+  kind: LocationKind;
+  sellable: boolean;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreateLocationInput = {
+  branch_id: Uuid;
+  name: string;
+  kind: LocationKind;
+  sellable: boolean;
+  is_default?: boolean;
+};
+
+export type UpdateLocationInput = {
+  name?: string;
+  kind?: LocationKind;
+  sellable?: boolean;
+  is_default?: boolean;
+  active?: boolean;
 };
 
 /** src/cash.rs::CashSession */

@@ -109,6 +109,7 @@ export const screens: Screen[] = [
   s("20", "pagos-impuestos-y-facturacion", "Pagos, impuestos y DIAN", "/configuracion/facturacion", "configuracion", "admin"),
   s("32", "cajas", "Cajas registradoras", "/configuracion/cajas", "configuracion", "admin", "react"),
   s("33", "tarifas", "Tarifas y presentaciones", "/configuracion/tarifas", "configuracion", "admin", "react"),
+  s("40", "bodegas", "Bodegas", "/configuracion/bodegas", "configuracion", "admin", "react"),
   // Marketing
   s("34", "promociones", "Promociones", "/marketing/promociones", "marketing", "admin", "react"),
   s("35", "cupones", "Cupones", "/marketing/cupones", "marketing", "admin", "react"),
