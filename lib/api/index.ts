@@ -26,8 +26,23 @@ import {
   mockSuppliersList,
   mockSupplierUpdate,
 } from "./mock-procurement";
+import {
+  mockGetAudit,
+  mockGetSettings,
+  mockInviteUser,
+  mockPermissionsList,
+  mockRolePermissions,
+  mockUpdateRolePermissions,
+  mockUpdateSettings,
+  mockUpdateUserRole,
+  mockUpdateUserStatus,
+  mockUsersList,
+} from "./mock-platform";
 import type {
+  AuditEntry,
+  AuditFilter,
   BranchAccess,
+  BranchSettings,
   CashActivity,
   CashMovementKind,
   CashSession,
@@ -40,16 +55,25 @@ import type {
   CreateSupplierInput,
   DashboardSummary,
   Decimal,
+  Invitation,
+  InviteUserInput,
   Movement,
   OrderItem,
   Payment,
+  Permission,
   Purchase,
   PurchaseFilter,
   PurchaseSummary,
+  Role,
+  RolePermissionsResponse,
   SessionContext,
   StockLevel,
   Supplier,
+  TenantUser,
+  UpdateRolePermissionsInput,
   UpdateSupplierInput,
+  UpdateUserRoleInput,
+  UpdateUserStatusInput,
   Uuid,
 } from "./types";
 
@@ -599,6 +623,117 @@ export const api = {
     },
   },
 
+  users: {
+    async list(): Promise<{ users: TenantUser[]; invitations: Invitation[] }> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockUsersList();
+      }
+      return request("/v1/users");
+    },
+
+    async invite(input: InviteUserInput): Promise<Invitation> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockInviteUser(input);
+      }
+      return request("/v1/users/invite", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async updateRole(userId: Uuid, input: UpdateUserRoleInput): Promise<TenantUser> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockUpdateUserRole(userId, input.role);
+      }
+      return request(`/v1/users/${userId}/role`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async updateStatus(userId: Uuid, input: UpdateUserStatusInput): Promise<TenantUser> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockUpdateUserStatus(userId, input.active);
+      }
+      return request(`/v1/users/${userId}/status`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+  },
+
+  permissions: {
+    async list(): Promise<{ permissions: Permission[]; roles: Role[] }> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPermissionsList();
+      }
+      return request("/v1/permissions");
+    },
+
+    async getRole(role: Role): Promise<RolePermissionsResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockRolePermissions(role);
+      }
+      return request(`/v1/permissions/roles/${role}`);
+    },
+
+    async updateRole(role: Role, input: UpdateRolePermissionsInput): Promise<RolePermissionsResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockUpdateRolePermissions(role, input);
+      }
+      return request(`/v1/permissions/roles/${role}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+  },
+
+  settings: {
+    async get(branchId: Uuid): Promise<BranchSettings> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockGetSettings(branchId);
+      }
+      return request(`/v1/settings?branch_id=${branchId}`);
+    },
+
+    async update(branchId: Uuid, settings: BranchSettings): Promise<BranchSettings> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockUpdateSettings(branchId, settings);
+      }
+      return request(`/v1/settings?branch_id=${branchId}`, {
+        method: "PUT",
+        body: JSON.stringify(settings),
+      });
+    },
+  },
+
+  audit: {
+    async list(filter?: AuditFilter): Promise<AuditEntry[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockGetAudit(filter);
+      }
+      const params = new URLSearchParams();
+      if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+      if (filter?.user_id) params.set("user_id", filter.user_id);
+      if (filter?.action) params.set("action", filter.action);
+      if (filter?.from) params.set("from", filter.from);
+      if (filter?.to) params.set("to", filter.to);
+      if (filter?.limit) params.set("limit", String(filter.limit));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/audit${qs}`);
+    },
+  },
+
   reports: {
     /** Backend: GET /v1/reports/dashboard (PROPUESTO, aun sin implementar). */
     async dashboard(branchId: Uuid): Promise<DashboardSummary> {
@@ -636,6 +771,14 @@ export function friendlyError(error: unknown): string {
   if (m.includes("cannot cancel an already received purchase")) return "No se puede anular una compra ya recibida.";
   if (m.includes("purchase is already cancelled")) return "Esta compra ya está anulada.";
   if (m.includes("composed product")) return "Los productos compuestos (recetas) no se pueden comprar directamente.";
+  if (m.includes("cannot modify owner role")) return "No podés quitarte tu propio rol de dueño.";
+  if (m.includes("cannot modify DUENO permissions")) return "Los permisos del Dueño no se pueden modificar.";
+  if (m.includes("price override is not allowed")) return "No está permitido cambiar el precio manualmente en esta sucursal.";
+  if (m.includes("discount exceeds maximum allowed")) return "El descuento supera el máximo permitido para esta sucursal.";
+  if (m.includes("notes are required when cash difference exceeds tolerance")) return "Tenés que justificar el descuadre de caja en las notas de cierre.";
+  if (m.includes("one session per user")) return "Ya tenés un turno de caja abierto en esta sucursal.";
+  if (m.includes("negative stock")) return "No se permite dejar el stock en negativo en esta sucursal.";
+  if (m.includes("refund requires approval")) return "Se requiere autorización de un administrador para cancelar esta orden.";
   if (error.status === 401) return "Tu sesión expiró. Iniciá sesión de nuevo.";
   if (error.status === 403) return "No tenés permiso para esta operación.";
   return m;

@@ -65,7 +65,15 @@ export type OrderItem = {
   status_id: number | null;
 };
 
-export type Role = "DUENO" | "ADMIN_CAJA" | "CAJERO" | "MESERO" | "COCINA";
+export type Role =
+  | "DUENO"
+  | "ADMIN_CAJA"
+  | "CAJERO"
+  | "MESERO"
+  | "COCINA"
+  | "SUPERVISOR"
+  | "BODEGA"
+  | "REPARTIDOR";
 
 /** GET /v1/context — alcance resuelto por membresia (src/routes.rs::context). */
 export type SessionContext = {
@@ -346,6 +354,134 @@ export type PurchaseFilter = {
 export type PurchaseSummary = {
   total_purchased_month: Decimal;
   active_suppliers: number;
+};
+
+// ---------------------------------------------------------------- PLATAFORMA (Fase 0)
+
+export type Permission = {
+  code: string;
+  module: string;
+  description: string;
+};
+
+export type RolePermissionItem = {
+  code: string;
+  module: string;
+  description: string;
+  allowed: boolean;
+  is_override: boolean;
+};
+
+export type RolePermissionsResponse = {
+  role: string;
+  permissions: RolePermissionItem[];
+};
+
+export type UpdateRolePermissionsInput = {
+  overrides: {
+    permission_code: string;
+    allowed: boolean;
+  }[];
+};
+
+export type PosSettings = {
+  allow_price_override: boolean;
+  max_discount_pct: number;
+  refund_requires_approval: boolean;
+  allow_anonymous_sales?: boolean;
+  auto_print?: boolean;
+};
+
+export type CashSettings = {
+  require_session: boolean;
+  one_session_per_user: boolean;
+  close_tolerance: Decimal;
+  blind_close?: boolean;
+};
+
+export type InventorySettings = {
+  allow_negative_stock: boolean;
+  track_raw_materials: boolean;
+  low_stock_default?: number;
+};
+
+export type TipsSettings = {
+  enabled?: boolean;
+  suggested_pct: number[];
+  distribute_evenly: boolean;
+};
+
+export type PrintSettings = {
+  ticket_width_mm: number;
+  header_text: string | null;
+  footer_text: string | null;
+};
+
+export type BranchSettings = {
+  pos: PosSettings;
+  cash: CashSettings;
+  inventory: InventorySettings;
+  tips: TipsSettings;
+  print: PrintSettings;
+};
+
+export type AuditEntry = {
+  id: string;
+  tenant_id: Uuid;
+  branch_id: Uuid | null;
+  user_id: Uuid | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+};
+
+export type AuditFilter = {
+  branch_id?: Uuid;
+  user_id?: Uuid;
+  action?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
+export type TenantUser = {
+  id: Uuid;
+  email: string | null;
+  full_name: string | null;
+  role: Role;
+  branches: {
+    id: Uuid;
+    name: string;
+  }[];
+  active: boolean;
+  created_at: string;
+};
+
+export type Invitation = {
+  id: Uuid;
+  email: string;
+  role: Role;
+  branch_ids: Uuid[];
+  status: "PENDIENTE" | "ACEPTADA" | "CANCELADA";
+  created_at: string;
+};
+
+export type InviteUserInput = {
+  email: string;
+  role: Role;
+  branch_ids: Uuid[];
+};
+
+export type UpdateUserRoleInput = {
+  role: Role;
+  branch_id?: Uuid | null;
+};
+
+export type UpdateUserStatusInput = {
+  active: boolean;
 };
 
 // ---------------------------------------------------------------- PROPUESTOS

@@ -98,8 +98,8 @@ export const screens: Screen[] = [
   s("09", "crear-cuenta", "Crear cuenta", "/registro", "configuracion", "publico"),
   s("11", "iniciar-sesion", "Iniciar sesión", "/login", "configuracion", "publico", "react"),
   s("12", "configuracion-inicial", "Configuración inicial", "/onboarding", "configuracion", "publico"),
-  s("18", "negocio-y-sucursales", "Negocio y sucursales", "/configuracion/negocio", "configuracion", "admin"),
-  s("19", "usuarios-y-roles", "Usuarios y roles", "/configuracion/usuarios", "configuracion", "admin"),
+  s("18", "negocio-y-sucursales", "Negocio y sucursales", "/configuracion/negocio", "configuracion", "admin", "react"),
+  s("19", "usuarios-y-roles", "Usuarios y roles", "/configuracion/usuarios", "configuracion", "admin", "react"),
   s("20", "pagos-impuestos-y-facturacion", "Pagos, impuestos y DIAN", "/configuracion/facturacion", "configuracion", "admin"),
 ];
 

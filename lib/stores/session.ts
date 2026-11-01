@@ -43,10 +43,13 @@ const ALIVE_KEY = "nexa.alive";
 
 export const ROLE_LABELS: Record<Role, string> = {
   DUENO: "Dueño",
-  ADMIN_CAJA: "Administrador",
+  ADMIN_CAJA: "Administrador de caja",
   CAJERO: "Cajero",
   MESERO: "Mesero",
   COCINA: "Cocina",
+  SUPERVISOR: "Supervisor",
+  BODEGA: "Bodega",
+  REPARTIDOR: "Repartidor",
 };
 
 /** Pantalla de inicio segun el rol. */
@@ -54,6 +57,8 @@ export function homeFor(role: Role | null): string {
   if (role === "CAJERO") return "/pos";
   if (role === "MESERO") return "/mesas";
   if (role === "COCINA") return "/cocina";
+  if (role === "REPARTIDOR") return "/rutas";
+  if (role === "BODEGA") return "/inventario";
   return "/panel";
 }
 

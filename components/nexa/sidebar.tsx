@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 
 import { BrandMark } from "@/components/nexa/brand";
+import { useSession } from "@/lib/stores/session";
+import type { Role } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; match?: string[] };
@@ -56,11 +58,30 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
+function isAllowedForRole(href: string, userRole: Role): boolean {
+  if (userRole === "DUENO" || userRole === "ADMIN_CAJA") return true;
+  if (userRole === "CAJERO") return ["/pos", "/panel", "/clientes"].includes(href);
+  if (userRole === "MESERO") return href === "/mesas";
+  if (userRole === "COCINA") return href === "/mesas";
+  if (userRole === "SUPERVISOR")
+    return ["/panel", "/pos", "/inventario", "/ventas", "/clientes", "/mesas"].includes(href);
+  if (userRole === "BODEGA") return ["/inventario", "/compras"].includes(href);
+  if (userRole === "REPARTIDOR") return href === "/rutas";
+  return true;
+}
+
 /** Sidebar del layout de administracion: 72px, oscuro, solo iconos con tooltip. */
 export function Sidebar() {
   const pathname = usePathname();
+  const { branches, branchId } = useSession();
+  const currentBranch = branches.find((b) => b.id === branchId) ?? branches[0];
+  const role = currentBranch?.role ?? "DUENO";
+
   const isActive = (item: NavItem) =>
     (item.match ?? [item.href]).some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
+  const visibleNavItems = navItems.filter((item) => isAllowedForRole(item.href, role));
+  const showModules = process.env.NODE_ENV !== "production";
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[72px] shrink-0 flex-col items-center bg-sidebar py-4 md:flex">
@@ -68,12 +89,14 @@ export function Sidebar() {
         <BrandMark className="[&>div]:size-11 [&>div]:rounded-full" />
       </Link>
       <nav className="mt-8 flex flex-1 flex-col items-center gap-2">
-        {navItems.map((item) => (
+        {visibleNavItems.map((item) => (
           <NavLink key={item.href} item={item} active={isActive(item)} />
         ))}
       </nav>
       <div className="flex flex-col items-center gap-2 border-t border-sidebar-border pt-4">
-        <NavLink item={{ href: "/modulos", label: "Mapa de pantallas", icon: LayoutGrid }} active={pathname === "/modulos"} />
+        {showModules && (
+          <NavLink item={{ href: "/modulos", label: "Mapa de pantallas", icon: LayoutGrid }} active={pathname === "/modulos"} />
+        )}
         <NavLink item={{ href: "/login", label: "Cerrar sesión", icon: LogOut }} active={false} />
       </div>
     </aside>
