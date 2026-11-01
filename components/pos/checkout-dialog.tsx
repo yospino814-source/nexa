@@ -80,6 +80,7 @@ export function CheckoutDialog({
         branch_id: branchId,
         items: lines.map((line) => ({ product_id: line.productId, qty: String(line.qty) })),
         payments: [{ method, amount: String(paid) }],
+        quoted_total: String(total),
         customer_id: customer?.id ?? null,
         customer_alias: customerAlias ?? null,
       });

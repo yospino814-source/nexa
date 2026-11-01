@@ -49,6 +49,7 @@ export type Order = {
   customer_alias?: string | null;
   customer_name?: string | null;
   subtotal: Decimal;
+  discount_total?: Decimal;
   inc_amount: Decimal;
   tip_amount: Decimal;
   total_amount: Decimal;
@@ -57,9 +58,21 @@ export type Order = {
 /** src/orders.rs::OrderItem */
 export type OrderItem = {
   id: Uuid;
-  product_id: Uuid;
+  product_id?: Uuid | null;
+  custom_name?: string | null;
+  name?: string;
+  tier_id?: Uuid | null;
+  units_per_package?: Decimal;
   qty: Decimal;
   unit_price: Decimal;
+  list_price?: Decimal;
+  discount_manual?: Decimal;
+  discount_promotion?: Decimal;
+  discount_order?: Decimal;
+  discount_coupon?: Decimal;
+  promotion_id?: Uuid | null;
+  price_override_reason?: string | null;
+  line_discount?: Decimal;
   line_total: Decimal;
   /** Tasa congelada al agregar la linea: "0.19" = 19%. "0" = exento. */
   tax_rate: Decimal;
@@ -107,18 +120,93 @@ export type PaymentMethod = "EFECTIVO" | "DATAFONO" | "QR";
  * `id` lo genera el cliente y es la clave de idempotencia: un reintento con
  * el mismo id y cuerpo devuelve la misma venta (200) sin cobrar dos veces.
  */
+export type QuoteItemInput = {
+  product_id?: Uuid | null;
+  custom_name?: string | null;
+  qty: Decimal;
+  unit_price_override?: Decimal | null;
+  discount_pct?: Decimal | null;
+  tier_id?: Uuid | null;
+  price_override_reason?: string | null;
+};
+
+export type QuoteRequest = {
+  branch_id: Uuid;
+  items: QuoteItemInput[];
+  tip_amount?: Decimal | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
+  coupon_code?: string | null;
+};
+
+export type LineDiscountBreakdown = {
+  manual: Decimal;
+  promotion: Decimal;
+  order: Decimal;
+  coupon: Decimal;
+  total: Decimal;
+};
+
+export type QuoteLine = {
+  index: number;
+  product_id?: Uuid | null;
+  name: string;
+  qty: Decimal;
+  units_per_package: Decimal;
+  list_price: Decimal;
+  unit_price: Decimal;
+  gross: Decimal;
+  discount: LineDiscountBreakdown;
+  promotion_id?: Uuid | null;
+  line_total: Decimal;
+  tax_rate: Decimal;
+  tax_amount: Decimal;
+};
+
+export type PromoApplied = {
+  id: Uuid;
+  name: string;
+  amount: Decimal;
+};
+
+export type CouponApplied = {
+  id: Uuid;
+  code: string;
+  amount: Decimal;
+};
+
+export type CouponError = {
+  code: string;
+  message: string;
+};
+
+export type QuoteResponse = {
+  lines: QuoteLine[];
+  subtotal_gross: Decimal;
+  discount_total: Decimal;
+  subtotal: Decimal;
+  tax_total: Decimal;
+  tip_amount: Decimal;
+  total: Decimal;
+  promotions: PromoApplied[];
+  coupon?: CouponApplied | null;
+  coupon_error?: CouponError | null;
+};
+
 export type CheckoutRequest = {
   id: Uuid;
   branch_id: Uuid;
-  items: { product_id: Uuid; qty: Decimal }[];
+  items: QuoteItemInput[];
   /**
    * En EFECTIVO `amount` es lo que entrega el cliente (el vuelto lo calcula
    * el servidor). En los demas metodos, el monto cobrado. Maximo un EFECTIVO.
    */
   payments: { method: PaymentMethod; amount: Decimal; reference?: string | null }[];
+  quoted_total: Decimal;
   tip_amount?: Decimal | null;
   customer_id?: Uuid | null;
   customer_alias?: string | null;
+  coupon_code?: string | null;
 };
 
 /** src/sales.rs::Payment */

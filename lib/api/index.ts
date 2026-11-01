@@ -57,6 +57,9 @@ import type {
   CatalogItem,
   CheckoutRequest,
   CheckoutResponse,
+  QuoteRequest,
+  QuoteResponse,
+  QuoteLine,
   CreateCustomerInput,
   CreatePurchaseInput,
   CreateSupplierInput,
@@ -373,6 +376,71 @@ function mockActivity(sessionId: Uuid): CashActivityReport {
 }
 
 
+
+function mockQuote(req: QuoteRequest): QuoteResponse {
+  const products = new Map(mockCatalog.map((p) => [p.product_id, p]));
+  let subtotalGross = 0;
+  let discountTotal = 0;
+  let subtotal = 0;
+  let taxTotal = 0;
+
+  const lines: QuoteLine[] = req.items.map((item, index) => {
+    const product = item.product_id ? products.get(item.product_id) : undefined;
+    const name = item.custom_name || product?.name || "Ítem libre";
+    const qty = Number(item.qty);
+    const unitPrice = item.unit_price_override ? Number(item.unit_price_override) : (product?.price ? Number(product.price) : 0);
+    const gross = cents(qty * unitPrice);
+    const discPct = item.discount_pct ? Number(item.discount_pct) : 0;
+    const manualDisc = cents(gross * (discPct / 100));
+    const lineTotal = cents(gross - manualDisc);
+    const rate = Number(product?.tax_rate ?? 0);
+    const taxAmount = cents(lineTotal * rate);
+
+    subtotalGross += gross;
+    discountTotal += manualDisc;
+    subtotal += lineTotal;
+    taxTotal += taxAmount;
+
+    return {
+      index,
+      product_id: item.product_id ?? null,
+      name,
+      qty: item.qty,
+      units_per_package: "1",
+      list_price: dec(unitPrice),
+      unit_price: dec(unitPrice),
+      gross: dec(gross),
+      discount: {
+        manual: dec(manualDisc),
+        promotion: "0.00",
+        order: "0.00",
+        coupon: "0.00",
+        total: dec(manualDisc),
+      },
+      promotion_id: null,
+      line_total: dec(lineTotal),
+      tax_rate: rate.toFixed(4),
+      tax_amount: dec(taxAmount),
+    };
+  });
+
+  const tip = req.tip_amount ? Number(req.tip_amount) : 0;
+  const total = cents(subtotal + taxTotal + tip);
+
+  return {
+    lines,
+    subtotal_gross: dec(subtotalGross),
+    discount_total: dec(discountTotal),
+    subtotal: dec(subtotal),
+    tax_total: dec(taxTotal),
+    tip_amount: dec(tip),
+    total: dec(total),
+    promotions: [],
+    coupon: null,
+    coupon_error: null,
+  };
+}
+
 function mockCheckout(body: CheckoutRequest): CheckoutResponse {
   const key = JSON.stringify(body);
   const previous = mockSales.get(body.id);
@@ -383,23 +451,48 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
   if (!mockCash) throw new ApiError(409, "no open cash session for this cashier");
 
   const products = new Map(mockCatalog.map((p) => [p.product_id, p]));
-  const items: OrderItem[] = body.items.map((line) => {
-    const product = products.get(line.product_id);
-    if (!product?.price) throw new ApiError(422, `product ${line.product_id} is not in the branch assortment`);
-    const qty = Number(line.qty);
-    if (product.available != null && Number(product.available) < qty) {
-      throw new ApiError(409, `insufficient stock for product ${line.product_id}`);
+  const quote = mockQuote({
+    branch_id: body.branch_id,
+    items: body.items,
+    tip_amount: body.tip_amount,
+    customer_id: body.customer_id,
+    customer_alias: body.customer_alias,
+    coupon_code: body.coupon_code,
+  });
+
+  if (body.quoted_total && cents(Number(body.quoted_total)) !== Number(quote.total)) {
+    throw new ApiError(409, "Los precios cambiaron. Revisá el total.", "PRICE_CHANGED", { total: quote.total });
+  }
+
+  const items: OrderItem[] = quote.lines.map((ql, idx) => {
+    const input = body.items[idx];
+    if (input.product_id) {
+      const product = products.get(input.product_id);
+      const qty = Number(input.qty);
+      if (product?.available != null && Number(product.available) < qty) {
+        throw new ApiError(409, `insufficient stock for product ${input.product_id}`);
+      }
     }
-    const base = cents(Number(product.price) * qty);
-    const rate = Number(product.tax_rate ?? 0);
     return {
       id: crypto.randomUUID(),
-      product_id: line.product_id,
-      qty: line.qty,
-      unit_price: product.price,
-      line_total: dec(base),
-      tax_rate: rate.toFixed(4),
-      tax_amount: dec(base * rate),
+      product_id: input.product_id ?? null,
+      custom_name: input.custom_name ?? null,
+      name: ql.name,
+      tier_id: input.tier_id ?? null,
+      units_per_package: ql.units_per_package,
+      qty: ql.qty,
+      unit_price: ql.unit_price,
+      list_price: ql.list_price,
+      discount_manual: ql.discount.manual,
+      discount_promotion: ql.discount.promotion,
+      discount_order: ql.discount.order,
+      discount_coupon: ql.discount.coupon,
+      promotion_id: ql.promotion_id ?? null,
+      price_override_reason: input.price_override_reason ?? null,
+      line_discount: ql.discount.total,
+      line_total: ql.line_total,
+      tax_rate: ql.tax_rate,
+      tax_amount: ql.tax_amount,
       station_id: null,
       status_id: null,
     };
@@ -419,9 +512,11 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
 
   const orderId = body.id;
   for (const line of body.items) {
-    const product = products.get(line.product_id);
-    if (product?.available != null) {
-      mockRecordMovement(line.product_id, "DESCUENTO", Number(line.qty), "venta", { type: "venta", id: orderId });
+    if (line.product_id) {
+      const product = products.get(line.product_id);
+      if (product?.available != null) {
+        mockRecordMovement(line.product_id, "DESCUENTO", Number(line.qty), "venta", { type: "venta", id: orderId });
+      }
     }
   }
 
@@ -501,6 +596,15 @@ export const api = {
   },
 
   sales: {
+    /** POST /v1/sales/quote */
+    async quote(req: QuoteRequest): Promise<QuoteResponse> {
+      if (!USE_MOCKS) {
+        return request("/v1/sales/quote", { method: "POST", body: JSON.stringify(req) });
+      }
+      await delay(100);
+      return structuredClone(mockQuote(req));
+    },
+
     /**
      * POST /v1/sales. Reusar el mismo `body.id` en los reintentos: el backend
      * devuelve la venta ya registrada en vez de cobrar de nuevo.
