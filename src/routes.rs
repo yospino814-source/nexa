@@ -16,8 +16,8 @@ use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, inventory, orders, permissions, procurement, sales, settings,
-    tenancy, users,
+    AppState, audit, cash, catalog, inventory, orders, permissions, procurement, registers, sales,
+    settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -69,6 +69,11 @@ pub fn router() -> Router<AppState> {
         .route("/v1/products/{id}/recipe", get(recipe))
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
+        .route(
+            "/v1/cash-registers",
+            get(list_cash_registers).post(create_cash_register),
+        )
+        .route("/v1/cash-registers/{id}", put(update_cash_register))
         .route(
             "/v1/cash-sessions",
             get(cash_history).post(open_cash_session),
@@ -206,9 +211,39 @@ async fn create_sale(
     )
 }
 
+async fn list_cash_registers(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<BranchQuery>,
+) -> ApiResult<Json<Vec<registers::Register>>> {
+    Ok(Json(
+        registers::list(&state.pool, &user.claims, q.branch_id).await?,
+    ))
+}
+
+async fn create_cash_register(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<registers::CreateRegisterRequest>,
+) -> ApiResult<(StatusCode, Json<registers::Register>)> {
+    let reg = registers::create(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(reg)))
+}
+
+async fn update_cash_register(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<registers::UpdateRegisterRequest>,
+) -> ApiResult<Json<registers::Register>> {
+    let reg = registers::update(&state.pool, &user.claims, id, req).await?;
+    Ok(Json(reg))
+}
+
 #[derive(Deserialize)]
 struct OpenCashSession {
     branch_id: Uuid,
+    register_id: Uuid,
     opening_amount: Decimal,
 }
 
@@ -217,7 +252,14 @@ async fn open_cash_session(
     user: AuthUser,
     Body(req): Body<OpenCashSession>,
 ) -> ApiResult<(StatusCode, Json<cash::CashSession>)> {
-    let session = cash::open(&state.pool, &user.claims, req.branch_id, req.opening_amount).await?;
+    let session = cash::open(
+        &state.pool,
+        &user.claims,
+        req.branch_id,
+        req.register_id,
+        req.opening_amount,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(session)))
 }
 

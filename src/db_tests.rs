@@ -13,9 +13,17 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, inventory, orders, outbox, permissions, procurement, routes, sales,
-    sequences, settings, tenancy, users,
+    AppState, cash, catalog, inventory, orders, outbox, permissions, procurement, registers,
+    routes, sales, sequences, settings, tenancy, users,
 };
+
+async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
+    sqlx::query_scalar("select id from cash_registers where branch_id = $1 and code = 'CAJA-1'")
+        .bind(branch_id)
+        .fetch_one(pool)
+        .await
+        .expect("branch default register CAJA-1")
+}
 
 fn dec(n: i64) -> Decimal {
     Decimal::from(n)
@@ -755,6 +763,7 @@ async fn database_integration() {
     purchase_checks(&app, &admin).await;
     platform_checks(&app, &admin).await;
     context_returns_permissions(&app, &admin).await;
+    f1_registers(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1008,7 +1017,10 @@ async fn role_checks(app: &PgPool, admin: &PgPool) {
         &inventory::replenish(app, &w, branch, p, dec(1), "x").await
     ));
     assert!(is_forbidden(&inventory::movements(app, &w, branch).await));
-    assert!(is_forbidden(&cash::open(app, &w, branch, dec(0)).await));
+    let def_reg = default_register(admin, branch).await;
+    assert!(is_forbidden(
+        &cash::open(app, &w, branch, def_reg, dec(0)).await
+    ));
 
     cleanup(admin, tenant, &[waiter, cook]).await;
 }
@@ -1085,9 +1097,14 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     let w = claims(waiter, Some(tenant), None);
     assert!(is_forbidden(&sales::checkout(app, &w, first.clone()).await));
 
+    let def_reg = default_register(admin, branch).await;
     // Apertura de turno (uno por cajero y sucursal).
-    let session = cash::open(app, &c, branch, dec(50000)).await.unwrap();
-    assert!(is_state(&cash::open(app, &c, branch, dec(0)).await));
+    let session = cash::open(app, &c, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+    assert!(is_conflict(
+        &cash::open(app, &c, branch, def_reg, dec(0)).await
+    ));
 
     // Venta 1: 2 x 2500 + 950 IVA + 1000 = 6950; paga 10000 -> vuelto 3050.
     let s1 = created(sales::checkout(app, &c, first.clone()).await.unwrap());
@@ -1799,13 +1816,14 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     seed_branch_product(admin, tenant, branch, prod, None, Some("5000")).await;
     seed_stock(admin, tenant, branch, prod, "50", "0").await;
 
+    let def_reg = default_register(admin, branch).await;
     // Abrir turno de caja
-    cash::open(app, &c_cashier, branch, dec(50000))
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
         .await
         .unwrap();
 
-    // [P] cash.one_session_per_user (true): abrir segundo turno da conflicto/estado
-    let second_session = cash::open(app, &c_cashier, branch, dec(20000)).await;
+    // [P] un usuario no puede abrir segundo turno en la sucursal: da conflicto
+    let second_session = cash::open(app, &c_cashier, branch, def_reg, dec(20000)).await;
     assert!(is_conflict(&second_session) || is_state(&second_session));
 
     // [P] pos.allow_price_override: venta con price override rechazada porque está en false
@@ -2175,4 +2193,135 @@ async fn context_returns_permissions(app: &PgPool, admin: &PgPool) {
     assert_eq!(cashier_perms, base_cajero_perms);
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+/// F1.1 Cajas registradoras
+async fn f1_registers(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+
+    // Una sucursal recién insertada tiene CAJA-1
+    let reg1_id: Uuid = sqlx::query_scalar(
+        "select id from cash_registers where branch_id = $1 and code = 'CAJA-1'",
+    )
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .expect("branch must automatically have CAJA-1");
+
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let cashier1 = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier1, "CAJERO").await;
+    let c_cashier1 = claims(cashier1, Some(tenant), Some(branch));
+
+    let cashier2 = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier2, "CAJERO").await;
+    let c_cashier2 = claims(cashier2, Some(tenant), Some(branch));
+
+    // [P] Un cajero no puede crear cajas: 403
+    let cashier_create_try = registers::create(
+        app,
+        &c_cashier1,
+        registers::CreateRegisterRequest {
+            branch_id: branch,
+            name: "Caja 2".to_string(),
+            code: "CAJA-2".to_string(),
+            default_opening: dec(100000),
+        },
+    )
+    .await;
+    assert!(is_forbidden(&cashier_create_try));
+
+    // Dueño crea Caja 2
+    let reg2 = registers::create(
+        app,
+        &c_owner,
+        registers::CreateRegisterRequest {
+            branch_id: branch,
+            name: "Caja 2".to_string(),
+            code: "CAJA-2".to_string(),
+            default_opening: dec(100000),
+        },
+    )
+    .await
+    .expect("owner can create register");
+    let reg2_id = reg2.id;
+
+    // Cajero 1 abre turno en Caja 1
+    let s1 = cash::open(app, &c_cashier1, branch, reg1_id, dec(50000))
+        .await
+        .expect("cashier 1 can open Caja 1");
+    assert_eq!(s1.register_id, reg1_id);
+    assert_eq!(s1.register_name, "Caja 1");
+    assert_eq!(s1.register_code, "CAJA-1");
+
+    // [P] Dos usuarios no pueden abrir turno en la misma caja: el segundo recibe 409 REGISTER_BUSY
+    let try_same_reg = cash::open(app, &c_cashier2, branch, reg1_id, dec(20000)).await;
+    match try_same_reg {
+        Err(ApiError::Domain(DomainError::Coded {
+            status, code, data, ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "REGISTER_BUSY");
+            assert!(data.is_some());
+        }
+        other => panic!("Expected Coded REGISTER_BUSY, got {:?}", other),
+    }
+
+    // [P] Un usuario no puede abrir dos turnos en la misma sucursal, ni siquiera en cajas distintas: 409 USER_HAS_OPEN_SESSION
+    let try_second_session = cash::open(app, &c_cashier1, branch, reg2_id, dec(20000)).await;
+    match try_second_session {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "USER_HAS_OPEN_SESSION");
+        }
+        other => panic!("Expected Coded USER_HAS_OPEN_SESSION, got {:?}", other),
+    }
+
+    // [P] No se puede desactivar una caja con un turno abierto: 409 REGISTER_HAS_OPEN_SESSION
+    let try_deactivate = registers::update(
+        app,
+        &c_owner,
+        reg1_id,
+        registers::UpdateRegisterRequest {
+            name: "Caja 1".to_string(),
+            code: "CAJA-1".to_string(),
+            default_opening: dec(50000),
+            active: false,
+        },
+    )
+    .await;
+    match try_deactivate {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "REGISTER_HAS_OPEN_SESSION");
+        }
+        other => panic!("Expected Coded REGISTER_HAS_OPEN_SESSION, got {:?}", other),
+    }
+
+    // Cerrar el turno de Caja 1
+    cash::close(app, &c_cashier1, s1.id, dec(50000), None)
+        .await
+        .expect("close session");
+
+    // Ahora sí se puede desactivar Caja 1
+    let deactivated = registers::update(
+        app,
+        &c_owner,
+        reg1_id,
+        registers::UpdateRegisterRequest {
+            name: "Caja 1".to_string(),
+            code: "CAJA-1".to_string(),
+            default_opening: dec(50000),
+            active: false,
+        },
+    )
+    .await
+    .expect("deactivating register succeeds when closed");
+    assert!(!deactivated.active);
+
+    cleanup(admin, tenant, &[owner, cashier1, cashier2]).await;
 }

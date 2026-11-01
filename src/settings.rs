@@ -73,8 +73,6 @@ pub struct CashSettings {
     #[serde(default = "default_true")]
     pub require_session: bool,
     #[serde(default = "default_true")]
-    pub one_session_per_user: bool,
-    #[serde(default = "default_true")]
     pub blind_close: bool,
     #[serde(default = "default_zero")]
     pub close_tolerance: Decimal,
@@ -84,7 +82,6 @@ impl Default for CashSettings {
     fn default() -> Self {
         Self {
             require_session: true,
-            one_session_per_user: true,
             blind_close: true,
             close_tolerance: Decimal::ZERO,
         }

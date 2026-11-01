@@ -9,15 +9,18 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{ApiError, DomainError, state, validation};
+use crate::error::{self, ApiError, DomainError, state, validation};
 use crate::tenancy::{self, Action, Scope};
 
 type Tx<'a> = Transaction<'a, Postgres>;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct CashSession {
     pub id: Uuid,
     pub branch_id: Uuid,
+    pub register_id: Uuid,
+    pub register_name: String,
+    pub register_code: String,
     pub opened_by: Uuid,
     pub opening_amount: Decimal,
     pub opened_at: DateTime<Utc>,
@@ -98,42 +101,97 @@ pub struct SessionRow {
     pub sales_total: Decimal,
 }
 
-const SESSION_COLS: &str = "id, branch_id, opened_by, opening_amount, opened_at, closed_by, \
-     closed_at, expected_cash, counted_cash, difference, notes";
+const SESSION_SELECT: &str = "select s.id, s.branch_id, s.register_id, r.name as register_name, r.code as register_code, \
+     s.opened_by, s.opening_amount, s.opened_at, s.closed_by, s.closed_at, \
+     s.expected_cash, s.counted_cash, s.difference, s.notes \
+     from cash_sessions s join cash_registers r on r.id = s.register_id";
 
 // ------------------------------------------------------------------ apertura
 
-/// Abre un turno para el usuario en la sucursal. Un cajero no puede tener
-/// dos turnos abiertos en la misma sucursal (409).
+/// Abre un turno para el usuario en la sucursal y caja.
 pub async fn open(
     pool: &PgPool,
     claims: &Claims,
     branch_id: Uuid,
+    register_id: Uuid,
     opening_amount: Decimal,
 ) -> Result<CashSession, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
-    scope.require(Action::ManageCash)?;
+    scope.require_permission("cash:open")?;
     if opening_amount < Decimal::ZERO {
         return Err(validation("opening_amount must be >= 0"));
     }
-    let settings = crate::settings::load_tx(&mut tx, branch_id).await?;
-    if settings.cash.one_session_per_user
-        && open_session_tx(&mut tx, &scope, branch_id).await?.is_some()
-    {
-        return Err(state("there is already an open cash session"));
+
+    // 1. La caja existe, pertenece a la sucursal del cuerpo y está activa. Si no: 422 REGISTER_INVALID.
+    let register_active: Option<bool> = sqlx::query_scalar(
+        "select active from cash_registers where id = $1 and branch_id = $2 for share",
+    )
+    .bind(register_id)
+    .bind(branch_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    match register_active {
+        Some(true) => {}
+        _ => {
+            return Err(error::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                "REGISTER_INVALID",
+                "La caja no existe o no está activa",
+                None,
+            ));
+        }
     }
 
-    let session = sqlx::query_as::<_, CashSession>(&format!(
-        "insert into cash_sessions (tenant_id, branch_id, opened_by, opening_amount)
-         values ($1, $2, $3, $4)
-         returning {SESSION_COLS}"
-    ))
+    // 2. La caja no tiene turno abierto. Si lo tiene: 409 REGISTER_BUSY, con data: {opened_by_name}.
+    let busy_row: Option<(Option<String>,)> = sqlx::query_as(
+        "select u.full_name
+         from cash_sessions s
+         left join users u on u.id = s.opened_by
+         where s.register_id = $1 and s.closed_at is null
+         for share",
+    )
+    .bind(register_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((opened_by_name,)) = busy_row {
+        let name = opened_by_name.unwrap_or_else(|| "Otro usuario".to_string());
+        return Err(error::coded(
+            axum::http::StatusCode::CONFLICT,
+            "REGISTER_BUSY",
+            "La caja ya tiene un turno abierto",
+            Some(serde_json::json!({ "opened_by_name": name })),
+        ));
+    }
+
+    // 3. El usuario no tiene otro turno abierto en la sucursal. Si lo tiene: 409 USER_HAS_OPEN_SESSION.
+    if open_session_tx(&mut tx, &scope, branch_id).await?.is_some() {
+        return Err(error::coded(
+            axum::http::StatusCode::CONFLICT,
+            "USER_HAS_OPEN_SESSION",
+            "El usuario ya tiene un turno abierto en la sucursal",
+            None,
+        ));
+    }
+
+    let session_id: Uuid = sqlx::query_scalar(
+        "insert into cash_sessions (tenant_id, branch_id, register_id, opened_by, opening_amount)
+         values ($1, $2, $3, $4, $5)
+         returning id",
+    )
     .bind(scope.tenant)
     .bind(branch_id)
+    .bind(register_id)
     .bind(scope.user)
     .bind(opening_amount)
     .fetch_one(&mut *tx)
     .await?;
+
+    let session = sqlx::query_as::<_, CashSession>(&format!("{SESSION_SELECT} where s.id = $1"))
+        .bind(session_id)
+        .fetch_one(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(session)
 }
@@ -176,13 +234,11 @@ pub async fn current(
 }
 
 pub async fn summary_tx(tx: &mut Tx<'_>, session_id: Uuid) -> Result<CashSummary, ApiError> {
-    let session = sqlx::query_as::<_, CashSession>(&format!(
-        "select {SESSION_COLS} from cash_sessions where id = $1"
-    ))
-    .bind(session_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(ApiError::Domain(DomainError::NotFound))?;
+    let session = sqlx::query_as::<_, CashSession>(&format!("{SESSION_SELECT} where s.id = $1"))
+        .bind(session_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(ApiError::Domain(DomainError::NotFound))?;
 
     let (sales_count, sales_total): (i64, Decimal) = sqlx::query_as(
         "select count(*), coalesce(sum(total_amount), 0)

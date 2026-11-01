@@ -84,7 +84,10 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/catalog?branch_id=` | Catálogo con precio, impuesto y disponible |
 | GET | `/v1/products/{id}/recipe` | Insumos de un producto compuesto |
 | POST | `/v1/sales` | Venta de mostrador idempotente (ver abajo) |
-| POST | `/v1/cash-sessions` | Abrir turno `{branch_id, opening_amount}` |
+| GET | `/v1/cash-registers?branch_id=` | Listar cajas registradoras de la sucursal |
+| POST | `/v1/cash-registers` | Crear caja `{branch_id, name, code, default_opening}` |
+| PUT | `/v1/cash-registers/{id}` | Editar caja `{name, code, default_opening, active}` |
+| POST | `/v1/cash-sessions` | Abrir turno `{branch_id, register_id, opening_amount}` |
 | GET | `/v1/cash-sessions/current?branch_id=` | Turno abierto con lo esperado por método de pago, o `null` |
 | POST | `/v1/cash-sessions/{id}/close` | Cerrar con arqueo `{counted_cash, notes?}` |
 | POST | `/v1/cash-sessions/{id}/movements` | Ingreso o retiro de efectivo `{kind: "INGRESO" \| "RETIRO", amount, reason}`; un retiro no puede superar lo esperado en gaveta |

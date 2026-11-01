@@ -10,6 +10,7 @@ mod orders;
 pub mod outbox;
 pub mod permissions;
 mod procurement;
+pub mod registers;
 pub mod routes;
 mod sales;
 pub mod sequences;
