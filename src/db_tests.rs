@@ -13,8 +13,8 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, customers, inventory, orders, outbox, permissions, procurement,
-    registers, routes, sales, sequences, settings, tenancy, users,
+    AppState, cash, catalog, coupons, customers, inventory, orders, outbox, permissions,
+    procurement, registers, routes, sales, sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -770,6 +770,7 @@ async fn database_integration() {
     f1_pricing_db(&app, &admin).await;
     f1_tiers(&app, &admin).await;
     f1_promotions(&app, &admin).await;
+    f1_coupons(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -3725,6 +3726,672 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
     .await
     .unwrap();
     assert_eq!(q_c2.total, dec(8000));
+
+    cleanup(admin, tenant, &[cashier, owner]).await;
+}
+
+async fn f1_coupons(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    let soda = seed_product(admin, tenant, "Gaseosa Cupón", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "10000").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "100", "0").await;
+
+    let snack = seed_product(admin, tenant, "Papas Cupón", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, snack, "5000").await;
+    seed_branch_product(admin, tenant, branch, snack, None, None).await;
+    seed_stock(admin, tenant, branch, snack, "100", "0").await;
+
+    let now = chrono::Utc::now();
+
+    // 1. [P] COUPON_NOT_FOUND
+    let q_not_found = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("NOEXISTE123".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_not_found.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_NOT_FOUND")
+    );
+
+    // 2. [P] COUPON_INACTIVE
+    let c_inact = coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "INACTIVO10".into(),
+            name: "Inactivo".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    coupons::toggle(app, &c_owner, c_inact.id).await.unwrap();
+
+    let q_inact = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("INACTIVO10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_inact.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_INACTIVE")
+    );
+
+    // 3. [P] COUPON_NOT_STARTED
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "FUTURO10".into(),
+            name: "Futuro".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now + chrono::Duration::days(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    let q_future = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("FUTURO10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_future.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_NOT_STARTED")
+    );
+
+    // 4. [P] COUPON_EXPIRED
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "VENCIDO10".into(),
+            name: "Vencido".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::days(2),
+            ends_at: Some(now - chrono::Duration::hours(1)),
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    let q_exp = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("VENCIDO10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_exp.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_EXPIRED")
+    );
+
+    // 5. [P] COUPON_EXHAUSTED
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "LIMITADO1".into(),
+            name: "Un Solo Uso".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: Some(1),
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_lim1 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("LIMITADO1".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(q_lim1.coupon_error.is_none());
+    assert!(q_lim1.coupon.is_some());
+
+    sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Efectivo,
+                amount: q_lim1.total,
+                reference: None,
+            }],
+            quoted_total: q_lim1.total,
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("LIMITADO1".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_lim2 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("LIMITADO1".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_lim2.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_EXHAUSTED")
+    );
+
+    // 6. [P] COUPON_REQUIRES_CUSTOMER
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "CLIENTE10".into(),
+            name: "Solo Clientes".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: Some(1),
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_req_cust = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("CLIENTE10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_req_cust.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_REQUIRES_CUSTOMER")
+    );
+
+    // 7. [P] COUPON_CUSTOMER_LIMIT
+    let cust = customers::create(
+        app,
+        &c_cashier,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("777888".into()),
+            dv: None,
+            name: "Cliente Fidelizado".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_cust1 = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: Some(cust.id),
+            customer_alias: None,
+            coupon_code: Some("CLIENTE10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(q_cust1.coupon_error.is_none());
+
+    sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Efectivo,
+                amount: q_cust1.total,
+                reference: None,
+            }],
+            quoted_total: q_cust1.total,
+            tip_amount: None,
+            customer_id: Some(cust.id),
+            customer_alias: None,
+            coupon_code: Some("CLIENTE10".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_cust_limit = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: Some(cust.id),
+            customer_alias: None,
+            coupon_code: Some("CLIENTE10".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_cust_limit.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_CUSTOMER_LIMIT")
+    );
+
+    // 8. [P] COUPON_MIN_SUBTOTAL
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "MINIMO50K".into(),
+            name: "Mínimo 50k".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: Some(dec(50000)),
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_min_sub = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("MINIMO50K".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_min_sub.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_MIN_SUBTOTAL")
+    );
+
+    // 9. [P] COUPON_NOT_APPLICABLE
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "SOLOPAPAS".into(),
+            name: "Solo Papas".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(15),
+            scope: "PRODUCTO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: Some(vec![snack]),
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_not_app = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("SOLOPAPAS".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        q_not_app.coupon_error.as_ref().map(|e| e.code.as_str()),
+        Some("COUPON_NOT_APPLICABLE")
+    );
+
+    // [P] Promoción de pedido del 10% + Cupón del 10%
+    let p_order10 = crate::promotions::create(
+        app,
+        &c_owner,
+        crate::promotions::CreatePromotionInput {
+            branch_id: None,
+            name: "Promo Pedido 10%".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            priority: Some(10),
+            usage_limit: None,
+            per_customer_limit: None,
+            skip_tier_lines: Some(true),
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+    crate::promotions::activate(app, &c_owner, p_order10.id)
+        .await
+        .unwrap();
+
+    coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "COMBOPROMO".into(),
+            name: "Cupón 10% Pedido".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: now - chrono::Duration::hours(1),
+            ends_at: None,
+            usage_limit: None,
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let q_combo = sales::quote(
+        app,
+        &c_cashier,
+        sales::QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: Some("COMBOPROMO".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(q_combo.coupon_error.is_none());
+    assert_eq!(q_combo.subtotal_gross, dec(10000));
+    let line = &q_combo.lines[0];
+    assert_eq!(line.gross, dec(10000));
+    assert_eq!(line.discount.promotion, dec(1000));
+    assert_eq!(line.discount.coupon, dec(900));
+    assert_eq!(line.discount.total, dec(1900));
+    assert_eq!(line.line_total, dec(8100));
+    assert!(q_combo.discount_total <= q_combo.subtotal_gross);
+
+    // [P] IVA se calcula sobre la base ya descontada: tax_amount == money(line_total * tasa)
+    let expected_tax = crate::money::money(line.line_total * line.tax_rate);
+    assert_eq!(line.tax_amount, expected_tax);
+    assert_eq!(line.tax_amount, dec(1539));
+    assert_eq!(q_combo.total, dec(8100) + dec(1539));
 
     cleanup(admin, tenant, &[cashier, owner]).await;
 }

@@ -714,7 +714,49 @@ pub async fn checkout_tx(
     .await?;
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
 
-    let priced_cart = match pricing::price_cart(&price_lines, &promos, None, tip) {
+    let coupon_rule = if let Some(code) = &req.coupon_code {
+        if !code.trim().is_empty() {
+            let cr = match crate::coupons::resolve_coupon_tx(
+                tx,
+                scope.tenant,
+                branch,
+                req.customer_id,
+                code,
+                chrono::Utc::now(),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(err) => {
+                    let code_str = match err.code.as_str() {
+                        "COUPON_NOT_FOUND" => "COUPON_NOT_FOUND",
+                        "COUPON_INACTIVE" => "COUPON_INACTIVE",
+                        "COUPON_NOT_STARTED" => "COUPON_NOT_STARTED",
+                        "COUPON_EXPIRED" => "COUPON_EXPIRED",
+                        "COUPON_EXHAUSTED" => "COUPON_EXHAUSTED",
+                        "COUPON_REQUIRES_CUSTOMER" => "COUPON_REQUIRES_CUSTOMER",
+                        "COUPON_CUSTOMER_LIMIT" => "COUPON_CUSTOMER_LIMIT",
+                        "COUPON_MIN_SUBTOTAL" => "COUPON_MIN_SUBTOTAL",
+                        "COUPON_NOT_APPLICABLE" => "COUPON_NOT_APPLICABLE",
+                        _ => "COUPON_INVALID",
+                    };
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        code_str,
+                        err.message,
+                        None,
+                    ));
+                }
+            };
+            Some(cr)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let priced_cart = match pricing::price_cart(&price_lines, &promos, coupon_rule.as_ref(), tip) {
         Ok(pc) => pc,
         Err(err) => {
             let code = match err.code.as_str() {
@@ -926,6 +968,41 @@ pub async fn checkout_tx(
         .await?;
     }
 
+    // 12b. Registro de uso del cupón aplicado
+    if let Some(applied) = &priced_cart.coupon {
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update coupons
+             set usage_count = usage_count + 1
+             where id = $1 and tenant_id = $2 and (usage_limit is null or usage_count < usage_limit)
+             returning id",
+        )
+        .bind(applied.id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if updated.is_none() {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "COUPON_EXHAUSTED",
+                "El cupón ya agotó su límite de usos",
+                Some(serde_json::json!({ "coupon_id": applied.id })),
+            ));
+        }
+
+        sqlx::query(
+            "insert into coupon_redemptions (tenant_id, coupon_id, order_id, customer_id, amount)
+             values ($1, $2, $3, $4, $5)",
+        )
+        .bind(scope.tenant)
+        .bind(applied.id)
+        .bind(req.id)
+        .bind(customer_id)
+        .bind(applied.amount)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     Ok(Checkout::Created(load_response(tx, req.id).await?))
 }
 
@@ -972,14 +1049,40 @@ pub async fn quote_tx(
     .await?;
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
 
-    let priced_cart = match pricing::price_cart(&price_lines, &promos, None, tip) {
-        Ok(pc) => pc,
-        Err(err) => {
-            let mut pc = pricing::price_cart(&price_lines, &promos, None, tip).unwrap();
-            pc.coupon_error = Some(err);
-            pc
+    let (coupon_rule, early_coupon_error) = if let Some(code) = &req.coupon_code {
+        if !code.trim().is_empty() {
+            match crate::coupons::resolve_coupon_tx(
+                tx,
+                scope.tenant,
+                branch_id,
+                req.customer_id,
+                code,
+                chrono::Utc::now(),
+            )
+            .await
+            {
+                Ok(r) => (Some(r), None),
+                Err(err) => (None, Some(err)),
+            }
+        } else {
+            (None, None)
         }
+    } else {
+        (None, None)
     };
+
+    let mut priced_cart =
+        match pricing::price_cart(&price_lines, &promos, coupon_rule.as_ref(), tip) {
+            Ok(pc) => pc,
+            Err(err) => {
+                let mut pc = pricing::price_cart(&price_lines, &promos, None, tip).unwrap();
+                pc.coupon_error = Some(err);
+                pc
+            }
+        };
+    if priced_cart.coupon_error.is_none() && early_coupon_error.is_some() {
+        priced_cart.coupon_error = early_coupon_error;
+    }
 
     let quote_lines: Vec<QuoteLine> = priced_cart
         .lines

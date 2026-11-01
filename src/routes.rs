@@ -87,6 +87,10 @@ pub fn router() -> Router<AppState> {
         .route("/v1/promotions/{id}", put(update_promotion))
         .route("/v1/promotions/{id}/activate", post(activate_promotion))
         .route("/v1/promotions/{id}/pause", post(pause_promotion))
+        // Cupones
+        .route("/v1/coupons", get(list_coupons).post(create_coupon))
+        .route("/v1/coupons/{id}", put(update_coupon))
+        .route("/v1/coupons/{id}/toggle", post(toggle_coupon))
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
         .route("/v1/sales/quote", post(sales_quote))
@@ -1036,4 +1040,41 @@ async fn pause_promotion(
 ) -> ApiResult<StatusCode> {
     crate::promotions::pause(&state.pool, &user.claims, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_coupons(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<crate::coupons::CouponDto>>> {
+    Ok(Json(crate::coupons::list(&state.pool, &user.claims).await?))
+}
+
+async fn create_coupon(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<crate::coupons::CreateCouponInput>,
+) -> ApiResult<(StatusCode, Json<crate::coupons::CouponDto>)> {
+    let coupon = crate::coupons::create(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(coupon)))
+}
+
+async fn update_coupon(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<crate::coupons::CreateCouponInput>,
+) -> ApiResult<Json<crate::coupons::CouponDto>> {
+    Ok(Json(
+        crate::coupons::update(&state.pool, &user.claims, id, req).await?,
+    ))
+}
+
+async fn toggle_coupon(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<crate::coupons::CouponDto>> {
+    Ok(Json(
+        crate::coupons::toggle(&state.pool, &user.claims, id).await?,
+    ))
 }
