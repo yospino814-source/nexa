@@ -127,6 +127,14 @@ pub async fn components(
     product_id: Uuid,
     qty: Decimal,
 ) -> Result<Vec<(Uuid, Decimal)>, ApiError> {
+    let kind: Option<String> = sqlx::query_scalar("select kind from products where id = $1")
+        .bind(product_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    if kind.as_deref() == Some("SERVICIO") {
+        return Ok(vec![]);
+    }
+
     let items: Vec<(Uuid, Decimal)> = sqlx::query_as(
         "select ri.input_product_id, ri.qty
            from recipe_items ri

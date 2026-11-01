@@ -53,6 +53,7 @@ select
   coalesce(bp.price, p.base_price) as price,
   tx.tima_codigo as tax_code,
   case
+    when p.kind = 'SERVICIO' then null
     when p.is_composed then
       (select min(floor((coalesce(si.on_hand, 0) - coalesce(si.reserved, 0)) / nullif(ri.qty, 0)))
          from recipe_items ri
@@ -68,6 +69,7 @@ left join product_categories c on c.id = bp.category_id
 left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
 left join stock s on s.product_id = p.id and s.branch_id = $1
 where bp.branch_id = $1 and bp.is_available and p.active
+  and p.archived_at is null and p.usage = 'VENTA' and not p.has_variants
 order by c.sort_order nulls first, p.name
 "#;
 

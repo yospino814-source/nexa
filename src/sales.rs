@@ -393,6 +393,7 @@ struct PrepItemInfo {
     product_id: Option<Uuid>,
     name: String,
     custom_name: Option<String>,
+    kind: String,
     tier_id: Option<Uuid>,
     units_per_package: Decimal,
     list_price: Decimal,
@@ -534,6 +535,7 @@ async fn prepare_pricing_lines(
                     product_id: None,
                     name: custom_name_str.to_string(),
                     custom_name: Some(custom_name_str.to_string()),
+                    kind: "FISICO".to_string(),
                     tier_id: None,
                     units_per_package: Decimal::ONE,
                     list_price: unit_price,
@@ -542,25 +544,58 @@ async fn prepare_pricing_lines(
                 });
             }
             Some(pid) => {
-                let row: Option<(String, Option<Uuid>, Option<Decimal>, Option<String>, bool)> =
-                    sqlx::query_as(
-                        "select p.name, bp.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
-                                p.allow_price_override
-                           from branch_products bp
-                           join products p on p.id = bp.product_id
-                           left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
-                          where bp.branch_id = $1 and bp.product_id = $2
-                            and bp.is_available and p.active",
-                    )
-                    .bind(branch_id)
-                    .bind(pid)
-                    .fetch_optional(&mut **tx)
-                    .await?;
+                let row: Option<(
+                    String,
+                    Option<Uuid>,
+                    Option<Decimal>,
+                    Option<String>,
+                    bool,
+                    String,
+                    String,
+                    bool,
+                )> = sqlx::query_as(
+                    "select p.name, bp.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
+                            p.allow_price_override, p.kind, p.usage, p.has_variants
+                       from branch_products bp
+                       join products p on p.id = bp.product_id
+                       left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
+                      where bp.branch_id = $1 and bp.product_id = $2
+                        and bp.is_available and p.active and p.archived_at is null",
+                )
+                .bind(branch_id)
+                .bind(pid)
+                .fetch_optional(&mut **tx)
+                .await?;
 
-                let (name, category_id, catalog_price_opt, tax_code, product_allows_override) = row
-                    .ok_or_else(|| {
-                        validation(format!("product {pid} is not in the branch assortment"))
-                    })?;
+                let (
+                    name,
+                    category_id,
+                    catalog_price_opt,
+                    tax_code,
+                    product_allows_override,
+                    prod_kind,
+                    prod_usage,
+                    prod_has_variants,
+                ) = row.ok_or_else(|| {
+                    validation(format!("product {pid} is not in the branch assortment"))
+                })?;
+
+                if prod_usage != "VENTA" {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "PRODUCT_NOT_SELLABLE",
+                        "El producto no está configurado para la venta",
+                        None,
+                    ));
+                }
+                if prod_has_variants {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "PRODUCT_IS_VARIANT_PARENT",
+                        "No se puede vender un producto padre de variantes",
+                        None,
+                    ));
+                }
                 let catalog_price = catalog_price_opt
                     .ok_or_else(|| validation(format!("product {pid} has no base price")))?;
                 let tax_rate = crate::catalog::tax_rate_for(tax_code.as_deref());
@@ -762,6 +797,7 @@ async fn prepare_pricing_lines(
                     product_id: Some(pid),
                     name,
                     custom_name: None,
+                    kind: prod_kind,
                     tier_id: item.tier_id,
                     units_per_package,
                     list_price,
@@ -1029,13 +1065,17 @@ pub async fn checkout_tx(
         }
     }
 
-    // 10. Stock: descuento directo, solo productos
+    // 10. Stock: descuento directo, solo productos físicos o preparados (no servicios)
     let stock_lines: Vec<(Uuid, Decimal)> = prep_infos
         .iter()
         .zip(&price_lines)
         .filter_map(|(prep, pl)| {
-            prep.product_id
-                .map(|pid| (pid, pl.qty * prep.units_per_package))
+            if prep.kind == "SERVICIO" {
+                None
+            } else {
+                prep.product_id
+                    .map(|pid| (pid, pl.qty * prep.units_per_package))
+            }
         })
         .collect();
     if !stock_lines.is_empty() {
