@@ -768,6 +768,7 @@ async fn database_integration() {
     f1_cash_state(&app, &admin).await;
     f1_sale_customer(&app, &admin).await;
     f1_pricing_db(&app, &admin).await;
+    f1_tiers(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -2768,6 +2769,7 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
             name: "Cliente Prueba".into(),
             phone: Some("3001234567".into()),
             email: Some("cliente@prueba.com".into()),
+            price_tier_id: None,
         },
     )
     .await
@@ -3043,6 +3045,255 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
     };
     let disc_err = sales::checkout(app, &c_cashier, try_forbidden_disc).await;
     assert!(is_forbidden(&disc_err));
+
+    cleanup(admin, tenant, &[cashier, owner]).await;
+}
+
+async fn f1_tiers(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    // 1. Crear tarifas: "Paca x12" (PRESENTACION) y "Mayorista" (CLIENTE)
+    let paca = crate::tiers::create_tier(
+        app,
+        &c_owner,
+        crate::tiers::CreatePriceTierRequest {
+            name: "Paca x12".into(),
+            kind: "PRESENTACION".into(),
+            adjustment: "DESCUENTO_PCT".into(),
+            value: dec(5),
+            units_per_package: Some(dec(12)),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(paca.name, "Paca x12");
+
+    let mayorista = crate::tiers::create_tier(
+        app,
+        &c_owner,
+        crate::tiers::CreatePriceTierRequest {
+            name: "Mayorista".into(),
+            kind: "CLIENTE".into(),
+            adjustment: "DESCUENTO_PCT".into(),
+            value: dec(8),
+            units_per_package: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 2. [P] TIER_KIND_IMMUTABLE: No se puede cambiar kind en PUT
+    let try_change_kind = crate::tiers::update_tier(
+        app,
+        &c_owner,
+        paca.id,
+        crate::tiers::UpdatePriceTierRequest {
+            name: "Paca x12 Cambiada".into(),
+            kind: "CLIENTE".into(),
+            adjustment: "DESCUENTO_PCT".into(),
+            value: dec(5),
+            units_per_package: None,
+            active: true,
+        },
+    )
+    .await;
+    match try_change_kind {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "TIER_KIND_IMMUTABLE");
+        }
+        other => panic!("expected TIER_KIND_IMMUTABLE, got {:?}", other),
+    }
+
+    // 3. Crear productos
+    let soda = seed_product(admin, tenant, "Gaseosa Tiers", "UND", None, false).await;
+    set_base_price(admin, soda, "1000").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "50", "0").await;
+
+    let bread = seed_product(admin, tenant, "Pan Barcode", "UND", None, false).await;
+    sqlx::query("update products set barcode = '7701234567890' where id = $1")
+        .bind(bread)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    // 4. [P] Código de barras de presentación igual al de otro producto: 409 BARCODE_TAKEN
+    let try_dup_barcode = crate::tiers::set_product_tier_prices(
+        app,
+        &c_owner,
+        soda,
+        vec![crate::tiers::SetProductTierPriceInput {
+            tier_id: paca.id,
+            price: None,
+            units_per_package: None,
+            barcode: Some("7701234567890".into()),
+        }],
+    )
+    .await;
+    match try_dup_barcode {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "BARCODE_TAKEN");
+        }
+        other => panic!("expected BARCODE_TAKEN, got {:?}", other),
+    }
+
+    // Configurar precio fijo por producto para la paca: $10.000 por paca
+    crate::tiers::set_product_tier_prices(
+        app,
+        &c_owner,
+        soda,
+        vec![crate::tiers::SetProductTierPriceInput {
+            tier_id: paca.id,
+            price: Some(dec(10000)),
+            units_per_package: None,
+            barcode: Some("7709999999999".into()),
+        }],
+    )
+    .await
+    .unwrap();
+
+    // 5. [P] Una venta de 2 "Paca x12" descuenta 24 unidades del stock
+    let sale_paca = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(2),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: Some(paca.id),
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(20000),
+            reference: None,
+        }],
+        quoted_total: dec(20000),
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    };
+    sales::checkout(app, &c_cashier, sale_paca).await.unwrap();
+
+    // Stock inicial: 50. 2 pacas x 12 = 24. Saldo = 26.
+    assert_eq!(stock_row(admin, branch, soda).await.0, dec(26));
+
+    // 6. [P] Un cajero sin pos:discount que usa la tarifa "Mayorista" con un cliente que no la tiene: 403
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let customer_regular = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("70000001".into()),
+            dv: None,
+            name: "Cliente Sin Tarifa".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let sale_forbidden_tier = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: Some(mayorista.id),
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(1000),
+            reference: None,
+        }],
+        quoted_total: dec(920),
+        tip_amount: None,
+        customer_id: Some(customer_regular.id),
+        customer_alias: None,
+        coupon_code: None,
+    };
+    let try_forbidden = sales::checkout(app, &c_cashier, sale_forbidden_tier).await;
+    assert!(is_forbidden(&try_forbidden));
+
+    // Con cliente que SÍ tiene la tarifa asignada, se permite aunque el cajero no tenga pos:discount
+    let customer_mayorista = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("70000002".into()),
+            dv: None,
+            name: "Cliente Mayorista".into(),
+            phone: None,
+            email: None,
+            price_tier_id: Some(mayorista.id),
+        },
+    )
+    .await
+    .unwrap();
+
+    let sale_allowed_tier = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: Some(mayorista.id),
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(920),
+            reference: None,
+        }],
+        quoted_total: dec(920),
+        tip_amount: None,
+        customer_id: Some(customer_mayorista.id),
+        customer_alias: None,
+        coupon_code: None,
+    };
+    let allowed_res = sales::checkout(app, &c_cashier, sale_allowed_tier).await;
+    assert!(allowed_res.is_ok());
 
     cleanup(admin, tenant, &[cashier, owner]).await;
 }

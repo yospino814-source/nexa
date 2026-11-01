@@ -39,6 +39,8 @@ pub struct CreateCustomerInput {
     pub phone: Option<String>,
     #[serde(default)]
     pub email: Option<String>,
+    #[serde(default)]
+    pub price_tier_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +59,7 @@ pub struct NormalizedCustomer {
     pub name: String,
     pub phone: Option<String>,
     pub email: Option<String>,
+    pub price_tier_id: Option<Uuid>,
 }
 
 /// Normalización pura antes de guardar o buscar.
@@ -177,6 +180,7 @@ pub fn normalize_customer(input: CreateCustomerInput) -> Result<NormalizedCustom
         name,
         phone,
         email,
+        price_tier_id: input.price_tier_id,
     })
 }
 
@@ -271,8 +275,8 @@ pub async fn create_tx(
     }
 
     let customer = sqlx::query_as::<_, Customer>(
-        "insert into customers (tenant_id, doc_type, doc_number, dv, name, phone, email)
-         values ($1, $2, $3, $4, $5, $6, $7)
+        "insert into customers (tenant_id, doc_type, doc_number, dv, name, phone, email, price_tier_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          returning id, doc_type, doc_number, dv, name, phone, email, price_tier_id",
     )
     .bind(scope.tenant)
@@ -282,6 +286,7 @@ pub async fn create_tx(
     .bind(norm.name)
     .bind(norm.phone)
     .bind(norm.email)
+    .bind(norm.price_tier_id)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -301,6 +306,7 @@ mod tests {
             name: "  Juan   Carlos   Pérez  ".into(),
             phone: Some(" (300) 123-4567 ".into()),
             email: Some("  JUAN@EXAMPLE.COM  ".into()),
+            price_tier_id: None,
         };
 
         let norm = normalize_customer(input).unwrap();
@@ -319,6 +325,7 @@ mod tests {
             name: "Empresa SAS".into(),
             phone: None,
             email: None,
+            price_tier_id: None,
         };
         let norm_nit = normalize_customer(nit_input).unwrap();
         assert_eq!(norm_nit.doc_type.as_deref(), Some("NIT"));
@@ -333,6 +340,7 @@ mod tests {
             name: "Test".into(),
             phone: None,
             email: None,
+            price_tier_id: None,
         };
         assert!(normalize_customer(bad_dv).is_err());
 
@@ -344,6 +352,7 @@ mod tests {
             name: "Test".into(),
             phone: None,
             email: Some("a@b@c.com".into()),
+            price_tier_id: None,
         };
         assert!(normalize_customer(bad_email).is_err());
     }

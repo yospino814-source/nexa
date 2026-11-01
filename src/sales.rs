@@ -17,7 +17,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{self, ApiError, state, validation};
+use crate::error::{self, ApiError, DomainError, state, validation};
 use crate::orders::{self, ITEM_COLS, ITEM_FROM, Order, OrderItem};
 use crate::pricing::{self, PriceLine};
 use crate::tenancy::{self, Action, Scope};
@@ -344,6 +344,7 @@ async fn prepare_pricing_lines(
     scope: &Scope,
     branch_id: Uuid,
     settings: &crate::settings::BranchSettings,
+    customer_id: Option<Uuid>,
     items: &[SaleItem],
 ) -> Result<(Vec<PriceLine>, Vec<PrepItemInfo>), ApiError> {
     let mut price_lines = Vec::with_capacity(items.len());
@@ -420,6 +421,14 @@ async fn prepare_pricing_lines(
                         None,
                     ));
                 }
+                if item.tier_id.is_some() {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "TIER_INVALID",
+                        "Una línea libre no puede tener tarifa",
+                        None,
+                    ));
+                }
 
                 let unit_price = crate::money::money(unit_price);
                 price_lines.push(PriceLine {
@@ -466,6 +475,130 @@ async fn prepare_pricing_lines(
                     .ok_or_else(|| validation(format!("product {pid} has no base price")))?;
                 let tax_rate = crate::catalog::tax_rate_for(tax_code.as_deref());
 
+                let (units_per_package, list_price, resolved_price) = if let Some(tid) =
+                    item.tier_id
+                {
+                    let tier_row: Option<(String, String, String, Decimal, Option<Decimal>, bool)> =
+                        sqlx::query_as(
+                            "select name, kind, adjustment, value, units_per_package, active
+                               from price_tiers
+                              where tenant_id = $1 and id = $2",
+                        )
+                        .bind(scope.tenant)
+                        .bind(tid)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+
+                    let (tier_name, tier_kind_str, tier_adj_str, tier_val, tier_units, tier_active) =
+                        tier_row.ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "La tarifa no existe o está inactiva",
+                                None,
+                            )
+                        })?;
+
+                    if !tier_active {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "TIER_INVALID",
+                            "La tarifa no existe o está inactiva",
+                            None,
+                        ));
+                    }
+
+                    let tier_kind =
+                        pricing::TierKind::from_str_val(&tier_kind_str).ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "Tipo de tarifa no válido",
+                                None,
+                            )
+                        })?;
+
+                    let tier_adj = pricing::TierAdjustment::from_str_val(&tier_adj_str)
+                        .ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "Ajuste de tarifa no válido",
+                                None,
+                            )
+                        })?;
+
+                    if tier_kind == pricing::TierKind::Cliente {
+                        let customer_tier_id: Option<Option<Uuid>> = if let Some(cid) = customer_id
+                        {
+                            sqlx::query_scalar("select price_tier_id from customers where tenant_id = $1 and id = $2")
+                                .bind(scope.tenant)
+                                .bind(cid)
+                                .fetch_optional(&mut **tx)
+                                .await?
+                        } else {
+                            None
+                        };
+
+                        let matches_customer = customer_tier_id.flatten() == Some(tid);
+                        let has_discount_perm = scope.has_permission("pos:discount");
+
+                        if !matches_customer && !has_discount_perm {
+                            return Err(ApiError::Domain(DomainError::Forbidden));
+                        }
+                    }
+
+                    let ptp: Option<(Option<Decimal>, Option<Decimal>, Option<String>)> =
+                        sqlx::query_as(
+                            "select price, units_per_package, barcode
+                           from product_tier_prices
+                          where tenant_id = $1 and product_id = $2 and tier_id = $3",
+                        )
+                        .bind(scope.tenant)
+                        .bind(pid)
+                        .bind(tid)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+
+                    let ptp_override =
+                        ptp.map(
+                            |(price, units, barcode)| pricing::ProductTierPriceOverride {
+                                price,
+                                units_per_package: units,
+                                barcode,
+                            },
+                        );
+
+                    let tier_rule = pricing::PriceTierRule {
+                        id: tid,
+                        name: tier_name,
+                        kind: tier_kind,
+                        adjustment: tier_adj,
+                        value: tier_val,
+                        units_per_package: tier_units,
+                        active: tier_active,
+                    };
+
+                    let (tier_up, units, lp) = match pricing::resolve_tier(
+                        catalog_price,
+                        &tier_rule,
+                        ptp_override.as_ref(),
+                    ) {
+                        Ok(res) => res,
+                        Err(code) => {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                code,
+                                "Faltan unidades configuradas para la tarifa",
+                                None,
+                            ));
+                        }
+                    };
+                    (units, lp, tier_up)
+                } else {
+                    (Decimal::ONE, catalog_price, catalog_price)
+                };
+
                 let (unit_price, overridden) = if let Some(ov) = item.unit_price_override {
                     if !settings.pos.allow_price_override {
                         return Err(validation("price override is not allowed in this branch"));
@@ -473,11 +606,8 @@ async fn prepare_pricing_lines(
                     scope.require_permission("pos:price_override")?;
                     (crate::money::money(ov), true)
                 } else {
-                    (catalog_price, false)
+                    (resolved_price, false)
                 };
-
-                let units_per_package = Decimal::ONE;
-                let list_price = catalog_price * units_per_package;
 
                 price_lines.push(PriceLine {
                     index,
@@ -572,7 +702,7 @@ pub async fn checkout_tx(
 
     // 5. Cargar contexto de precios y validar
     let (price_lines, prep_infos) =
-        prepare_pricing_lines(tx, scope, branch, &settings, &req.items).await?;
+        prepare_pricing_lines(tx, scope, branch, &settings, req.customer_id, &req.items).await?;
 
     let promos = Vec::new();
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
@@ -788,7 +918,7 @@ pub async fn quote_tx(
     .await?;
 
     let (price_lines, prep_infos) =
-        prepare_pricing_lines(tx, scope, branch_id, &settings, &req.items).await?;
+        prepare_pricing_lines(tx, scope, branch_id, &settings, req.customer_id, &req.items).await?;
 
     let promos = Vec::new();
     let tip = req.tip_amount.unwrap_or(Decimal::ZERO);

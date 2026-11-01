@@ -69,6 +69,16 @@ pub fn router() -> Router<AppState> {
         .route("/v1/products/{id}/recipe", get(recipe))
         // Clientes
         .route("/v1/customers", get(search_customers).post(create_customer))
+        // Tarifas y presentaciones
+        .route(
+            "/v1/price-tiers",
+            get(list_price_tiers).post(create_price_tier),
+        )
+        .route("/v1/price-tiers/{id}", put(update_price_tier))
+        .route(
+            "/v1/products/{id}/tier-prices",
+            get(get_product_tier_prices).put(set_product_tier_prices),
+        )
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
         .route("/v1/sales/quote", post(sales_quote))
@@ -914,4 +924,54 @@ async fn create_customer(
 ) -> ApiResult<(StatusCode, Json<customers::Customer>)> {
     let customer = customers::create(&state.pool, &user.claims, input).await?;
     Ok((StatusCode::CREATED, Json(customer)))
+}
+
+async fn list_price_tiers(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<crate::tiers::PriceTier>>> {
+    Ok(Json(
+        crate::tiers::list_tiers(&state.pool, &user.claims).await?,
+    ))
+}
+
+async fn create_price_tier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<crate::tiers::CreatePriceTierRequest>,
+) -> ApiResult<(StatusCode, Json<crate::tiers::PriceTier>)> {
+    let tier = crate::tiers::create_tier(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(tier)))
+}
+
+async fn update_price_tier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<crate::tiers::UpdatePriceTierRequest>,
+) -> ApiResult<Json<crate::tiers::PriceTier>> {
+    Ok(Json(
+        crate::tiers::update_tier(&state.pool, &user.claims, id, req).await?,
+    ))
+}
+
+async fn get_product_tier_prices(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<crate::tiers::ProductTierPriceRow>>> {
+    Ok(Json(
+        crate::tiers::get_product_tier_prices(&state.pool, &user.claims, id).await?,
+    ))
+}
+
+async fn set_product_tier_prices(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(items): Body<Vec<crate::tiers::SetProductTierPriceInput>>,
+) -> ApiResult<Json<Vec<crate::tiers::ProductTierPriceRow>>> {
+    Ok(Json(
+        crate::tiers::set_product_tier_prices(&state.pool, &user.claims, id, items).await?,
+    ))
 }

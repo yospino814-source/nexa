@@ -146,3 +146,60 @@ alter table public.order_items
     ((discount_manual + discount_promotion + discount_order + discount_coupon) <= round(qty * unit_price, 2));
 
 alter table public.orders add column discount_total numeric(14,2) not null default 0;
+
+-- ============================================================
+-- F1.6 Tarifas y presentaciones
+-- ============================================================
+
+create table public.price_tiers (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null check (length(trim(name)) between 1 and 40),
+  kind text not null check (kind in ('CLIENTE','PRESENTACION')),
+  adjustment text not null check (adjustment in ('NINGUNO','DESCUENTO_PCT','RECARGO_PCT','DESCUENTO_FIJO','RECARGO_FIJO','PRECIO_FIJO')),
+  value numeric(14,4) not null default 0 check (value >= 0),
+  units_per_package numeric(14,4) check (units_per_package > 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, id),
+  unique (tenant_id, name),
+  check (kind = 'PRESENTACION' or units_per_package is null),
+  check (adjustment <> 'DESCUENTO_PCT' or value <= 100),
+  check (adjustment <> 'RECARGO_PCT' or value <= 1000)
+);
+
+create table public.product_tier_prices (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  product_id uuid not null,
+  tier_id uuid not null,
+  price numeric(14,2) check (price >= 0),
+  units_per_package numeric(14,4) check (units_per_package > 0),
+  barcode varchar(50),
+  primary key (product_id, tier_id),
+  foreign key (tenant_id, product_id) references public.products (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, tier_id) references public.price_tiers (tenant_id, id)
+);
+
+create unique index product_tier_prices_barcode_idx on public.product_tier_prices (tenant_id, barcode) where barcode is not null;
+
+alter table public.price_tiers enable row level security;
+alter table public.product_tier_prices enable row level security;
+
+create policy price_tiers_tenant_isolation on public.price_tiers
+  for all to authenticated
+  using (tenant_id = public.current_tenant())
+  with check (tenant_id = public.current_tenant());
+
+create policy product_tier_prices_tenant_isolation on public.product_tier_prices
+  for all to authenticated
+  using (tenant_id = public.current_tenant())
+  with check (tenant_id = public.current_tenant());
+
+grant select, insert, update, delete on public.price_tiers to authenticated;
+grant select, insert, update, delete on public.product_tier_prices to authenticated;
+
+alter table public.customers add constraint customers_tier_fkey
+  foreign key (tenant_id, price_tier_id) references public.price_tiers (tenant_id, id);
+
+alter table public.order_items add constraint order_items_tier_fkey
+  foreign key (tenant_id, tier_id) references public.price_tiers (tenant_id, id);

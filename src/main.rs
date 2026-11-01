@@ -18,6 +18,7 @@ mod sales;
 pub mod sequences;
 pub mod settings;
 mod tenancy;
+pub mod tiers;
 pub mod users;
 
 #[cfg(test)]

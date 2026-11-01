@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -8,6 +8,12 @@ use crate::error::{ApiError, DomainError};
 use crate::tenancy::{self, Action};
 
 /// Item de catalogo resuelto para una sucursal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierBarcode {
+    pub tier_id: Uuid,
+    pub barcode: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CatalogItem {
     pub product_id: Uuid,
@@ -18,6 +24,7 @@ pub struct CatalogItem {
     pub tax_rate: Option<Decimal>,
     /// Unidades disponibles; `null` si no aplica.
     pub available: Option<Decimal>,
+    pub tier_barcodes: Vec<TierBarcode>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -86,18 +93,42 @@ pub async fn catalog(
         .bind(branch_id)
         .fetch_all(&mut *tx)
         .await?;
+
+    let barcodes: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
+        "select product_id, tier_id, barcode
+           from product_tier_prices
+          where tenant_id = $1 and barcode is not null",
+    )
+    .bind(scope.tenant)
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+
+    let mut barcode_map: std::collections::HashMap<Uuid, Vec<TierBarcode>> =
+        std::collections::HashMap::new();
+    for (pid, tid, bc) in barcodes {
+        barcode_map.entry(pid).or_default().push(TierBarcode {
+            tier_id: tid,
+            barcode: bc,
+        });
+    }
 
     Ok(rows
         .into_iter()
-        .map(|r| CatalogItem {
-            tax_rate: tax_rate_for(r.tax_code.as_deref()),
-            product_id: r.product_id,
-            name: r.name,
-            category: r.category,
-            price: r.price,
-            tax_code: r.tax_code,
-            available: r.available,
+        .map(|r| {
+            let pid = r.product_id;
+            let tb = barcode_map.remove(&pid).unwrap_or_default();
+            CatalogItem {
+                tax_rate: tax_rate_for(r.tax_code.as_deref()),
+                product_id: pid,
+                name: r.name,
+                category: r.category,
+                price: r.price,
+                tax_code: r.tax_code,
+                available: r.available,
+                tier_barcodes: tb,
+            }
         })
         .collect())
 }

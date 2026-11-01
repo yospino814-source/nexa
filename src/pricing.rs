@@ -508,8 +508,125 @@ pub fn price_cart(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TierKind {
+    Cliente,
+    Presentacion,
+}
+
+impl TierKind {
+    pub fn from_str_val(s: &str) -> Option<Self> {
+        match s {
+            "CLIENTE" => Some(Self::Cliente),
+            "PRESENTACION" => Some(Self::Presentacion),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cliente => "CLIENTE",
+            Self::Presentacion => "PRESENTACION",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TierAdjustment {
+    Ninguno,
+    DescuentoPct,
+    RecargoPct,
+    DescuentoFijo,
+    RecargoFijo,
+    PrecioFijo,
+}
+
+impl TierAdjustment {
+    pub fn from_str_val(s: &str) -> Option<Self> {
+        match s {
+            "NINGUNO" => Some(Self::Ninguno),
+            "DESCUENTO_PCT" => Some(Self::DescuentoPct),
+            "RECARGO_PCT" => Some(Self::RecargoPct),
+            "DESCUENTO_FIJO" => Some(Self::DescuentoFijo),
+            "RECARGO_FIJO" => Some(Self::RecargoFijo),
+            "PRECIO_FIJO" => Some(Self::PrecioFijo),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ninguno => "NINGUNO",
+            Self::DescuentoPct => "DESCUENTO_PCT",
+            Self::RecargoPct => "RECARGO_PCT",
+            Self::DescuentoFijo => "DESCUENTO_FIJO",
+            Self::RecargoFijo => "RECARGO_FIJO",
+            Self::PrecioFijo => "PRECIO_FIJO",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PriceTierRule {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: TierKind,
+    pub adjustment: TierAdjustment,
+    pub value: Decimal,
+    pub units_per_package: Option<Decimal>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProductTierPriceOverride {
+    pub price: Option<Decimal>,
+    pub units_per_package: Option<Decimal>,
+    pub barcode: Option<String>,
+}
+
+pub fn resolve_tier(
+    base_price: Decimal,
+    tier: &PriceTierRule,
+    override_price: Option<&ProductTierPriceOverride>,
+) -> Result<(Decimal, Decimal, Decimal), &'static str> {
+    let units = match tier.kind {
+        TierKind::Cliente => Decimal::ONE,
+        TierKind::Presentacion => {
+            if let Some(u) = override_price.and_then(|o| o.units_per_package) {
+                u
+            } else if let Some(u) = tier.units_per_package {
+                u
+            } else {
+                return Err("TIER_MISSING_UNITS");
+            }
+        }
+    };
+
+    let list_price = money(base_price * units);
+
+    let unit_price = if let Some(p) = override_price.and_then(|o| o.price) {
+        money(p)
+    } else {
+        let base = base_price * units;
+        let res = match tier.adjustment {
+            TierAdjustment::Ninguno => base,
+            TierAdjustment::DescuentoPct => base * (Decimal::ONE - tier.value / Decimal::from(100)),
+            TierAdjustment::RecargoPct => base * (Decimal::ONE + tier.value / Decimal::from(100)),
+            TierAdjustment::DescuentoFijo => base - tier.value,
+            TierAdjustment::RecargoFijo => base + tier.value,
+            TierAdjustment::PrecioFijo => tier.value,
+        };
+        money(res.max(Decimal::ZERO))
+    };
+
+    Ok((unit_price, units, list_price))
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     macro_rules! dec {
         ($val:expr) => {
@@ -556,6 +673,60 @@ mod tests {
         assert_eq!(shares2, vec![dec!(5), dec!(10)]);
         assert!(shares2[0] <= dec!(10));
         assert!(shares2[1] <= dec!(20));
+    }
+
+    #[test]
+    fn resolve_tier_order() {
+        let tier_pct = PriceTierRule {
+            id: Uuid::new_v4(),
+            name: "Mayorista".into(),
+            kind: TierKind::Cliente,
+            adjustment: TierAdjustment::DescuentoPct,
+            value: dec!(10),
+            units_per_package: None,
+            active: true,
+        };
+
+        let (up, u, lp) = resolve_tier(dec!(10000), &tier_pct, None).unwrap();
+        assert_eq!(up, dec!(9000));
+        assert_eq!(u, dec!(1));
+        assert_eq!(lp, dec!(10000));
+
+        let tier_paca = PriceTierRule {
+            id: Uuid::new_v4(),
+            name: "Paca x12".into(),
+            kind: TierKind::Presentacion,
+            adjustment: TierAdjustment::DescuentoPct,
+            value: dec!(10),
+            units_per_package: Some(dec!(12)),
+            active: true,
+        };
+        let (up, u, lp) = resolve_tier(dec!(1000), &tier_paca, None).unwrap();
+        assert_eq!(up, dec!(10800));
+        assert_eq!(u, dec!(12));
+        assert_eq!(lp, dec!(12000));
+
+        let ov = ProductTierPriceOverride {
+            price: Some(dec!(9500)),
+            units_per_package: None,
+            barcode: None,
+        };
+        let (up, u, lp) = resolve_tier(dec!(1000), &tier_paca, Some(&ov)).unwrap();
+        assert_eq!(up, dec!(9500));
+        assert_eq!(u, dec!(12));
+        assert_eq!(lp, dec!(12000));
+
+        let tier_big_disc = PriceTierRule {
+            id: Uuid::new_v4(),
+            name: "Super Descuento".into(),
+            kind: TierKind::Cliente,
+            adjustment: TierAdjustment::DescuentoFijo,
+            value: dec!(50000),
+            units_per_package: None,
+            active: true,
+        };
+        let (up, _, _) = resolve_tier(dec!(10000), &tier_big_disc, None).unwrap();
+        assert_eq!(up, dec!(0));
     }
 
     #[test]
