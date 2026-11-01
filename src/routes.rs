@@ -94,6 +94,7 @@ pub fn router() -> Router<AppState> {
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
         .route("/v1/sales/quote", post(sales_quote))
+        .route("/v1/sales/{id}/void", post(void_sale))
         .route(
             "/v1/cash-registers",
             get(list_cash_registers).post(create_cash_register),
@@ -1151,4 +1152,15 @@ async fn order_refunds(
     Ok(Json(
         refunds::for_order(&state.pool, &user.claims, id).await?,
     ))
+}
+
+// ------------------------------------------------------------ anulación (F1.12)
+
+async fn void_sale(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<sales::VoidRequest>,
+) -> ApiResult<Json<orders::Order>> {
+    Ok(Json(sales::void(&state.pool, &user.claims, id, req).await?))
 }

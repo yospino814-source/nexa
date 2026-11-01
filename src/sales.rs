@@ -1353,6 +1353,215 @@ async fn load_response(tx: &mut Tx<'_>, order_id: Uuid) -> Result<SaleResponse, 
     })
 }
 
+// ------------------------------------------------------------- anulación (F1.12)
+
+#[derive(Debug, Deserialize)]
+pub struct VoidRequest {
+    pub reason: String,
+}
+
+fn void_not_allowed(why: &str) -> ApiError {
+    error::coded(
+        StatusCode::CONFLICT,
+        "VOID_NOT_ALLOWED",
+        "the sale cannot be voided",
+        Some(serde_json::json!({ "why": why })),
+    )
+}
+
+/// `POST /v1/sales/{id}/void` (pos:refund). Solo ventas de hoy, con el turno
+/// abierto, sin devoluciones y sin documento fiscal aceptado. No crea
+/// movimiento de caja: el esperado ya excluye las órdenes `CANCELADA`.
+pub async fn void(
+    pool: &PgPool,
+    claims: &Claims,
+    order_id: Uuid,
+    req: VoidRequest,
+) -> Result<Order, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("pos:refund")?;
+    void_tx(&mut tx, &scope, order_id, &req).await?;
+    let order = orders::order_tx(&mut tx, order_id).await?;
+    tx.commit().await?;
+    Ok(order)
+}
+
+pub async fn void_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    order_id: Uuid,
+    req: &VoidRequest,
+) -> Result<(), ApiError> {
+    // 1. Orden bloqueada y cobrada.
+    let row: Option<(Uuid, String, bool, Option<Uuid>, Option<String>, Option<i64>)> =
+        sqlx::query_as(
+            "select o.branch_id, t.tima_codigo,
+                    (o.created_at at time zone b.timezone)::date = (now() at time zone b.timezone)::date,
+                    o.cash_session_id, o.receipt_prefix, o.receipt_number
+               from orders o
+               join tbl_tipos_maestra t on t.tima_id = o.status_id
+               join branches b on b.id = o.branch_id
+              where o.id = $1
+              for update of o",
+        )
+        .bind(order_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let (branch, status, is_today, session, prefix, number) =
+        row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    tenancy::ensure_branch_tx(tx, scope, branch).await?;
+    if status != "COBRADA" {
+        return Err(void_not_allowed("STATUS"));
+    }
+
+    // 2. Solo el mismo día local de la sucursal.
+    if !is_today {
+        return Err(void_not_allowed("NOT_TODAY"));
+    }
+
+    // 3. Con el turno de la venta abierto.
+    let session_open = match session {
+        Some(id) => {
+            sqlx::query_scalar::<_, bool>(
+                "select closed_at is null from cash_sessions where id = $1",
+            )
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?
+        }
+        None => false,
+    };
+    if !session_open {
+        return Err(void_not_allowed("SESSION_CLOSED"));
+    }
+
+    // 4. Sin devoluciones pendientes ni aprobadas.
+    let has_refunds: bool = sqlx::query_scalar(
+        "select exists (select 1 from refunds where order_id = $1 and status in ('PENDIENTE', 'APROBADA'))",
+    )
+    .bind(order_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if has_refunds {
+        return Err(void_not_allowed("HAS_REFUNDS"));
+    }
+
+    // 5. Documento fiscal: aceptado no se anula (se hace una devolución).
+    let fiscal: Option<String> = sqlx::query_scalar(
+        "select t.tima_codigo from fiscal_documents f
+           join tbl_tipos_maestra t on t.tima_id = f.status_id
+          where f.order_id = $1 and f.doc_type = 'POS' and f.refund_id is null
+          for update of f",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(fs) = &fiscal
+        && fs != "PENDIENTE"
+        && fs != "RECHAZADO"
+    {
+        return Err(void_not_allowed("FISCAL_ACCEPTED"));
+    }
+
+    // 6. Motivo.
+    let reason = req.reason.trim();
+    let n = reason.chars().count();
+    if !(3..=200).contains(&n) {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VOID_REASON_REQUIRED",
+            "reason must have 3 to 200 characters",
+            None,
+        ));
+    }
+
+    if fiscal.is_some() {
+        sqlx::query(
+            "update fiscal_documents set status_id = public.tipo_id('DOCF', 'ANULADO'), updated_at = now()
+              where order_id = $1 and doc_type = 'POS' and refund_id is null",
+        )
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // 7. Stock de vuelta.
+    let label = match (&prefix, number) {
+        (Some(p), Some(n)) => format!("Anulación {p}-{n:06}"),
+        _ => "Anulación de venta".to_string(),
+    };
+    let lines: Vec<(Uuid, Decimal, Decimal)> = sqlx::query_as(
+        "select product_id, qty, units_per_package from order_items
+          where order_id = $1 and product_id is not null",
+    )
+    .bind(order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (product_id, qty, units) in lines {
+        inventory::return_tx(
+            tx,
+            scope,
+            branch,
+            product_id,
+            qty * units,
+            &label,
+            ("VOID", order_id),
+        )
+        .await?;
+    }
+
+    // 8. Libera los usos de promociones y cupón.
+    sqlx::query(
+        "update promotions p set usage_count = greatest(p.usage_count - 1, 0)
+           from promotion_redemptions r
+          where r.promotion_id = p.id and r.order_id = $1",
+    )
+    .bind(order_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("delete from promotion_redemptions where order_id = $1")
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "update coupons c set usage_count = greatest(c.usage_count - 1, 0)
+           from coupon_redemptions r
+          where r.coupon_id = c.id and r.order_id = $1",
+    )
+    .bind(order_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("delete from coupon_redemptions where order_id = $1")
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // 9. Orden anulada.
+    sqlx::query(
+        "update orders
+            set status_id = public.tipo_id('ORD', 'CANCELADA'), cancelled_at = now(), void_reason = $2
+          where id = $1",
+    )
+    .bind(order_id)
+    .bind(reason)
+    .execute(&mut **tx)
+    .await?;
+
+    // 11. Auditoría (10: sin movimiento de caja).
+    crate::audit::record_tx(
+        tx,
+        scope,
+        "VENTA_ANULADA",
+        "orders",
+        order_id,
+        Some(serde_json::json!({ "status": "COBRADA" })),
+        Some(serde_json::json!({ "status": "CANCELADA", "reason": reason })),
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

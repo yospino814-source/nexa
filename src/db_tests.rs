@@ -774,6 +774,7 @@ async fn database_integration() {
     f1_override(&app, &admin).await;
     f1_tips(&app, &admin).await;
     f1_refunds(&app, &admin).await;
+    f1_void(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -5080,4 +5081,209 @@ async fn f1_refunds(app: &PgPool, admin: &PgPool) {
     assert_eq!(err_code(&r), Some("REFUND_ORIGINAL_MIXED"), "{:?}", r.err());
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+/// F1.12: anulación de ventas.
+async fn f1_void(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let prod = seed_product(admin, tenant, "Cuaderno", "UND", None, false).await;
+    set_base_price(admin, prod, "1000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "20", "0").await;
+
+    // Cupón de un solo uso: 10 % al pedido.
+    let coupon = coupons::create(
+        app,
+        &c_owner,
+        coupons::CreateCouponInput {
+            branch_id: None,
+            code: "ANULA10".into(),
+            name: "Anula".into(),
+            kind: "PORCENTAJE".into(),
+            value: dec(10),
+            scope: "PEDIDO".into(),
+            min_qty: None,
+            min_subtotal: None,
+            max_discount: None,
+            starts_at: Utc::now() - Duration::days(1),
+            ends_at: None,
+            usage_limit: Some(1),
+            per_customer_limit: None,
+            product_ids: None,
+            category_ids: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg, dec(0))
+        .await
+        .unwrap();
+    let (stock_before, _) = stock_row(admin, branch, prod).await;
+
+    let cash_sale_of = |qty: i64, total: &str, coupon_code: Option<&str>| {
+        let mut req = sale(Uuid::new_v4(), branch, &[(prod, qty)], &[], d(total));
+        req.payments = cash_payment(total);
+        req.coupon_code = coupon_code.map(str::to_string);
+        req
+    };
+
+    // Venta con cupón: 2.000 − 10 % = 1.800.
+    let s1 = created(
+        sales::checkout(app, &c_cashier, cash_sale_of(2, "1800", Some("ANULA10")))
+            .await
+            .unwrap(),
+    );
+    let usage = |id: Uuid| async move {
+        sqlx::query_scalar::<_, i32>("select usage_count from coupons where id = $1")
+            .bind(id)
+            .fetch_one(admin)
+            .await
+            .unwrap()
+    };
+    assert_eq!(usage(coupon.id).await, 1);
+
+    let reason = || sales::VoidRequest {
+        reason: "Cliente se arrepintió".into(),
+    };
+
+    // Un cajero sin pos:refund no anula.
+    let r = sales::void(app, &c_cashier, s1.order.id, reason()).await;
+    assert!(is_forbidden(&r), "{r:?}");
+
+    // Motivo de menos de 3 caracteres: 422 VOID_REASON_REQUIRED
+    let r = sales::void(
+        app,
+        &c_owner,
+        s1.order.id,
+        sales::VoidRequest {
+            reason: "no".into(),
+        },
+    )
+    .await;
+    assert_eq!(err_code(&r), Some("VOID_REASON_REQUIRED"), "{r:?}");
+
+    // [P] Anular devuelve el stock, saca el efectivo del esperado y libera el cupón
+    let voided = sales::void(app, &c_owner, s1.order.id, reason())
+        .await
+        .unwrap();
+    assert_eq!(voided.status, "CANCELADA");
+    assert_eq!(stock_row(admin, branch, prod).await.0, stock_before);
+    let summary = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(summary.expected_cash.normalize(), dec(0));
+    assert_eq!(usage(coupon.id).await, 0);
+    let fiscal: String = sqlx::query_scalar(
+        "select t.tima_codigo from fiscal_documents f join tbl_tipos_maestra t on t.tima_id = f.status_id
+          where f.order_id = $1 and f.doc_type = 'POS'",
+    )
+    .bind(s1.order.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(fiscal, "ANULADO");
+    // El cupón liberado se puede volver a usar.
+    created(
+        sales::checkout(app, &c_cashier, cash_sale_of(2, "1800", Some("ANULA10")))
+            .await
+            .unwrap(),
+    );
+
+    // Una venta ya anulada no se anula otra vez.
+    let r = sales::void(app, &c_owner, s1.order.id, reason()).await;
+    assert_eq!(err_code(&r), Some("VOID_NOT_ALLOWED"), "{r:?}");
+
+    // [P] Una venta con devolución no se anula: HAS_REFUNDS
+    let s2 = created(
+        sales::checkout(app, &c_cashier, cash_sale_of(1, "1000", None))
+            .await
+            .unwrap(),
+    );
+    refunds::create(
+        app,
+        &c_cashier,
+        refund_req(
+            Uuid::new_v4(),
+            s2.order.id,
+            s2.items[0].id,
+            1,
+            refunds::Disposition::Reintegrar,
+            refunds::RefundMethod::Efectivo,
+        ),
+    )
+    .await
+    .unwrap();
+    let r = sales::void(app, &c_owner, s2.order.id, reason()).await;
+    assert_void_why(&r, "HAS_REFUNDS");
+
+    // [P] Una venta con el documento fiscal ACEPTADO no se anula: FISCAL_ACCEPTED
+    let s3 = created(
+        sales::checkout(app, &c_cashier, cash_sale_of(1, "1000", None))
+            .await
+            .unwrap(),
+    );
+    sqlx::query(
+        "update fiscal_documents set status_id = public.tipo_id('DOCF', 'ACEPTADO')
+          where order_id = $1 and doc_type = 'POS'",
+    )
+    .bind(s3.order.id)
+    .execute(admin)
+    .await
+    .unwrap();
+    let r = sales::void(app, &c_owner, s3.order.id, reason()).await;
+    assert_void_why(&r, "FISCAL_ACCEPTED");
+
+    // Una venta de otro día no se anula: NOT_TODAY
+    let s4 = created(
+        sales::checkout(app, &c_cashier, cash_sale_of(1, "1000", None))
+            .await
+            .unwrap(),
+    );
+    sqlx::query("update orders set created_at = now() - interval '2 days' where id = $1")
+        .bind(s4.order.id)
+        .execute(admin)
+        .await
+        .unwrap();
+    let r = sales::void(app, &c_owner, s4.order.id, reason()).await;
+    assert_void_why(&r, "NOT_TODAY");
+
+    // [P] Una venta de un turno cerrado no se anula: SESSION_CLOSED
+    let s5 = created(
+        sales::checkout(app, &c_cashier, cash_sale_of(1, "1000", None))
+            .await
+            .unwrap(),
+    );
+    sqlx::query(
+        "update cash_sessions set closed_at = now(), counted_cash = 0
+          where id = (select cash_session_id from orders where id = $1)",
+    )
+    .bind(s5.order.id)
+    .execute(admin)
+    .await
+    .unwrap();
+    let r = sales::void(app, &c_owner, s5.order.id, reason()).await;
+    assert_void_why(&r, "SESSION_CLOSED");
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+fn assert_void_why<T: std::fmt::Debug>(r: &Result<T, ApiError>, why: &str) {
+    match r {
+        Err(ApiError::Domain(DomainError::Coded { code, data, .. })) => {
+            assert_eq!(*code, "VOID_NOT_ALLOWED");
+            assert_eq!(data.as_ref().and_then(|d| d["why"].as_str()), Some(why));
+        }
+        other => panic!("expected VOID_NOT_ALLOWED/{why}, got {other:?}"),
+    }
 }

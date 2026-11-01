@@ -84,6 +84,7 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/catalog?branch_id=` | Catálogo con precio, impuesto y disponible |
 | GET | `/v1/products/{id}/recipe` | Insumos de un producto compuesto |
 | POST | `/v1/sales` | Venta de mostrador idempotente (ver abajo) |
+| POST | `/v1/sales/{id}/void` | Anular una venta de hoy con el turno abierto, sin devoluciones ni documento fiscal aceptado (`pos:refund`) |
 | GET | `/v1/cash-registers?branch_id=` | Listar cajas registradoras de la sucursal |
 | POST | `/v1/cash-registers` | Crear caja `{branch_id, name, code, default_opening}` |
 | PUT | `/v1/cash-registers/{id}` | Editar caja `{name, code, default_opening, active}` |
