@@ -46,6 +46,7 @@ export function InventoryScreen() {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState<StockStatus | "">("");
   const [usageFilter, setUsageFilter] = useState<string>("");
+  const [archiveFilter, setArchiveFilter] = useState<"ACTIVOS" | "ARCHIVADOS" | "TODOS">("ACTIVOS");
   const [editing, setEditing] = useState<{ item: StockLevel; mode: StockMode } | null>(null);
   const [moving, setMoving] = useState<StockLevel | null>(null);
   const [tierPricingItem, setTierPricingItem] = useState<StockLevel | null>(null);
@@ -60,7 +61,13 @@ export function InventoryScreen() {
     const q = query.trim().toLowerCase();
     const matches = !q || [i.name, i.sku, i.barcode].some((v) => v?.toLowerCase().includes(q));
     const matchesUsage = !usageFilter || (i.usage ?? "VENTA") === usageFilter;
-    return matches && (!category || i.category === category) && (!status || i.status === status) && matchesUsage;
+    const matchesArchived =
+      archiveFilter === "TODOS"
+        ? true
+        : archiveFilter === "ARCHIVADOS"
+          ? Boolean(i.archived)
+          : !i.archived;
+    return matches && (!category || i.category === category) && (!status || i.status === status) && matchesUsage && matchesArchived;
   });
 
   if (!ADMIN_ROLES.includes(branch.role)) {
@@ -165,6 +172,16 @@ export function InventoryScreen() {
             ["OK", "OK"],
             ["BAJO", "Stock bajo"],
             ["AGOTADO", "Agotado"],
+          ]}
+        />
+        <Select
+          label="Mostrar"
+          value={archiveFilter}
+          onChange={(v) => setArchiveFilter(v as "ACTIVOS" | "ARCHIVADOS" | "TODOS")}
+          options={[
+            ["ACTIVOS", "Activos"],
+            ["ARCHIVADOS", "Archivados"],
+            ["TODOS", "Todos"],
           ]}
         />
         <button

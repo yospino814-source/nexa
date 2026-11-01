@@ -1739,6 +1739,27 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+
+    async archive(id: Uuid, confirm = false): Promise<{ status: string }> {
+      if (USE_MOCKS) {
+        await delay();
+        return { status: "ok" };
+      }
+      return request(`/v1/products/${id}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ confirm }),
+      });
+    },
+
+    async unarchive(id: Uuid): Promise<{ status: string }> {
+      if (USE_MOCKS) {
+        await delay();
+        return { status: "ok" };
+      }
+      return request(`/v1/products/${id}/unarchive`, {
+        method: "POST",
+      });
+    },
   },
 
   options: {

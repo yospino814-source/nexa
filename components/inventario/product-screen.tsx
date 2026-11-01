@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
+  Archive,
   ArrowLeft,
   CheckCircle2,
   History,
   Layers,
   Package,
   Plus,
+  RefreshCw,
   Save,
   Sliders,
   Tag,
@@ -19,6 +22,8 @@ import {
 
 import {
   api,
+  ApiError,
+  type ArchiveNeedsConfirmData,
   type OptionGroupDetail,
   type ProductDetail,
   type ProductInput,
@@ -84,6 +89,51 @@ export function ProductScreen({ productId }: { productId: string }) {
     Array<{ group_id: string; sort_order: number }>
   >([]);
   const [savingModifiers, setSavingModifiers] = useState(false);
+
+  // Archive State
+  const [archivePlan, setArchivePlan] = useState<ArchiveNeedsConfirmData | null>(null);
+  const [archiving, setArchiving] = useState(false);
+
+  async function handleArchive(confirm: boolean) {
+    if (isNew) return;
+    setArchiving(true);
+    setErrorMsg(null);
+    try {
+      await api.products.archive(productId, confirm);
+      setArchivePlan(null);
+      setToast("Producto archivado exitosamente");
+      const refreshed = await api.products.get(productId, branch.id);
+      setDetail(refreshed);
+      setTimeout(() => setToast(null), 3000);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.code === "ARCHIVE_NEEDS_CONFIRM" && err.data) {
+        setArchivePlan(err.data as ArchiveNeedsConfirmData);
+      } else {
+        const msg = err instanceof Error ? err.message : "Error al archivar producto";
+        setErrorMsg(msg);
+      }
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function handleUnarchive() {
+    if (isNew) return;
+    setArchiving(true);
+    setErrorMsg(null);
+    try {
+      await api.products.unarchive(productId);
+      setToast("Producto reactivado exitosamente");
+      const refreshed = await api.products.get(productId, branch.id);
+      setDetail(refreshed);
+      setTimeout(() => setToast(null), 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al reactivar producto";
+      setErrorMsg(msg);
+    } finally {
+      setArchiving(false);
+    }
+  }
 
   useEffect(() => {
     if (isNew) return;
@@ -267,14 +317,123 @@ export function ProductScreen({ productId }: { productId: string }) {
         </div>
 
         {!isNew && (
-          <Link
-            href={`/inventario/movimientos?producto=${productId}`}
-            className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50 text-slate-700"
-          >
-            <History className="size-4" /> Kardex de producto
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/inventario/movimientos?producto=${productId}`}
+              className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50 text-slate-700"
+            >
+              <History className="size-4" /> Kardex de producto
+            </Link>
+            {!detail?.archived && (
+              <button
+                type="button"
+                onClick={() => handleArchive(false)}
+                disabled={archiving}
+                className="flex h-10 items-center gap-2 rounded-full border border-rose-200 bg-white px-4 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              >
+                <Archive className="size-4" /> Archivar
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {detail?.archived && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="size-5 text-amber-600 shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">
+                Producto archivado{detail.archived_at ? ` el ${new Date(detail.archived_at).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}` : ""}
+              </p>
+              <p className="text-xs text-amber-700">
+                Este producto no está disponible para ventas ni movimientos. Sus existencias fueron dadas de baja al archivar.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleUnarchive}
+            disabled={archiving}
+            className="flex h-9 items-center gap-2 rounded-full bg-amber-600 px-4 text-xs font-semibold text-white shadow hover:bg-amber-700 disabled:opacity-50"
+          >
+            <RefreshCw className={cn("size-3.5", archiving && "animate-spin")} />
+            Desarchivar
+          </button>
+        </div>
+      )}
+
+      {archivePlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-5 animate-in fade-in-0 zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <AlertTriangle className="size-5 text-amber-500" /> Confirmar baja para archivar
+              </h3>
+              <button
+                onClick={() => setArchivePlan(null)}
+                className="rounded-full p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+              <p className="text-sm text-slate-800 leading-relaxed">
+                Se registrará una baja de inventario por{" "}
+                <strong className="text-rose-700 font-bold font-mono">
+                  {formatCOP(Number(archivePlan.total_value))}
+                </strong>{" "}
+                en <strong>{archivePlan.plan.length}</strong> {archivePlan.plan.length === 1 ? "ubicación" : "ubicaciones"} para archivar el producto. Esta acción no se puede deshacer (las existencias no se recuperan al desarchivar). ¿Deseas continuar?
+              </p>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5 font-semibold">Ubicación</th>
+                    <th className="p-2.5 font-semibold text-right">Existencias</th>
+                    <th className="p-2.5 font-semibold text-right">Costo Promedio</th>
+                    <th className="p-2.5 font-semibold text-right">Valor Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {archivePlan.plan.map((item) => (
+                    <tr key={item.location_id}>
+                      <td className="p-2.5 font-medium text-slate-800">{item.location_name}</td>
+                      <td className="p-2.5 text-right font-mono">{formatQty(item.on_hand)}</td>
+                      <td className="p-2.5 text-right font-mono">{formatCOP(Number(item.avg_cost))}</td>
+                      <td className="p-2.5 text-right font-mono font-semibold text-slate-900">
+                        {formatCOP(Number(item.value))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setArchivePlan(null)}
+                disabled={archiving}
+                className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-medium hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleArchive(true)}
+                disabled={archiving}
+                className="rounded-full bg-rose-600 px-6 py-2.5 text-sm font-semibold text-white shadow hover:bg-rose-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {archiving ? "Procesando..." : "Confirmar baja y archivar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <p className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
@@ -359,7 +518,8 @@ export function ProductScreen({ productId }: { productId: string }) {
       {/* Tab: General */}
       {activeTab === "general" && (
         <form onSubmit={handleSaveGeneral} className="space-y-6">
-          <div className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm space-y-6">
+          <fieldset disabled={Boolean(detail?.archived)} className="space-y-6">
+            <div className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm space-y-6">
             <h2 className="text-base font-semibold text-slate-900 border-b border-slate-100 pb-3">
               Información básica
             </h2>
@@ -603,28 +763,31 @@ export function ProductScreen({ productId }: { productId: string }) {
               </label>
             </div>
           </div>
+          </fieldset>
 
           <div className="flex justify-end gap-3">
             <Link
               href="/inventario"
               className="px-5 py-2.5 rounded-full border border-slate-200 text-sm font-medium hover:bg-slate-50"
             >
-              Cancelar
+              {detail?.archived ? "Volver" : "Cancelar"}
             </Link>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow hover:bg-emerald-700 disabled:opacity-50"
-            >
-              <Save className="size-4" /> {saving ? "Guardando..." : "Guardar producto"}
-            </button>
+            {!detail?.archived && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <Save className="size-4" /> {saving ? "Guardando..." : "Guardar producto"}
+              </button>
+            )}
           </div>
         </form>
       )}
 
       {/* Tab: Precios y presentaciones */}
       {activeTab === "precios" && detail && (
-        <div className="space-y-6">
+        <fieldset disabled={Boolean(detail?.archived)} className="space-y-6">
           <div className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm space-y-4">
             <h2 className="text-base font-semibold text-slate-900 border-b border-slate-100 pb-3">
               Precio específico para sucursal ({branch.name})
@@ -709,7 +872,7 @@ export function ProductScreen({ productId }: { productId: string }) {
               </div>
             )}
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* Tab: Stock por bodega */}
@@ -758,13 +921,15 @@ export function ProductScreen({ productId }: { productId: string }) {
             <p className="text-sm text-slate-500">
               Variantes del producto padre: comparten unidad, impuesto y control de lotes.
             </p>
-            <button
-              type="button"
-              onClick={() => setShowVariantForm(!showVariantForm)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
-            >
-              <Plus className="size-4" /> Nueva variante
-            </button>
+            {!detail.archived && (
+              <button
+                type="button"
+                onClick={() => setShowVariantForm(!showVariantForm)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+              >
+                <Plus className="size-4" /> Nueva variante
+              </button>
+            )}
           </div>
 
           {showVariantForm && (
@@ -937,7 +1102,7 @@ export function ProductScreen({ productId }: { productId: string }) {
 
       {/* Pestaña Modificadores */}
       {!isNew && activeTab === "modificadores" && (
-        <div className="space-y-6">
+        <fieldset disabled={Boolean(detail?.archived)} className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-bold text-slate-900">Grupos de modificadores asignados</h2>
@@ -945,12 +1110,14 @@ export function ProductScreen({ productId }: { productId: string }) {
                 Selecciona los grupos de opciones que se ofrecerán al cajero al vender este producto.
               </p>
             </div>
-            <Link
-              href="/inventario/modificadores"
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              <Sliders className="size-3.5" /> Gestionar modificadores
-            </Link>
+            {!detail?.archived && (
+              <Link
+                href="/inventario/modificadores"
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Sliders className="size-3.5" /> Gestionar modificadores
+              </Link>
+            )}
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
@@ -1040,31 +1207,33 @@ export function ProductScreen({ productId }: { productId: string }) {
             )}
           </div>
 
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={savingModifiers}
-              onClick={async () => {
-                setSavingModifiers(true);
-                setErrorMsg(null);
-                try {
-                  await api.options.setProductOptionGroups(productId, assignedOptionGroups);
-                  setToast("Modificadores asignados guardados exitosamente");
-                } catch (err: unknown) {
-                  setErrorMsg(
-                    err instanceof Error ? err.message : "Error al guardar modificadores"
-                  );
-                } finally {
-                  setSavingModifiers(false);
-                }
-              }}
-              className="flex h-10 items-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
-            >
-              <Save className="size-4" />{" "}
-              {savingModifiers ? "Guardando..." : "Guardar modificadores asignados"}
-            </button>
-          </div>
-        </div>
+          {!detail?.archived && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={savingModifiers}
+                onClick={async () => {
+                  setSavingModifiers(true);
+                  setErrorMsg(null);
+                  try {
+                    await api.options.setProductOptionGroups(productId, assignedOptionGroups);
+                    setToast("Modificadores asignados guardados exitosamente");
+                  } catch (err: unknown) {
+                    setErrorMsg(
+                      err instanceof Error ? err.message : "Error al guardar modificadores"
+                    );
+                  } finally {
+                    setSavingModifiers(false);
+                  }
+                }}
+                className="flex h-10 items-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                <Save className="size-4" />{" "}
+                {savingModifiers ? "Guardando..." : "Guardar modificadores asignados"}
+              </button>
+            </div>
+          )}
+        </fieldset>
       )}
     </div>
   );

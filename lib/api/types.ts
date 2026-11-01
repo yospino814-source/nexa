@@ -436,6 +436,7 @@ export type ProductDetail = {
   has_variants: boolean;
   parent_id: Uuid | null;
   archived: boolean;
+  archived_at?: string | null;
   unit_measure_code: string;
   purchase_uom_code: string | null;
   purchase_factor: Decimal;
@@ -448,6 +449,19 @@ export type ProductDetail = {
   tier_prices: ProductTierPrice[];
   option_groups: OptionGroupDetail[];
   stock_by_location: LocationStock[];
+};
+
+export type ArchivePlanItem = {
+  location_id: Uuid;
+  location_name: string;
+  on_hand: Decimal;
+  avg_cost: Decimal;
+  value: Decimal;
+};
+
+export type ArchiveNeedsConfirmData = {
+  plan: ArchivePlanItem[];
+  total_value: Decimal;
 };
 
 export type OptionItem = {
@@ -563,6 +577,7 @@ export type StockLevel = {
   min_qty: Decimal;
   status: StockStatus;
   updated_at: string | null;
+  archived?: boolean;
 };
 
 // ------------------------------------------------------------- compras y proveedores
