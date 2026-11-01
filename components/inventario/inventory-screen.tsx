@@ -12,6 +12,7 @@ import {
   PackagePlus,
   Pencil,
   Search,
+  Tag,
   XCircle,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 import { StockDialog, type StockMode } from "./stock-dialog";
 import { TransferDialog } from "./transfer-dialog";
+import { TierPricesDialog } from "./tier-prices-dialog";
 
 const ADMIN_ROLES = ["DUENO", "ADMIN_CAJA"];
 
@@ -44,6 +46,7 @@ export function InventoryScreen() {
   const [status, setStatus] = useState<StockStatus | "">("");
   const [editing, setEditing] = useState<{ item: StockLevel; mode: StockMode } | null>(null);
   const [moving, setMoving] = useState<StockLevel | null>(null);
+  const [tierPricingItem, setTierPricingItem] = useState<StockLevel | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const items = useMemo(() => data ?? [], [data]);
@@ -214,6 +217,9 @@ export function InventoryScreen() {
                       <IconButton label="Ajustar existencias" onClick={() => setEditing({ item: i, mode: "CONTEO" })}>
                         <Pencil className="size-4" />
                       </IconButton>
+                      <IconButton label="Precios por tarifa y presentación" onClick={() => setTierPricingItem(i)}>
+                        <Tag className="size-4" />
+                      </IconButton>
                       <IconButton
                         label="Entrada de mercancía"
                         onClick={() => setEditing({ item: i, mode: "ENTRADA" })}
@@ -261,6 +267,7 @@ export function InventoryScreen() {
         onSaved={saved}
       />
       <TransferDialog item={moving} from={branch} destinations={destinations} onClose={() => setMoving(null)} onSaved={saved} />
+      <TierPricesDialog item={tierPricingItem} onClose={() => setTierPricingItem(null)} onSaved={saved} />
     </div>
   );
 }

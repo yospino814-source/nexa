@@ -18,6 +18,7 @@ import {
 
 import type { CatalogItem } from "@/lib/api";
 import { formatCOP, taxLabel, toNumber } from "@/lib/format";
+import type { AddItemTier } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 const LOW_STOCK = 10;
@@ -46,7 +47,7 @@ export function CatalogPanel({
 }: {
   items: CatalogItem[];
   loading: boolean;
-  onAdd: (item: CatalogItem) => void;
+  onAdd: (item: CatalogItem, tier?: AddItemTier) => void;
   searchRef: RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
@@ -62,12 +63,28 @@ export function CatalogPanel({
     return items.filter(
       (item) =>
         (!category || item.category === category) &&
-        (!q || item.name.toLowerCase().includes(q) || item.product_id === q),
+        (!q ||
+          item.name.toLowerCase().includes(q) ||
+          item.product_id === q ||
+          item.barcode?.toLowerCase().includes(q) ||
+          item.tier_barcodes?.some((tb) => tb.barcode.toLowerCase().includes(q))),
     );
   }, [items, query, category]);
 
   // Enter agrega el primer resultado disponible (flujo de lector de codigo de barras).
   function handleEnter() {
+    const q = query.trim().toLowerCase();
+    for (const item of items) {
+      const tb = item.tier_barcodes?.find((b) => b.barcode.toLowerCase() === q);
+      if (tb && (toNumber(item.available) ?? 1) > 0) {
+        onAdd(item, {
+          tierId: tb.tier_id,
+          tierName: "Tarifa",
+        });
+        setQuery("");
+        return;
+      }
+    }
     const match = visible.find((item) => (toNumber(item.available) ?? 1) > 0);
     if (match) {
       onAdd(match);

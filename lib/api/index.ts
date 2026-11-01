@@ -60,6 +60,11 @@ import type {
   QuoteRequest,
   QuoteResponse,
   QuoteLine,
+  PriceTier,
+  CreatePriceTierInput,
+  UpdatePriceTierInput,
+  ProductTierPrice,
+  SetProductTierPriceInput,
   CreateCustomerInput,
   CreatePurchaseInput,
   CreateSupplierInput,
@@ -99,6 +104,44 @@ const cents = (n: number) => Math.round(n * 100) / 100;
 const dec = (n: number): Decimal => cents(n).toFixed(2);
 
 // ------------------------------------------------------------ estado mock
+
+
+const mockTiers: PriceTier[] = [
+  {
+    id: "t1111111-1111-1111-1111-111111111111",
+    tenant_id: "00000000-0000-0000-0000-000000000000",
+    name: "Mayorista",
+    kind: "CLIENTE",
+    adjustment: "DESCUENTO_PCT",
+    value: "8.0000",
+    units_per_package: null,
+    active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "t2222222-2222-2222-2222-222222222222",
+    tenant_id: "00000000-0000-0000-0000-000000000000",
+    name: "Paca x12",
+    kind: "PRESENTACION",
+    adjustment: "DESCUENTO_PCT",
+    value: "5.0000",
+    units_per_package: "12.0000",
+    active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "t3333333-3333-3333-3333-333333333333",
+    tenant_id: "00000000-0000-0000-0000-000000000000",
+    name: "Bulto 50 kg",
+    kind: "PRESENTACION",
+    adjustment: "NINGUNO",
+    value: "0.0000",
+    units_per_package: "50.0000",
+    active: true,
+    created_at: new Date().toISOString(),
+  },
+];
+const mockProductTierPrices = new Map<Uuid, ProductTierPrice[]>();
 
 let receiptSeq = 0;
 const mockSales = new Map<Uuid, { body: string; response: CheckoutResponse; at: string }>();
@@ -1019,6 +1062,71 @@ export const api = {
       if (month) params.set("month", month);
       const qs = params.toString() ? `?${params.toString()}` : "";
       return request(`/v1/purchases/summary${qs}`);
+    },
+  },
+
+
+  tiers: {
+    async list(): Promise<PriceTier[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockTiers);
+      }
+      return request("/v1/price-tiers");
+    },
+    async create(input: CreatePriceTierInput): Promise<PriceTier> {
+      if (!USE_MOCKS) {
+        return request("/v1/price-tiers", { method: "POST", body: JSON.stringify(input) });
+      }
+      await delay();
+      if (mockTiers.some((t) => t.name.toLowerCase() === input.name.trim().toLowerCase())) {
+        throw new ApiError(409, "Ya existe una tarifa con ese nombre");
+      }
+      const tier: PriceTier = {
+        id: crypto.randomUUID(),
+        tenant_id: "00000000-0000-0000-0000-000000000000",
+        name: input.name.trim(),
+        kind: input.kind,
+        adjustment: input.adjustment,
+        value: input.value,
+        units_per_package: input.units_per_package ?? null,
+        active: true,
+        created_at: new Date().toISOString(),
+      };
+      mockTiers.push(tier);
+      return structuredClone(tier);
+    },
+    async update(id: Uuid, input: UpdatePriceTierInput): Promise<PriceTier> {
+      if (!USE_MOCKS) {
+        return request(`/v1/price-tiers/${id}`, { method: "PUT", body: JSON.stringify(input) });
+      }
+      await delay();
+      const existing = mockTiers.find((t) => t.id === id);
+      if (!existing) throw new ApiError(404, "Tarifa no encontrada");
+      if (existing.kind !== input.kind) {
+        throw new ApiError(422, "No se puede cambiar el tipo de una tarifa", "TIER_KIND_IMMUTABLE");
+      }
+      existing.name = input.name.trim();
+      existing.adjustment = input.adjustment;
+      existing.value = input.value;
+      existing.units_per_package = input.units_per_package ?? null;
+      existing.active = input.active;
+      return structuredClone(existing);
+    },
+    async getProductPrices(productId: Uuid): Promise<ProductTierPrice[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockProductTierPrices.get(productId) ?? []);
+      }
+      return request(`/v1/products/${productId}/tier-prices`);
+    },
+    async setProductPrices(productId: Uuid, items: SetProductTierPriceInput[]): Promise<ProductTierPrice[]> {
+      if (!USE_MOCKS) {
+        return request(`/v1/products/${productId}/tier-prices`, { method: "PUT", body: JSON.stringify(items) });
+      }
+      await delay();
+      mockProductTierPrices.set(productId, items);
+      return structuredClone(items);
     },
   },
 

@@ -9,19 +9,34 @@ export type CartLine = {
   productId: string;
   name: string;
   unitPrice: number;
+  basePrice?: number;
   /** Fraccion (0.19) o null si es exento. */
   taxRate: number | null;
   qty: number;
   /** Tope de cantidad segun el stock disponible (null = sin control). */
   maxQty: number | null;
+  tierId?: string | null;
+  tierName?: string | null;
+  unitsPerPackage?: number | null;
+};
+
+export type AddItemTier = {
+  tierId: string;
+  tierName: string;
+  price?: number | null;
+  unitsPerPackage?: number | null;
 };
 
 type CartState = {
   lines: CartLine[];
   customer: Customer | null;
   customerAlias: string | null;
-  add: (item: CatalogItem) => void;
+  add: (item: CatalogItem, tier?: AddItemTier) => void;
   setQty: (productId: string, qty: number) => void;
+  setLineTier: (
+    productId: string,
+    tier: { tierId: string | null; tierName?: string | null; price?: number | null; unitsPerPackage?: number | null },
+  ) => void;
   remove: (productId: string) => void;
   setCustomer: (customer: Customer | null) => void;
   setCustomerAlias: (alias: string | null) => void;
@@ -32,12 +47,34 @@ export const useCart = create<CartState>((set) => ({
   lines: [],
   customer: null,
   customerAlias: null,
-  setCustomer: (customer) => set({ customer, customerAlias: null }),
+  setCustomer: (customer) =>
+    set((state) => {
+      const oldTierId = state.customer?.price_tier_id;
+      const newTierId = customer?.price_tier_id;
+      const updatedLines = state.lines.map((line) => {
+        // If customer has a tier and line has no tier, assign customer tier
+        if (newTierId && !line.tierId) {
+          return { ...line, tierId: newTierId };
+        }
+        // If customer was removed or changed, and line had the old customer tier, clear it
+        if (!newTierId && oldTierId && line.tierId === oldTierId) {
+          return {
+            ...line,
+            tierId: null,
+            tierName: null,
+            unitPrice: line.basePrice ?? line.unitPrice,
+            unitsPerPackage: 1,
+          };
+        }
+        return line;
+      });
+      return { customer, customerAlias: null, lines: updatedLines };
+    }),
   setCustomerAlias: (customerAlias) => set({ customerAlias, customer: null }),
-  add: (item) =>
+  add: (item, tier) =>
     set((state) => {
       const maxQty = toNumber(item.available);
-      const existing = state.lines.find((line) => line.productId === item.product_id);
+      const existing = state.lines.find((line) => line.productId === item.product_id && line.tierId === (tier?.tierId ?? null));
       if (existing) {
         if (existing.maxQty != null && existing.qty >= existing.maxQty) return state;
         return {
@@ -47,20 +84,44 @@ export const useCart = create<CartState>((set) => ({
         };
       }
       if (maxQty != null && maxQty <= 0) return state;
+      const basePrice = toNumber(item.price) ?? 0;
+      const unitPrice = tier?.price != null ? Number(tier.price) : basePrice;
+      const tierId = tier?.tierId ?? state.customer?.price_tier_id ?? null;
+      const tierName = tier?.tierName ?? null;
+      const unitsPerPackage = tier?.unitsPerPackage ?? 1;
+
       return {
         lines: [
           ...state.lines,
           {
             productId: item.product_id,
             name: item.name,
-            unitPrice: toNumber(item.price) ?? 0,
+            basePrice,
+            unitPrice,
             taxRate: toNumber(item.tax_rate),
             qty: 1,
             maxQty,
+            tierId,
+            tierName,
+            unitsPerPackage,
           },
         ],
       };
     }),
+  setLineTier: (productId, tier) =>
+    set((state) => ({
+      lines: state.lines.map((line) => {
+        if (line.productId !== productId) return line;
+        const unitPrice = tier.price != null ? Number(tier.price) : (line.basePrice ?? line.unitPrice);
+        return {
+          ...line,
+          tierId: tier.tierId,
+          tierName: tier.tierName ?? null,
+          unitPrice,
+          unitsPerPackage: tier.unitsPerPackage ?? 1,
+        };
+      }),
+    })),
   setQty: (productId, qty) =>
     set((state) => ({
       lines: state.lines

@@ -78,7 +78,11 @@ export function CheckoutDialog({
       const response = await api.sales.checkout({
         id: saleId,
         branch_id: branchId,
-        items: lines.map((line) => ({ product_id: line.productId, qty: String(line.qty) })),
+        items: lines.map((line) => ({
+          product_id: line.productId,
+          qty: String(line.qty),
+          tier_id: line.tierId ?? null,
+        })),
         payments: [{ method, amount: String(paid) }],
         quoted_total: String(total),
         customer_id: customer?.id ?? null,

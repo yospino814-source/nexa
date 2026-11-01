@@ -116,9 +116,17 @@ export function CartPanel({
             {lines.map((line) => (
               <li key={line.productId} className="flex items-center gap-3 py-4">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{line.name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate font-medium">{line.name}</p>
+                    {line.tierName && (
+                      <span className="shrink-0 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                        {line.tierName}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500">
                     {formatCOP(line.unitPrice)} c/u · {taxLabel(line.taxRate)}
+                    {line.unitsPerPackage && line.unitsPerPackage > 1 ? ` · x${line.unitsPerPackage} un.` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1">

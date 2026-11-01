@@ -102,6 +102,7 @@ export const screens: Screen[] = [
   s("19", "usuarios-y-roles", "Usuarios y roles", "/configuracion/usuarios", "configuracion", "admin", "react"),
   s("20", "pagos-impuestos-y-facturacion", "Pagos, impuestos y DIAN", "/configuracion/facturacion", "configuracion", "admin"),
   s("32", "cajas", "Cajas registradoras", "/configuracion/cajas", "configuracion", "admin", "react"),
+  s("33", "tarifas", "Tarifas y presentaciones", "/configuracion/tarifas", "configuracion", "admin", "react"),
 ];
 
 export function screenByRoute(route: string): Screen | undefined {

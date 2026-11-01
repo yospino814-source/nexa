@@ -18,12 +18,14 @@ export type CatalogItem = {
   product_id: Uuid;
   name: string;
   category: string | null;
+  barcode?: string | null;
   price: Decimal | null;
   tax_code: TaxCode | null;
   /** Fraccion: 0.19 para IVA 19%. `null` = exento. */
   tax_rate: Decimal | null;
   /** Unidades disponibles (on_hand - reserved); `null` si no aplica. */
   available: Decimal | null;
+  tier_barcodes?: TierBarcode[];
 };
 
 export type OrderStatus =
@@ -655,6 +657,7 @@ export type CreateCustomerInput = {
   dv?: string | null;
   phone?: string | null;
   email?: string | null;
+  price_tier_id?: Uuid | null;
 };
 
 export type CustomerQuery = {
@@ -684,4 +687,61 @@ export type ApiErrorBody = {
   error: string;
   code?: string;
   data?: unknown;
+};
+
+export type TierKind = "CLIENTE" | "PRESENTACION";
+export type TierAdjustment =
+  | "NINGUNO"
+  | "DESCUENTO_PCT"
+  | "RECARGO_PCT"
+  | "DESCUENTO_FIJO"
+  | "RECARGO_FIJO"
+  | "PRECIO_FIJO";
+
+export type PriceTier = {
+  id: Uuid;
+  tenant_id: Uuid;
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreatePriceTierInput = {
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+};
+
+export type UpdatePriceTierInput = {
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+  active: boolean;
+};
+
+export type ProductTierPrice = {
+  tier_id: Uuid;
+  price?: Decimal | null;
+  units_per_package?: Decimal | null;
+  barcode?: string | null;
+};
+
+export type SetProductTierPriceInput = {
+  tier_id: Uuid;
+  price?: Decimal | null;
+  units_per_package?: Decimal | null;
+  barcode?: string | null;
+};
+
+export type TierBarcode = {
+  tier_id: Uuid;
+  barcode: string;
 };
