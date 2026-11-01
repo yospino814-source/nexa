@@ -206,7 +206,6 @@ const mockBranchSettings: Record<string, BranchSettings> = {
     },
     cash: {
       require_session: true,
-      one_session_per_user: true,
       close_tolerance: "0.00",
       blind_close: true,
     },

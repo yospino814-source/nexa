@@ -143,10 +143,29 @@ export type CheckoutResponse = {
 
 // ------------------------------------------------------------------- caja
 
+/** src/registers.rs::Register */
+export type CashRegister = {
+  id: Uuid;
+  branch_id: Uuid;
+  name: string;
+  code: string;
+  default_opening: Decimal;
+  active: boolean;
+  open_session: null | {
+    id: Uuid;
+    opened_by: Uuid;
+    opened_by_name: string | null;
+    opened_at: string;
+  };
+};
+
 /** src/cash.rs::CashSession */
 export type CashSession = {
   id: Uuid;
   branch_id: Uuid;
+  register_id: Uuid;
+  register_name: string;
+  register_code: string;
   opened_by: Uuid;
   opening_amount: Decimal;
   opened_at: string;
@@ -395,7 +414,6 @@ export type PosSettings = {
 
 export type CashSettings = {
   require_session: boolean;
-  one_session_per_user: boolean;
   close_tolerance: Decimal;
   blind_close?: boolean;
 };

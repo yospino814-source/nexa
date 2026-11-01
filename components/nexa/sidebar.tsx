@@ -22,7 +22,7 @@ import { useSession } from "@/lib/stores/session";
 import type { Role } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; match?: string[] };
+type NavItem = { href: string; label: string; icon: LucideIcon; match?: string[]; permission?: string };
 
 const navItems: NavItem[] = [
   { href: "/panel", label: "Panel principal", icon: LayoutDashboard },
@@ -33,7 +33,7 @@ const navItems: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/mesas", label: "Restaurante", icon: UtensilsCrossed, match: ["/mesas", "/comanda", "/cocina"] },
   { href: "/rutas", label: "Rutas y mayorista", icon: Truck, match: ["/rutas", "/mayorista", "/repartidor"] },
-  { href: "/configuracion/negocio", label: "Configuración", icon: Settings, match: ["/configuracion"] },
+  { href: "/configuracion/negocio", label: "Configuración", icon: Settings, match: ["/configuracion"], permission: "settings:write" },
 ];
 
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
@@ -73,14 +73,17 @@ function isAllowedForRole(href: string, userRole: Role): boolean {
 /** Sidebar del layout de administracion: 72px, oscuro, solo iconos con tooltip. */
 export function Sidebar() {
   const pathname = usePathname();
-  const { branches, branchId } = useSession();
+  const { branches, branchId, can } = useSession();
   const currentBranch = branches.find((b) => b.id === branchId) ?? branches[0];
   const role = currentBranch?.role ?? "DUENO";
 
   const isActive = (item: NavItem) =>
     (item.match ?? [item.href]).some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
-  const visibleNavItems = navItems.filter((item) => isAllowedForRole(item.href, role));
+  const visibleNavItems = navItems.filter((item) => {
+    if (item.permission && !can(item.permission)) return false;
+    return isAllowedForRole(item.href, role);
+  });
   const showModules = process.env.NODE_ENV !== "production";
 
   return (

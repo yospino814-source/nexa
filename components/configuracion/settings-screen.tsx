@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Building2,
+  Calculator,
   CreditCard,
   History,
   Package,
@@ -28,6 +29,7 @@ type SettingsTab = "negocio" | "sucursales" | "pos" | "caja" | "inventario" | "i
 export function SettingsScreen() {
   const currentBranch = useCurrentBranch();
   const branches = useSession((s) => s.branches);
+  const can = useSession((s) => s.can);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("pos");
   const [selectedBranchId, setSelectedBranchId] = useState<string>(currentBranch.id);
@@ -90,6 +92,15 @@ export function SettingsScreen() {
 
         {/* Shortcuts */}
         <div className="flex flex-wrap items-center gap-2">
+          {can("settings:write") && (
+            <Link
+              href="/configuracion/cajas"
+              className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+            >
+              <Calculator className="size-4" />
+              Cajas registradoras
+            </Link>
+          )}
           <Link
             href="/configuracion/usuarios"
             className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
@@ -300,27 +311,6 @@ export function SettingsScreen() {
               </label>
             </div>
 
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
-              <label className="flex items-start justify-between gap-4 cursor-pointer">
-                <div>
-                  <span className="font-bold text-slate-900 text-sm block">Un solo turno por usuario</span>
-                  <span className="text-xs text-slate-500 block mt-0.5">
-                    Evita que un cajero tenga múltiples sesiones o gavetas abiertas al mismo tiempo en esta sucursal.
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={formSettings.cash.one_session_per_user}
-                  onChange={(e) =>
-                    setFormSettings({
-                      ...formSettings,
-                      cash: { ...formSettings.cash, one_session_per_user: e.target.checked },
-                    })
-                  }
-                  className="mt-1 size-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                />
-              </label>
-            </div>
 
             <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
               <label className="flex items-start justify-between gap-4 cursor-pointer">

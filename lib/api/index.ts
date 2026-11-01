@@ -47,6 +47,7 @@ import type {
   BranchSettings,
   CashActivity,
   CashMovementKind,
+  CashRegister,
   CashSession,
   CashSessionRow,
   CashSummary,
@@ -113,6 +114,9 @@ function seedClosedSessions(): CashSummary[] {
       session: {
         id: crypto.randomUUID(),
         branch_id: MOCK_BRANCH_ID,
+        register_id: "00000000-0000-4000-8000-000000000c01",
+        register_name: "Caja 1",
+        register_code: "CAJA-1",
         opened_by: "00000000-0000-4000-8000-0000000000aa",
         opening_amount: dec(opening),
         opened_at: opened.toISOString(),
@@ -133,10 +137,39 @@ function seedClosedSessions(): CashSummary[] {
   });
 }
 
-function newMockSession(opening: number): CashSession {
+const mockRegisters: CashRegister[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000c01",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Caja 1",
+    code: "CAJA-1",
+    default_opening: "200000.00",
+    active: true,
+    open_session: null,
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000c02",
+    branch_id: MOCK_BRANCH_ID,
+    name: "Caja 2",
+    code: "CAJA-2",
+    default_opening: "100000.00",
+    active: true,
+    open_session: null,
+  },
+];
+
+function newMockSession(
+  opening: number,
+  registerId?: string,
+  registerName?: string,
+  registerCode?: string,
+): CashSession {
   return {
     id: crypto.randomUUID(),
     branch_id: MOCK_BRANCH_ID,
+    register_id: registerId ?? mockRegisters[0].id,
+    register_name: registerName ?? mockRegisters[0].name,
+    register_code: registerCode ?? mockRegisters[0].code,
     opened_by: "00000000-0000-4000-8000-0000000000aa",
     opening_amount: dec(opening),
     opened_at: new Date().toISOString(),
@@ -359,16 +392,31 @@ export const api = {
     },
 
     /** POST /v1/cash-sessions */
-    async open(branchId: Uuid, openingAmount: Decimal): Promise<CashSession> {
+    async open(branchId: Uuid, registerId: Uuid, openingAmount: Decimal): Promise<CashSession> {
       if (!USE_MOCKS) {
         return request("/v1/cash-sessions", {
           method: "POST",
-          body: JSON.stringify({ branch_id: branchId, opening_amount: openingAmount }),
+          body: JSON.stringify({ branch_id: branchId, register_id: registerId, opening_amount: openingAmount }),
         });
       }
       await delay();
-      if (mockCash) throw new ApiError(409, "there is already an open cash session");
-      mockCash = newMockSession(Number(openingAmount));
+      if (mockCash) throw new ApiError(409, "there is already an open cash session", "USER_HAS_OPEN_SESSION");
+      const reg = mockRegisters.find((r) => r.id === registerId);
+      if (!reg || !reg.active) {
+        throw new ApiError(422, "La caja no existe o no está activa", "REGISTER_INVALID");
+      }
+      if (reg.open_session) {
+        throw new ApiError(409, "La caja ya tiene un turno abierto", "REGISTER_BUSY", {
+          opened_by_name: reg.open_session.opened_by_name,
+        });
+      }
+      mockCash = newMockSession(Number(openingAmount), registerId, reg.name, reg.code);
+      reg.open_session = {
+        id: mockCash.id,
+        opened_by: mockCash.opened_by,
+        opened_by_name: "Tú",
+        opened_at: mockCash.opened_at,
+      };
       return structuredClone(mockCash);
     },
 
@@ -384,6 +432,8 @@ export const api = {
       if (!mockCash || mockCash.id !== sessionId) throw new ApiError(409, "cash session is already closed");
       const expected = Number(mockSummary(mockCash).expected_cash);
       const counted = Number(countedCash);
+      const reg = mockRegisters.find((r) => r.id === mockCash?.register_id);
+      if (reg) reg.open_session = null;
       const closed: CashSession = {
         ...mockCash,
         closed_at: new Date().toISOString(),
@@ -447,6 +497,72 @@ export const api = {
         }));
       }
       return request(`/v1/cash-sessions?branch_id=${branchId}&limit=${limit}`);
+    },
+  },
+
+  cashRegisters: {
+    async list(branchId: Uuid): Promise<CashRegister[]> {
+      if (!USE_MOCKS) {
+        return request(`/v1/cash-registers?branch_id=${branchId}`);
+      }
+      await delay();
+      return structuredClone(mockRegisters.filter((r) => r.branch_id === branchId || branchId === MOCK_BRANCH_ID));
+    },
+
+    async create(req: { branch_id: Uuid; name: string; code: string; default_opening: number }): Promise<CashRegister> {
+      if (!USE_MOCKS) {
+        return request("/v1/cash-registers", {
+          method: "POST",
+          body: JSON.stringify(req),
+        });
+      }
+      await delay();
+      const code = req.code.trim().toUpperCase();
+      if (mockRegisters.some((r) => r.code === code)) {
+        throw new ApiError(409, "Ya existe una caja con ese código en la sucursal", "REGISTER_CODE_TAKEN");
+      }
+      const newReg: CashRegister = {
+        id: crypto.randomUUID(),
+        branch_id: req.branch_id,
+        name: req.name.trim(),
+        code,
+        default_opening: dec(req.default_opening),
+        active: true,
+        open_session: null,
+      };
+      mockRegisters.push(newReg);
+      return structuredClone(newReg);
+    },
+
+    async update(
+      id: Uuid,
+      req: { name: string; code: string; default_opening: number; active: boolean },
+    ): Promise<CashRegister> {
+      if (!USE_MOCKS) {
+        return request(`/v1/cash-registers/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(req),
+        });
+      }
+      await delay();
+      const idx = mockRegisters.findIndex((r) => r.id === id);
+      if (idx === -1) throw new ApiError(404, "Caja no encontrada");
+      const current = mockRegisters[idx];
+      const code = req.code.trim().toUpperCase();
+      if (mockRegisters.some((r) => r.id !== id && r.code === code)) {
+        throw new ApiError(409, "Ya existe una caja con ese código en la sucursal", "REGISTER_CODE_TAKEN");
+      }
+      if (!req.active && current.open_session) {
+        throw new ApiError(409, "No se puede desactivar una caja con un turno abierto", "REGISTER_HAS_OPEN_SESSION");
+      }
+      mockRegisters[idx] = {
+        ...current,
+        name: req.name.trim(),
+        code,
+        default_opening: dec(req.default_opening),
+        active: req.active,
+      };
+      return structuredClone(mockRegisters[idx]);
     },
   },
 
