@@ -2,6 +2,7 @@ mod audit;
 pub mod auth;
 mod cash;
 mod catalog;
+pub mod customers;
 mod db;
 mod error;
 mod inventory;

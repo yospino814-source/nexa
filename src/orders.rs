@@ -82,6 +82,9 @@ pub struct Order {
     pub tip_amount: Decimal,
     /// `subtotal + inc_amount + tip_amount`.
     pub total_amount: Decimal,
+    pub customer_id: Option<Uuid>,
+    pub customer_alias: Option<String>,
+    pub customer_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -99,10 +102,12 @@ pub struct OrderItem {
 }
 
 const ORDER_COLS: &str = "o.id, st.tima_codigo as sale_type, os.tima_codigo as status, \
-     o.table_id, o.branch_id, o.waiter_id, o.subtotal, o.inc_amount, o.tip_amount, o.total_amount";
+     o.table_id, o.branch_id, o.waiter_id, o.subtotal, o.inc_amount, o.tip_amount, o.total_amount, \
+     o.customer_id, o.customer_alias, c.name as customer_name";
 const ORDER_FROM: &str = "orders o \
      join tbl_tipos_maestra st on st.tima_id = o.sale_type_id \
-     join tbl_tipos_maestra os on os.tima_id = o.status_id";
+     join tbl_tipos_maestra os on os.tima_id = o.status_id \
+     left join customers c on c.id = o.customer_id";
 pub(crate) const ITEM_COLS: &str =
     "id, product_id, qty, unit_price, line_total, tax_rate, tax_amount, station_id, status_id";
 

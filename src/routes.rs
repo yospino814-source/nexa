@@ -16,8 +16,8 @@ use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, inventory, orders, permissions, procurement, registers, sales,
-    settings, tenancy, users,
+    AppState, audit, cash, catalog, customers, inventory, orders, permissions, procurement,
+    registers, sales, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -67,6 +67,8 @@ pub fn router() -> Router<AppState> {
         // Catalogo
         .route("/v1/catalog", get(catalog_list))
         .route("/v1/products/{id}/recipe", get(recipe))
+        // Clientes
+        .route("/v1/customers", get(search_customers).post(create_customer))
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
         .route(
@@ -886,4 +888,21 @@ async fn auth_login_attempt(
     Ok(Json(
         json!({ "status": "ok", "failed_attempts_in_window": count }),
     ))
+}
+
+async fn search_customers(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<customers::CustomerQuery>,
+) -> ApiResult<Json<Vec<customers::Customer>>> {
+    Ok(Json(customers::search(&state.pool, &user.claims, q).await?))
+}
+
+async fn create_customer(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(input): Body<customers::CreateCustomerInput>,
+) -> ApiResult<(StatusCode, Json<customers::Customer>)> {
+    let customer = customers::create(&state.pool, &user.claims, input).await?;
+    Ok((StatusCode::CREATED, Json(customer)))
 }

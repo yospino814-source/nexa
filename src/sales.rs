@@ -8,13 +8,14 @@
 //! reintento. Si la venta ya existe con el mismo cuerpo se devuelve tal cual
 //! (sin cobrar dos veces); si el cuerpo cambio, se responde 409.
 
+use axum::http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{ApiError, state, validation};
+use crate::error::{self, ApiError, state, validation};
 use crate::orders::{self, ITEM_COLS, Order, OrderItem};
 use crate::tenancy::{self, Action, Scope};
 use crate::{cash, inventory};
@@ -69,6 +70,10 @@ pub struct SaleRequest {
     pub payments: Vec<SalePayment>,
     #[serde(default)]
     pub tip_amount: Option<Decimal>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_alias: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -235,6 +240,73 @@ pub async fn checkout_tx(
     // Cargar ajustes de la sucursal para validar reglas de venta y caja
     let settings = crate::settings::load_tx(tx, branch).await?;
 
+    // Validar cliente y alias (F1.4)
+    let customer_id = req.customer_id;
+    let customer_alias = req.customer_alias.as_deref().map(|a| a.trim());
+
+    // 1. Vienen los dos: 422 SALE_CUSTOMER_AND_ALIAS
+    if customer_id.is_some() && req.customer_alias.is_some() {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_CUSTOMER_AND_ALIAS",
+            "No se puede especificar cliente y alias al mismo tiempo",
+            None,
+        ));
+    }
+
+    // 2. customer_alias sin espacios a los lados debe tener entre 1 y 40 caracteres. Si no: 422 SALE_ALIAS_INVALID
+    if let Some(raw_alias) = &req.customer_alias {
+        let trimmed = raw_alias.trim();
+        if trimmed.is_empty() || trimmed.len() > 40 {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_ALIAS_INVALID",
+                "El alias debe tener entre 1 y 40 caracteres",
+                None,
+            ));
+        }
+    }
+
+    // 3. Viene alias y settings.pos.allow_alias_sales es falso: 422 SALE_ALIAS_NOT_ALLOWED
+    if customer_alias.is_some() && !settings.pos.allow_alias_sales {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_ALIAS_NOT_ALLOWED",
+            "Las ventas con alias no están permitidas en esta sucursal",
+            None,
+        ));
+    }
+
+    // 4. No viene ninguno y settings.pos.allow_anonymous_sales es falso: 422 SALE_CUSTOMER_REQUIRED
+    if customer_id.is_none() && customer_alias.is_none() && !settings.pos.allow_anonymous_sales {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_CUSTOMER_REQUIRED",
+            "Esta sucursal requiere identificar al cliente",
+            None,
+        ));
+    }
+
+    // 5. Viene customer_id y no existe o está archivado: 422 SALE_CUSTOMER_INVALID
+    if let Some(cid) = customer_id {
+        let exists: Option<bool> = sqlx::query_scalar(
+            "select true from customers where id = $1 and tenant_id = $2 and archived_at is null",
+        )
+        .bind(cid)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if exists.is_none() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_CUSTOMER_INVALID",
+                "El cliente seleccionado no existe o está archivado",
+                None,
+            ));
+        }
+    }
+
     for item in &req.items {
         if item.unit_price_override.is_some() {
             if !settings.pos.allow_price_override {
@@ -348,7 +420,8 @@ pub async fn checkout_tx(
         "update orders
             set status_id = public.tipo_id('ORD', 'COBRADA'),
                 cash_session_id = $2, receipt_prefix = $3, receipt_number = $4,
-                paid_amount = $5, change_due = $6, waiter_id = null
+                paid_amount = $5, change_due = $6, waiter_id = null,
+                customer_id = $7, customer_alias = $8
           where id = $1",
     )
     .bind(req.id)
@@ -357,6 +430,8 @@ pub async fn checkout_tx(
     .bind(number)
     .bind(settlement.paid)
     .bind(settlement.change_due)
+    .bind(customer_id)
+    .bind(customer_alias)
     .execute(&mut **tx)
     .await?;
 
@@ -478,6 +553,8 @@ mod tests {
             }],
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
         };
         assert!(validate(&base).is_ok());
 

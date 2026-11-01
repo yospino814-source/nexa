@@ -77,3 +77,41 @@ alter table public.cash_movements
   add column reason_code text check (reason_code in ('CONSIGNACION','GASTO_MENOR','PRESTAMO','OTRO')),
   add column ref_type text,
   add column ref_id uuid;
+
+
+-- ============================================================
+-- F1.4 Clientes mínimos y cliente en la venta
+-- ============================================================
+
+create table public.customers (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  doc_type text check (doc_type in ('CC','NIT','CE','PP','TI','PEP','PPT','NIUP')),
+  doc_number text check (doc_number ~ '^[A-Z0-9]{3,20}$'),
+  dv char(1) check (dv ~ '^[0-9]$'),
+  name text not null check (length(trim(name)) between 1 and 120),
+  phone text check (phone ~ '^[0-9]{7,15}$'),
+  email text,
+  price_tier_id uuid,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, id),
+  check ((doc_type is null) = (doc_number is null)),
+  check (dv is null or doc_type = 'NIT')
+);
+create unique index customers_doc_idx on public.customers (tenant_id, doc_type, doc_number)
+  where doc_number is not null and archived_at is null;
+create index customers_name_idx on public.customers (tenant_id, lower(name));
+
+alter table public.customers enable row level security;
+create policy customers_isolation on public.customers
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+grant select, insert, update on public.customers to authenticated;
+
+alter table public.orders
+  add column customer_id uuid,
+  add column customer_alias text check (customer_alias is null or length(customer_alias) between 1 and 40),
+  add constraint orders_customer_fkey foreign key (tenant_id, customer_id) references public.customers (tenant_id, id),
+  add constraint orders_customer_xor check (customer_id is null or customer_alias is null);

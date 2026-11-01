@@ -13,8 +13,8 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, inventory, orders, outbox, permissions, procurement, registers,
-    routes, sales, sequences, settings, tenancy, users,
+    AppState, cash, catalog, customers, inventory, orders, outbox, permissions, procurement,
+    registers, routes, sales, sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -766,6 +766,7 @@ async fn database_integration() {
     f1_registers(&app, &admin).await;
     f1_cash_kinds(&app, &admin).await;
     f1_cash_state(&app, &admin).await;
+    f1_sale_customer(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1054,6 +1055,8 @@ fn sale(
             })
             .collect(),
         tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
     }
 }
 
@@ -1877,6 +1880,8 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             reference: None,
         }],
         tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
     };
     let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req.clone()).await;
     assert!(is_validation(&try_override_sale));
@@ -1897,6 +1902,8 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             reference: None,
         }],
         tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
     };
     let try_high_disc = sales::checkout(app, &c_cashier, sale_disc_req).await;
     assert!(is_validation(&try_high_disc));
@@ -1918,6 +1925,8 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             reference: None,
         }],
         tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
     };
     let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req.clone())
         .await
@@ -2669,6 +2678,131 @@ async fn f1_cash_state(app: &PgPool, admin: &PgPool) {
     .expect("close with updated token should succeed");
 
     assert!(closed.session.closed_at.is_some());
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    let soda = seed_product(admin, tenant, "Soda Cust", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "100", "0").await;
+
+    // Crear un cliente
+    let customer = customers::create(
+        app,
+        &c_cashier,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("12345678".into()),
+            dv: None,
+            name: "Cliente Prueba".into(),
+            phone: Some("3001234567".into()),
+            email: Some("cliente@prueba.com".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    // 1. [P] Cliente y alias juntos: 422 SALE_CUSTOMER_AND_ALIAS
+    let mut sale_both = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(PaymentMethod::Efectivo, 2975)],
+    );
+    sale_both.customer_id = Some(customer.id);
+    sale_both.customer_alias = Some("Mesa 4".into());
+    let try_both = sales::checkout(app, &c_cashier, sale_both).await;
+    match try_both {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "SALE_CUSTOMER_AND_ALIAS");
+        }
+        other => panic!("Expected Coded SALE_CUSTOMER_AND_ALIAS, got {:?}", other),
+    }
+
+    // 2. [P] Con allow_alias_sales = false, una venta con alias: 422 SALE_ALIAS_NOT_ALLOWED
+    sqlx::query(
+        "update branch_settings set settings = jsonb_set(settings, '{pos,allow_alias_sales}', 'false') where branch_id = $1"
+    )
+    .bind(branch)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let mut sale_alias = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(PaymentMethod::Efectivo, 2975)],
+    );
+    sale_alias.customer_alias = Some("Mesa 4".into());
+    let try_alias = sales::checkout(app, &c_cashier, sale_alias).await;
+    match try_alias {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "SALE_ALIAS_NOT_ALLOWED");
+        }
+        other => panic!("Expected Coded SALE_ALIAS_NOT_ALLOWED, got {:?}", other),
+    }
+
+    // 3. [P] Con allow_anonymous_sales = false, una venta sin cliente: 422 SALE_CUSTOMER_REQUIRED
+    sqlx::query(
+        "update branch_settings set settings = jsonb_set(settings, '{pos,allow_anonymous_sales}', 'false') where branch_id = $1"
+    )
+    .bind(branch)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let sale_anon = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(PaymentMethod::Efectivo, 2975)],
+    );
+    let try_anon = sales::checkout(app, &c_cashier, sale_anon).await;
+    match try_anon {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "SALE_CUSTOMER_REQUIRED");
+        }
+        other => panic!("Expected Coded SALE_CUSTOMER_REQUIRED, got {:?}", other),
+    }
+
+    // Con cliente sí funciona
+    let mut sale_with_customer = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(PaymentMethod::Efectivo, 2975)],
+    );
+    sale_with_customer.customer_id = Some(customer.id);
+    let ok_sale = sales::checkout(app, &c_cashier, sale_with_customer)
+        .await
+        .expect("sale with customer should succeed");
+    match ok_sale {
+        sales::Checkout::Created(resp) => {
+            assert_eq!(resp.order.customer_id, Some(customer.id));
+            assert_eq!(resp.order.customer_name.as_deref(), Some("Cliente Prueba"));
+        }
+        _ => panic!("Expected Created"),
+    }
 
     cleanup(admin, tenant, &[owner, cashier]).await;
 }
