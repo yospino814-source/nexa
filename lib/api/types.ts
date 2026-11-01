@@ -392,6 +392,114 @@ export type Movement = {
 
 export type StockStatus = "AGOTADO" | "BAJO" | "OK";
 
+export type ProductKind = "FISICO" | "SERVICIO" | "PREPARADO";
+export type ProductUsage = "VENTA" | "INSUMO" | "INTERNO";
+
+export type ProductRow = {
+  id: Uuid;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  kind: ProductKind;
+  usage: ProductUsage;
+  price: Decimal | null;
+  cost_price: Decimal | null;
+  tax_code: string;
+  on_hand: Decimal;
+  category_name: string | null;
+  has_variants: boolean;
+  parent_id: Uuid | null;
+  archived: boolean;
+};
+
+export type LocationStock = {
+  location_id: Uuid;
+  location_name: string;
+  on_hand: Decimal;
+  reserved: Decimal;
+  min_qty: Decimal | null;
+  avg_cost: Decimal;
+};
+
+export type ProductDetail = {
+  id: Uuid;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  kind: ProductKind;
+  usage: ProductUsage;
+  price: Decimal | null;
+  cost_price: Decimal | null;
+  tax_code: string;
+  on_hand: Decimal;
+  category_name: string | null;
+  has_variants: boolean;
+  parent_id: Uuid | null;
+  archived: boolean;
+  unit_measure_code: string;
+  purchase_uom_code: string | null;
+  purchase_factor: Decimal;
+  reorder_qty: Decimal | null;
+  max_qty: Decimal | null;
+  track_lots: boolean;
+  allow_price_override: boolean;
+  description: string | null;
+  variants: ProductRow[];
+  tier_prices: ProductTierPrice[];
+  option_groups: unknown[];
+  stock_by_location: LocationStock[];
+};
+
+export type ProductInput = {
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  kind?: ProductKind;
+  usage?: ProductUsage;
+  unit_measure_code: string;
+  purchase_uom_code?: string | null;
+  purchase_factor?: Decimal;
+  tax_code: string;
+  cost_price?: Decimal | null;
+  base_price?: Decimal | null;
+  reorder_qty?: Decimal | null;
+  max_qty?: Decimal | null;
+  track_lots?: boolean;
+  allow_price_override?: boolean;
+  has_variants?: boolean;
+  description?: string | null;
+};
+
+export type CreateVariantInput = {
+  sku?: string | null;
+  barcode?: string | null;
+  attrs: Record<string, string>;
+  price: Decimal;
+  cost_price?: Decimal | null;
+};
+
+export type UpdateBranchProductInput = {
+  branch_id: Uuid;
+  price: Decimal;
+  category_id?: Uuid | null;
+  is_available?: boolean;
+};
+
+export type ProductListParams = {
+  branch_id?: Uuid;
+  q?: string;
+  category_id?: Uuid;
+  usage?: string;
+  archived?: boolean;
+  page?: number;
+  page_size?: number;
+};
+
+export type ProductListResponse = {
+  items: ProductRow[];
+  total_count: number;
+};
+
 /** GET /v1/inventory/stock?branch_id= — src/inventory.rs::StockLevel */
 export type StockLevel = {
   product_id: Uuid;
@@ -400,6 +508,8 @@ export type StockLevel = {
   barcode: string | null;
   category: string | null;
   unit: string | null;
+  kind?: ProductKind;
+  usage?: ProductUsage;
   /** Precio de venta en la sucursal, sin impuesto. */
   price: Decimal | null;
   cost_price: Decimal | null;

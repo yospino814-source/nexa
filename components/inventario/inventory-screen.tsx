@@ -11,6 +11,7 @@ import {
   History,
   PackagePlus,
   Pencil,
+  Plus,
   Search,
   Tag,
   XCircle,
@@ -44,6 +45,7 @@ export function InventoryScreen() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState<StockStatus | "">("");
+  const [usageFilter, setUsageFilter] = useState<string>("");
   const [editing, setEditing] = useState<{ item: StockLevel; mode: StockMode } | null>(null);
   const [moving, setMoving] = useState<StockLevel | null>(null);
   const [tierPricingItem, setTierPricingItem] = useState<StockLevel | null>(null);
@@ -57,7 +59,8 @@ export function InventoryScreen() {
   const rows = items.filter((i) => {
     const q = query.trim().toLowerCase();
     const matches = !q || [i.name, i.sku, i.barcode].some((v) => v?.toLowerCase().includes(q));
-    return matches && (!category || i.category === category) && (!status || i.status === status);
+    const matchesUsage = !usageFilter || (i.usage ?? "VENTA") === usageFilter;
+    return matches && (!category || i.category === category) && (!status || i.status === status) && matchesUsage;
   });
 
   if (!ADMIN_ROLES.includes(branch.role)) {
@@ -83,12 +86,20 @@ export function InventoryScreen() {
           <h1 className="text-3xl font-bold tracking-tight">Existencias e inventario</h1>
           <p className="mt-1 text-slate-500">Disponibilidad, alertas de reorden y valor del inventario en {branch.name}.</p>
         </div>
-        <Link
-          href="/inventario/movimientos"
-          className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"
-        >
-          <History className="size-4" /> Kardex de movimientos
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/inventario/movimientos"
+            className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"
+          >
+            <History className="size-4" /> Kardex de movimientos
+          </Link>
+          <Link
+            href="/inventario/producto/nuevo"
+            className="flex h-11 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+          >
+            <Plus className="size-4" /> Nuevo producto
+          </Link>
+        </div>
       </div>
 
       {loading && !data ? (
@@ -136,6 +147,17 @@ export function InventoryScreen() {
         </label>
         <Select label="Categoría" value={category} onChange={setCategory} options={categories.map((c) => [c, c])} />
         <Select
+          label="Uso"
+          value={usageFilter}
+          onChange={setUsageFilter}
+          options={[
+            ["", "Todos los usos"],
+            ["VENTA", "Venta"],
+            ["INSUMO", "Insumo"],
+            ["INTERNO", "Uso interno"],
+          ]}
+        />
+        <Select
           label="Estado"
           value={status}
           onChange={(v) => setStatus(v as StockStatus | "")}
@@ -165,6 +187,7 @@ export function InventoryScreen() {
           <thead className="border-b border-slate-100 text-left text-xs tracking-wider text-slate-500 uppercase">
             <tr>
               <th className="px-6 py-4 font-semibold">Producto</th>
+              <th className="px-4 py-4 font-semibold">Tipo</th>
               <th className="px-4 py-4 font-semibold">Categoría</th>
               <th className="px-4 py-4 text-right font-semibold">Precio venta</th>
               <th className="px-4 py-4 text-right font-semibold">Costo unit.</th>
@@ -178,10 +201,20 @@ export function InventoryScreen() {
             {rows.map((i) => {
               const st = STATUS[i.status];
               return (
-                <tr key={i.product_id} className={cn(i.status === "AGOTADO" && "bg-rose-50/30")}>
+                <tr key={i.product_id} className={cn("hover:bg-slate-50/50 transition-colors", i.status === "AGOTADO" && "bg-rose-50/30")}>
                   <td className="px-6 py-4">
-                    <p className="font-semibold">{i.name}</p>
+                    <Link
+                      href={`/inventario/producto/${i.product_id}`}
+                      className="font-semibold text-slate-900 hover:text-emerald-600 transition-colors"
+                    >
+                      {i.name}
+                    </Link>
                     <p className="font-mono text-xs text-slate-400">{i.sku ?? i.barcode ?? "—"}</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                      {i.kind ?? "FISICO"}
+                    </span>
                   </td>
                   <td className="px-4 py-4">
                     {i.category ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{i.category}</span> : "—"}

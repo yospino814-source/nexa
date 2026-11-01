@@ -121,6 +121,8 @@ export function mockStockLevels(): StockLevel[] {
         barcode: m.barcode,
         category: p.category,
         unit: "Unidad",
+        kind: "FISICO" as const,
+        usage: "VENTA" as const,
         price: p.price,
         cost_price: m.cost.toFixed(2),
         on_hand: available.toFixed(4),

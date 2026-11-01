@@ -79,7 +79,7 @@ export const screens: Screen[] = [
   // Inventario y compras
   s("05", "stock-info", "Stock e inventario", "/inventario", "inventario", "admin", "react"),
   s("08", "compras", "Compras", "/compras", "inventario", "admin", "react"),
-  s("15", "ficha-de-producto", "Ficha de producto", "/inventario/producto", "inventario", "admin"),
+  s("15", "ficha-de-producto", "Ficha de producto", "/inventario/producto", "inventario", "admin", "react"),
   s("16", "movimientos-de-inventario", "Movimientos (kardex)", "/inventario/movimientos", "inventario", "admin", "react"),
   // Ventas y finanzas
   s("01", "panel-principal", "Panel principal", "/panel", "ventas", "admin", "react"),

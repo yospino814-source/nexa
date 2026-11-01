@@ -114,6 +114,13 @@ import type {
   SaleHistoryQuery,
   SaleHistoryRow,
   BusinessInfo,
+  CreateVariantInput,
+  ProductDetail,
+  ProductInput,
+  ProductListParams,
+  ProductListResponse,
+  ProductRow,
+  UpdateBranchProductInput,
 } from "./types";
 
 export * from "./types";
@@ -1512,6 +1519,160 @@ export const api = {
       await request("/v1/inventory/min-qty", {
         method: "PUT",
         body: JSON.stringify({ branch_id: branchId, product_id: productId, min_qty: minQty }),
+      });
+    },
+  },
+
+  products: {
+    async list(params: ProductListParams = {}): Promise<ProductListResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        const stock = mockStockLevels();
+        const items: ProductRow[] = stock.map((s) => ({
+          id: s.product_id,
+          name: s.name,
+          sku: s.sku,
+          barcode: s.barcode,
+          kind: s.kind ?? "FISICO",
+          usage: s.usage ?? "VENTA",
+          price: s.price,
+          cost_price: s.cost_price,
+          tax_code: "IVA19",
+          on_hand: s.on_hand,
+          category_name: s.category,
+          has_variants: false,
+          parent_id: null,
+          archived: false,
+        }));
+        return { items, total_count: items.length };
+      }
+      const query = new URLSearchParams();
+      if (params.branch_id) query.set("branch_id", params.branch_id);
+      if (params.q) query.set("q", params.q);
+      if (params.category_id) query.set("category_id", params.category_id);
+      if (params.usage) query.set("usage", params.usage);
+      if (params.archived !== undefined) query.set("archived", String(params.archived));
+      if (params.page) query.set("page", String(params.page));
+      if (params.page_size) query.set("page_size", String(params.page_size));
+      const qs = query.toString();
+      return request(`/v1/products${qs ? `?${qs}` : ""}`);
+    },
+
+    async get(id: Uuid, branchId?: Uuid): Promise<ProductDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const stock = mockStockLevels().find((s) => s.product_id === id);
+        return {
+          id,
+          name: stock?.name ?? "Producto Demo",
+          sku: stock?.sku ?? null,
+          barcode: stock?.barcode ?? null,
+          kind: stock?.kind ?? "FISICO",
+          usage: stock?.usage ?? "VENTA",
+          price: stock?.price ?? "10000.00",
+          cost_price: stock?.cost_price ?? "5000.00",
+          tax_code: "IVA19",
+          on_hand: stock?.on_hand ?? "10.0000",
+          category_name: stock?.category ?? null,
+          has_variants: false,
+          parent_id: null,
+          archived: false,
+          unit_measure_code: "UND",
+          purchase_uom_code: null,
+          purchase_factor: "1.0000",
+          reorder_qty: stock?.min_qty ?? null,
+          max_qty: null,
+          track_lots: false,
+          allow_price_override: true,
+          description: null,
+          variants: [],
+          tier_prices: [],
+          option_groups: [],
+          stock_by_location: [
+            {
+              location_id: branchId ?? MOCK_BRANCH_ID,
+              location_name: "Principal",
+              on_hand: stock?.on_hand ?? "10.0000",
+              reserved: "0.0000",
+              min_qty: stock?.min_qty ?? null,
+              avg_cost: stock?.cost_price ?? "5000.00",
+            },
+          ],
+        };
+      }
+      const qs = branchId ? `?branch_id=${branchId}` : "";
+      return request(`/v1/products/${id}${qs}`);
+    },
+
+    async create(input: ProductInput): Promise<ProductDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const id = crypto.randomUUID();
+        return {
+          id,
+          name: input.name,
+          sku: input.sku ?? null,
+          barcode: input.barcode ?? null,
+          kind: input.kind ?? "FISICO",
+          usage: input.usage ?? "VENTA",
+          price: input.base_price ?? null,
+          cost_price: input.cost_price ?? null,
+          tax_code: input.tax_code,
+          on_hand: "0.0000",
+          category_name: null,
+          has_variants: input.has_variants ?? false,
+          parent_id: null,
+          archived: false,
+          unit_measure_code: input.unit_measure_code,
+          purchase_uom_code: input.purchase_uom_code ?? null,
+          purchase_factor: input.purchase_factor ?? "1.0000",
+          reorder_qty: input.reorder_qty ?? null,
+          max_qty: input.max_qty ?? null,
+          track_lots: input.track_lots ?? false,
+          allow_price_override: input.allow_price_override ?? true,
+          description: input.description ?? null,
+          variants: [],
+          tier_prices: [],
+          option_groups: [],
+          stock_by_location: [],
+        };
+      }
+      return request(`/v1/products`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async update(id: Uuid, input: ProductInput): Promise<ProductDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return this.get(id);
+      }
+      return request(`/v1/products/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async createVariant(id: Uuid, input: CreateVariantInput): Promise<ProductDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return this.get(id);
+      }
+      return request(`/v1/products/${id}/variants`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async updateBranchProduct(productId: Uuid, input: UpdateBranchProductInput): Promise<{ status: string; id: Uuid }> {
+      if (USE_MOCKS) {
+        await delay();
+        return { status: "ok", id: crypto.randomUUID() };
+      }
+      return request(`/v1/branch-products/${productId}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
       });
     },
   },
