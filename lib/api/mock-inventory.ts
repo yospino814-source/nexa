@@ -32,6 +32,7 @@ const DIRECTION: Record<MovementType, 1 | -1 | 0> = {
   DESCUENTO: -1,
   AJUSTE_SALIDA: -1,
   TRASLADO_SALIDA: -1,
+  DEVOLUCION: 1,
   AJUSTE: 0,
 };
 

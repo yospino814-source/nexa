@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowRight, Minus, Pencil, Percent, Plus, ShoppingCart, Tag, Trash2, User, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, Minus, Pencil, Percent, Plus, Printer, ShoppingCart, Tag, Trash2, User, X } from "lucide-react";
 
 import { api, COUPON_ERROR_MESSAGES, friendlyError, type PaymentMethod } from "@/lib/api";
 import { formatCOP, taxLabel } from "@/lib/format";
@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 
 import { CustomerDialog } from "./customer-dialog";
 import { PriceOverrideDialog } from "./price-override-dialog";
+import { PrintTicket, ticketFromQuote, type TicketModel } from "./print-ticket";
+import { useBusinessInfo } from "@/lib/api/use-business";
 import { PAYMENT_METHODS } from "./payment-methods";
 
 /** Componente compartido "Carrito": lineas + totales + accion principal. */
@@ -21,6 +23,7 @@ export function CartPanel({
   customerDialogOpen: controlledDialogOpen,
   onCustomerDialogOpenChange: setControlledDialogOpen,
   allowPriceOverride = false,
+  ticketWidth = 80,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
@@ -29,6 +32,8 @@ export function CartPanel({
   onCustomerDialogOpenChange?: (open: boolean) => void;
   /** Ajuste `pos.allow_price_override` de la sucursal. */
   allowPriceOverride?: boolean;
+  /** Ajuste `print.ticket_width_mm` (F1.15). */
+  ticketWidth?: number;
 }) {
   const {
     lines,
@@ -50,6 +55,42 @@ export function CartPanel({
   const can = useSession((s) => s.can);
   const canOverride = allowPriceOverride && can("pos:price_override");
   const [overrideLine, setOverrideLine] = useState<CartLine | null>(null);
+  const business = useBusinessInfo();
+  const cashierName = useSession((s) => s.name);
+  const [preBill, setPreBill] = useState<TicketModel | null>(null);
+  const [preBillError, setPreBillError] = useState<string | null>(null);
+
+  // F1.15: la precuenta se imprime apenas se monta su tirilla y se quita al terminar.
+  useEffect(() => {
+    if (!preBill) return;
+    const clear = () => setPreBill(null);
+    window.addEventListener("afterprint", clear);
+    window.print();
+    return () => window.removeEventListener("afterprint", clear);
+  }, [preBill]);
+
+  async function printPreBill() {
+    setPreBillError(null);
+    try {
+      const quote = await api.sales.quote({
+        branch_id: branch.id,
+        items: toSaleItems(lines),
+        customer_id: customer?.id ?? null,
+        customer_alias: customerAlias ?? null,
+        coupon_code: couponCode ?? null,
+      });
+      setPreBill(
+        ticketFromQuote(quote, {
+          cashier: cashierName,
+          register: null,
+          customer: customer?.name ?? customerAlias ?? "Consumidor final",
+          waiter: null,
+        }),
+      );
+    } catch (err) {
+      setPreBillError(friendlyError(err));
+    }
+  }
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   const isDialogOpen = controlledDialogOpen !== undefined ? controlledDialogOpen : internalDialogOpen;
   const setDialogOpen = setControlledDialogOpen !== undefined ? setControlledDialogOpen : setInternalDialogOpen;
@@ -327,6 +368,18 @@ export function CartPanel({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={printPreBill}
+          disabled={empty}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
+        >
+          <Printer className="size-4" /> Precuenta
+        </button>
+        {preBillError && <p className="text-xs font-medium text-rose-600">{preBillError}</p>}
+        {preBill && (
+          <PrintTicket model={preBill} business={business} branchName={branch.name} widthMm={ticketWidth} />
+        )}
         <button
           onClick={onCharge}
           disabled={empty}

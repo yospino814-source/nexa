@@ -150,8 +150,9 @@
     @apply font-sans;
   }
 }
-/* Tirilla termica (components/pos/print-ticket.tsx). Ancho del rollo: 80mm
-   (impresoras de 58mm: cambiar 80mm -> 58mm y 72mm -> 48mm). */
+/* Tirilla termica (components/pos/print-ticket.tsx). Rollo de 80mm por
+   defecto; con la clase .w58 (ajuste print.ticket_width_mm = 58) usa la
+   pagina con nombre "t58" y 48mm de ancho util. */
 .print-ticket {
   display: none;
 }
@@ -160,6 +161,14 @@
   @page {
     size: 80mm auto;
     margin: 0;
+  }
+  @page t58 {
+    size: 58mm auto;
+    margin: 0;
+  }
+  .print-ticket.w58 {
+    page: t58;
+    width: 48mm !important;
   }
   html,
   body {

@@ -19,13 +19,14 @@ const TYPES: Record<MovementType, { label: string; className: string }> = {
   AJUSTE_SALIDA: { label: "Ajuste −", className: "border-amber-200 bg-amber-50 text-amber-700" },
   TRASLADO_ENTRADA: { label: "Traslado entra", className: "border-violet-200 bg-violet-50 text-violet-700" },
   TRASLADO_SALIDA: { label: "Traslado sale", className: "border-violet-200 bg-violet-50 text-violet-700" },
+  DEVOLUCION: { label: "Devolución", className: "border-rose-200 bg-rose-50 text-rose-700" },
   AJUSTE: { label: "Ajuste", className: "border-slate-200 bg-slate-50 text-slate-600" },
 };
 
 const GROUPS = [
   { id: "", label: "Todos" },
   { id: "VENTAS", label: "Ventas", types: ["DESCUENTO"] },
-  { id: "ENTRADAS", label: "Entradas", types: ["REPOSICION", "AJUSTE_ENTRADA", "TRASLADO_ENTRADA"] },
+  { id: "ENTRADAS", label: "Entradas", types: ["REPOSICION", "AJUSTE_ENTRADA", "TRASLADO_ENTRADA", "DEVOLUCION"] },
   { id: "AJUSTES", label: "Ajustes", types: ["AJUSTE_ENTRADA", "AJUSTE_SALIDA", "AJUSTE"] },
   { id: "TRASLADOS", label: "Traslados", types: ["TRASLADO_ENTRADA", "TRASLADO_SALIDA"] },
 ] as const;

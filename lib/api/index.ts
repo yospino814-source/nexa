@@ -38,6 +38,7 @@ import {
   mockUpdateUserStatus,
   mockUsersList,
   mockWaiters,
+  mockBusinessInfo,
   mockRecordLoginAttempt,
   PERMISSION_CATALOG,
 } from "./mock-platform";
@@ -102,6 +103,17 @@ import type {
   UpdateUserStatusInput,
   Uuid,
   Waiter,
+  Order,
+  PaymentMethod,
+  Refund,
+  RefundInput,
+  RefundItem,
+  RefundStatus,
+  SaleDetail,
+  SaleHistoryPage,
+  SaleHistoryQuery,
+  SaleHistoryRow,
+  BusinessInfo,
 } from "./types";
 
 export * from "./types";
@@ -688,7 +700,9 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
   });
   const subtotal = items.reduce((s, i) => s + Number(i.line_total), 0);
   const tax = items.reduce((s, i) => s + Number(i.tax_amount), 0);
-  const total = cents(subtotal + tax);
+  const tip = body.tip_amount ? Number(body.tip_amount) : 0;
+  // Propina sin impuesto, sumada después del IVA (F1.10).
+  const total = cents(subtotal + tax + tip);
 
   // Mismo reparto que src/sales.rs::settle.
   const nonCash = body.payments.filter((p) => p.method !== "EFECTIVO").reduce((s, p) => s + Number(p.amount), 0);
@@ -719,13 +733,14 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
       status: "COBRADA",
       table_id: null,
       branch_id: body.branch_id,
-      waiter_id: null,
+      waiter_id: body.tip_waiter_id ?? null,
       customer_id: body.customer_id ?? null,
       customer_alias: body.customer_alias ?? null,
       customer_name: cust ? cust.name : null,
       subtotal: dec(subtotal),
       inc_amount: dec(tax),
-      tip_amount: "0",
+      tip_amount: dec(tip),
+      refunded_amount: "0",
       total_amount: dec(total),
     },
     items,
@@ -744,9 +759,259 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
   return response;
 }
 
+// ------------------------------------- historial, anulación y devoluciones (demo)
+
+/** Devoluciones del modo demo, en orden de creación. */
+const mockRefunds: Refund[] = [];
+let refundSeq = 0;
+
+function mockSaleOrThrow(orderId: Uuid): CheckoutResponse {
+  const found = mockSales.get(orderId);
+  if (!found) throw new ApiError(404, "not found");
+  return found.response;
+}
+
+function mockHistory(q: SaleHistoryQuery): SaleHistoryPage {
+  const today = new Date().toISOString().slice(0, 10);
+  const from = q.from ?? today;
+  const to = q.to ?? today;
+  const digits = q.q ? q.q.split("-").pop()?.replace(/\D/g, "") ?? "" : "";
+  const rows: SaleHistoryRow[] = [...mockSales.values()]
+    .filter(({ at }) => at.slice(0, 10) >= from && at.slice(0, 10) <= to)
+    .map(({ response, at }) => ({
+      id: response.order.id,
+      receipt_number: response.receipt_number,
+      created_at: at,
+      cashier_id: null,
+      cashier_name: "Usuario demo",
+      customer_label: response.order.customer_name ?? response.order.customer_alias ?? "Consumidor final",
+      total: response.order.total_amount,
+      refunded_amount: response.order.refunded_amount ?? "0",
+      methods: [...new Set(response.payments.map((p) => p.method))].sort() as PaymentMethod[],
+      status: response.order.status,
+      fiscal_status: response.fiscal_status,
+    }))
+    .filter((r) => !q.method || r.methods.includes(q.method))
+    .filter((r) =>
+      !q.status ? true : q.status === "CANCELADA" ? r.status === "CANCELADA" : r.status !== "CANCELADA",
+    )
+    .filter((r) => !digits || Number(r.receipt_number.split("-").pop()) === Number(digits))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const pageSize = Math.min(q.page_size ?? 50, 100);
+  const page = Math.max(q.page ?? 1, 1);
+  return {
+    items: rows.slice((page - 1) * pageSize, page * pageSize),
+    total_count: rows.length,
+    totals: { count: rows.length, amount: dec(rows.reduce((s, r) => s + Number(r.total), 0)) },
+  };
+}
+
+function mockDetail(orderId: Uuid): SaleDetail {
+  const sale = mockSaleOrThrow(orderId);
+  const customer = sale.order.customer_id
+    ? mockCustomers.find((c) => c.id === sale.order.customer_id) ?? null
+    : null;
+  return {
+    ...sale,
+    refunds: mockRefunds.filter((r) => r.order_id === orderId),
+    customer,
+    cashier_name: "Usuario demo",
+    register_name: "Caja 1",
+    waiter_name: null,
+  };
+}
+
+function voidError(why: string): ApiError {
+  return new ApiError(409, "the sale cannot be voided", "VOID_NOT_ALLOWED", { why });
+}
+
+/** Mismas reglas que src/sales.rs::void_tx. */
+function mockVoid(orderId: Uuid, reason: string): Order {
+  const sale = mockSaleOrThrow(orderId);
+  const at = mockSales.get(orderId)?.at ?? "";
+  if (sale.order.status !== "COBRADA") throw voidError("STATUS");
+  if (at.slice(0, 10) !== new Date().toISOString().slice(0, 10)) throw voidError("NOT_TODAY");
+  if (!mockCash || sessionOf.get(orderId) !== mockCash.id) throw voidError("SESSION_CLOSED");
+  if (mockRefunds.some((r) => r.order_id === orderId && r.status !== "RECHAZADA")) {
+    throw voidError("HAS_REFUNDS");
+  }
+  if (sale.fiscal_status === "ACEPTADO") throw voidError("FISCAL_ACCEPTED");
+  const trimmed = reason.trim();
+  if (trimmed.length < 3 || trimmed.length > 200) {
+    throw new ApiError(422, "reason must have 3 to 200 characters", "VOID_REASON_REQUIRED");
+  }
+  for (const item of sale.items) {
+    if (item.product_id) {
+      mockRecordMovement(item.product_id, "DEVOLUCION", Number(item.qty), "anulación", {
+        type: "venta",
+        id: orderId,
+      });
+    }
+  }
+  sale.order.status = "CANCELADA";
+  sale.order.void_reason = trimmed;
+  sale.fiscal_status = "ANULADO";
+  return structuredClone(sale.order);
+}
+
+/** Cantidad ya devuelta (pendiente o aprobada) de una línea, y sus montos. */
+function refundedOf(orderItemId: Uuid): { qty: number; total: number; tax: number } {
+  let qty = 0;
+  let total = 0;
+  let tax = 0;
+  for (const r of mockRefunds) {
+    if (r.status === "RECHAZADA") continue;
+    for (const it of r.items) {
+      if (it.order_item_id !== orderItemId) continue;
+      qty += Number(it.qty);
+      total += Number(it.line_total);
+      tax += Number(it.tax_amount);
+    }
+  }
+  return { qty, total, tax };
+}
+
+function applyMockRefund(refund: Refund): void {
+  const sale = mockSaleOrThrow(refund.order_id);
+  const cashOut = refund.method === "EFECTIVO" || refund.original_method === "EFECTIVO";
+  if (cashOut) {
+    if (!mockCash) {
+      throw new ApiError(409, "open a cash session to refund cash", "REFUND_NEEDS_OPEN_SESSION");
+    }
+    mockCashMoves.push({
+      sessionId: mockCash.id,
+      kind: "DEVOLUCION",
+      amount: Number(refund.total),
+      reason: `Devolución ${refund.number}`,
+      at: new Date().toISOString(),
+    });
+  }
+  for (const it of refund.items) {
+    const line = sale.items.find((i) => i.id === it.order_item_id);
+    if (it.disposition === "REINTEGRAR" && line?.product_id) {
+      mockRecordMovement(line.product_id, "DEVOLUCION", Number(it.qty), "devolución", {
+        type: "venta",
+        id: refund.order_id,
+      });
+    }
+  }
+  sale.order.refunded_amount = dec(Number(sale.order.refunded_amount ?? 0) + Number(refund.total));
+  refund.status = "APROBADA";
+  refund.decided_by_name = "Usuario demo";
+  refund.decided_at = new Date().toISOString();
+}
+
+/** Mismas reglas que src/refunds.rs::create_tx (el usuario demo tiene pos:refund). */
+function mockCreateRefund(input: RefundInput): Refund {
+  const existing = mockRefunds.find((r) => r.id === input.id);
+  if (existing) return existing;
+  const sale = mockSaleOrThrow(input.order_id);
+  if (sale.order.status !== "COBRADA" && sale.order.status !== "CERRADA") {
+    throw new ApiError(409, "order is not charged", "REFUND_ORDER_INVALID");
+  }
+  const reason = input.reason.trim();
+  if (input.items.length === 0 || reason.length < 3 || reason.length > 200) {
+    throw new ApiError(422, "invalid refund", "REFUND_INVALID");
+  }
+  const items: RefundItem[] = input.items.map((it) => {
+    const line = sale.items.find((l) => l.id === it.order_item_id);
+    if (!line) throw new ApiError(422, "item does not belong to the order", "REFUND_INVALID");
+    const prev = refundedOf(it.order_item_id);
+    const sold = Number(line.qty);
+    const refundable = sold - prev.qty;
+    const qty = Number(it.qty);
+    if (qty > refundable) {
+      throw new ApiError(422, "qty exceeds what is left to refund", "REFUND_QTY_EXCEEDED", {
+        order_item_id: it.order_item_id,
+        refundable: String(refundable),
+      });
+    }
+    if (!line.product_id && it.disposition !== "SIN_DEVOLUCION") {
+      throw new ApiError(422, "a custom item only admits SIN_DEVOLUCION", "REFUND_INVALID");
+    }
+    const full = qty === refundable;
+    const lineTotal = full ? Number(line.line_total) - prev.total : cents((Number(line.line_total) * qty) / sold);
+    const tax = full ? Number(line.tax_amount) - prev.tax : cents((Number(line.tax_amount) * qty) / sold);
+    return {
+      order_item_id: it.order_item_id,
+      name: line.name ?? "",
+      qty: it.qty,
+      disposition: it.disposition,
+      line_total: dec(lineTotal),
+      tax_amount: dec(tax),
+    };
+  });
+  let originalMethod: PaymentMethod | null = null;
+  let reversal: string | null = null;
+  if (input.method === "ORIGINAL") {
+    if (sale.payments.length !== 1) {
+      throw new ApiError(422, "the sale has several payments", "REFUND_ORIGINAL_MIXED");
+    }
+    originalMethod = sale.payments[0].method as PaymentMethod;
+    if (originalMethod !== "EFECTIVO") {
+      reversal = input.reversal_reference?.trim() ?? "";
+      if (reversal.length < 3 || reversal.length > 60) {
+        throw new ApiError(422, "reversal reference is required", "REFUND_REFERENCE_REQUIRED");
+      }
+    }
+  }
+  const subtotal = items.reduce((s, i) => s + Number(i.line_total), 0);
+  const tax = items.reduce((s, i) => s + Number(i.tax_amount), 0);
+  refundSeq += 1;
+  const refund: Refund = {
+    id: input.id,
+    order_id: input.order_id,
+    receipt_number: sale.receipt_number,
+    number: `DEV-${String(refundSeq).padStart(6, "0")}`,
+    status: "PENDIENTE",
+    method: input.method,
+    original_method: originalMethod,
+    reversal_reference: reversal,
+    reason,
+    subtotal: dec(subtotal),
+    tax_amount: dec(tax),
+    total: dec(subtotal + tax),
+    items,
+    requested_by_name: "Usuario demo",
+    decided_by_name: null,
+    decided_at: null,
+    reject_reason: null,
+    created_at: new Date().toISOString(),
+  };
+  applyMockRefund(refund);
+  mockRefunds.push(refund);
+  return refund;
+}
+
+function mockPendingRefund(id: Uuid): Refund {
+  const refund = mockRefunds.find((r) => r.id === id);
+  if (!refund) throw new ApiError(404, "not found");
+  if (refund.status !== "PENDIENTE") {
+    throw new ApiError(409, "refund was already decided", "REFUND_NOT_PENDING");
+  }
+  return refund;
+}
+
 // --------------------------------------------------------------------- API
 
 export const api = {
+  business: {
+    /** GET /v1/business */
+    async get(): Promise<BusinessInfo> {
+      if (USE_MOCKS) {
+        await delay(50);
+        const [nit, dv] = mockBusinessInfo.tax_id.replace(/\./g, "").split("-");
+        return {
+          name: mockBusinessInfo.commercial_name,
+          business_name: mockBusinessInfo.legal_name,
+          nit,
+          dv: dv ?? null,
+        };
+      }
+      return request("/v1/business");
+    },
+  },
+
   session: {
     /** GET /v1/context */
     async context(): Promise<SessionContext> {
@@ -804,6 +1069,86 @@ export const api = {
       }
       await delay(400);
       return structuredClone(mockCheckout(body));
+    },
+    /** GET /v1/sales — historial (F1.13). */
+    async history(q: SaleHistoryQuery): Promise<SaleHistoryPage> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockHistory(q));
+      }
+      const params = new URLSearchParams({ branch_id: q.branch_id });
+      for (const key of ["from", "to", "cashier_id", "method", "status", "q"] as const) {
+        const value = q[key];
+        if (value) params.set(key, value);
+      }
+      if (q.page) params.set("page", String(q.page));
+      if (q.page_size) params.set("page_size", String(q.page_size));
+      return request(`/v1/sales?${params}`);
+    },
+
+    /** GET /v1/sales/{id} */
+    async detail(orderId: Uuid): Promise<SaleDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockDetail(orderId));
+      }
+      return request(`/v1/sales/${orderId}`);
+    },
+
+    /** POST /v1/sales/{id}/void (F1.12). */
+    async void(orderId: Uuid, reason: string): Promise<Order> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockVoid(orderId, reason);
+      }
+      return request(`/v1/sales/${orderId}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+    },
+  },
+
+  refunds: {
+    /** POST /v1/refunds — idempotente por `input.id`. */
+    async create(input: RefundInput): Promise<Refund> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockCreateRefund(input));
+      }
+      return request("/v1/refunds", { method: "POST", body: JSON.stringify(input) });
+    },
+
+    async approve(id: Uuid): Promise<Refund> {
+      if (USE_MOCKS) {
+        await delay();
+        const refund = mockPendingRefund(id);
+        applyMockRefund(refund);
+        return structuredClone(refund);
+      }
+      return request(`/v1/refunds/${id}/approve`, { method: "POST" });
+    },
+
+    async reject(id: Uuid, reason: string): Promise<Refund> {
+      if (USE_MOCKS) {
+        await delay();
+        const refund = mockPendingRefund(id);
+        refund.status = "RECHAZADA";
+        refund.reject_reason = reason.trim();
+        refund.decided_by_name = "Usuario demo";
+        refund.decided_at = new Date().toISOString();
+        return structuredClone(refund);
+      }
+      return request(`/v1/refunds/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
+    },
+
+    /** GET /v1/refunds?branch_id=&status= */
+    async list(branchId: Uuid, status?: RefundStatus | null): Promise<Refund[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(
+          mockRefunds.filter((r) => !status || r.status === status).slice().reverse(),
+        );
+      }
+      const params = new URLSearchParams({ branch_id: branchId });
+      if (status) params.set("status", status);
+      return request(`/v1/refunds?${params}`);
     },
   },
 

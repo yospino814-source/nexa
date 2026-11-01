@@ -26,6 +26,7 @@ export function PosScreen() {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [settings, setSettings] = useState<BranchSettings | null>(null);
+  const [registerName, setRegisterName] = useState<string | null>(null);
   const can = useSession((s) => s.can);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -52,6 +53,11 @@ export function PosScreen() {
       .get(branchId)
       .then((s) => alive && setSettings(s))
       .catch(() => alive && setSettings(null));
+    // Caja del turno abierto, para la tirilla (F1.15).
+    api.cash
+      .current(branchId)
+      .then((c) => alive && setRegisterName(c?.session.register_name ?? null))
+      .catch(() => alive && setRegisterName(null));
     return () => {
       alive = false;
     };
@@ -95,6 +101,7 @@ export function PosScreen() {
       customerDialogOpen={customerDialogOpen}
       onCustomerDialogOpenChange={setCustomerDialogOpen}
       allowPriceOverride={settings?.pos.allow_price_override ?? false}
+      ticketWidth={settings?.print.ticket_width_mm ?? 80}
     />
   );
 
@@ -168,6 +175,8 @@ export function PosScreen() {
         branchId={branchId}
         tipsEnabled={settings?.tips.enabled ?? false}
         suggestedTipPct={Number(settings?.tips.suggested_pct ?? 0)}
+        ticketWidth={settings?.print.ticket_width_mm ?? 80}
+        registerName={registerName}
         onCompleted={() => {
           clear();
           setCartOpen(false);

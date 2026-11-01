@@ -7,9 +7,16 @@ import { createPortal } from "react-dom";
  * esta oculto; al imprimir es lo unico visible (ver `.print-ticket` en
  * globals.css). Se monta en <body> para quedar fuera de modales y layouts.
  */
-export function PrintArea({ children }: { children: React.ReactNode }) {
+export function PrintArea({
+  children,
+  width = 80,
+}: {
+  children: React.ReactNode;
+  /** Ancho del rollo en mm (ajuste `print.ticket_width_mm`): 80 o 58. */
+  width?: 80 | 58;
+}) {
   return createPortal(
-    <div className="print-ticket" aria-hidden>
+    <div className={width === 58 ? "print-ticket w58" : "print-ticket"} aria-hidden>
       {children}
     </div>,
     document.body,

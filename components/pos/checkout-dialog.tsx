@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Banknote, Check, CheckCircle2, Loader2, MessageSquare, PlusCircle, Printer, ShoppingBag } from "lucide-react";
+import { Banknote, Check, CheckCircle2, Loader2, PlusCircle, Printer, ShoppingBag } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api, friendlyError, type CheckoutResponse, type PaymentMethod, type Waiter } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
-import { cartTotals, linePrice, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
+import { cartTotals, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { MoneyInput } from "@/components/caja/money-input";
 
 import { PAYMENT_METHODS } from "./payment-methods";
-import { PrintTicket } from "./print-ticket";
+import { PrintTicket, ticketFromSale, type TicketMeta } from "./print-ticket";
+import { useBusinessInfo } from "@/lib/api/use-business";
 
 /** Billetes sugeridos por encima del total (exacto + 3 redondeos). */
 function quickAmounts(total: number): number[] {
@@ -34,6 +35,8 @@ export function CheckoutDialog({
   branchId,
   tipsEnabled = false,
   suggestedTipPct = 0,
+  ticketWidth = 80,
+  registerName = null,
   onCompleted,
 }: {
   open: boolean;
@@ -45,6 +48,10 @@ export function CheckoutDialog({
   tipsEnabled?: boolean;
   /** Ajuste `tips.suggested_pct` (porcentaje sobre el subtotal). */
   suggestedTipPct?: number;
+  /** Ajuste `print.ticket_width_mm` (F1.15). */
+  ticketWidth?: number;
+  /** Caja del turno abierto, para la tirilla. */
+  registerName?: string | null;
   onCompleted: () => void;
 }) {
   const [method, setMethod] = useState(initialMethod);
@@ -151,7 +158,17 @@ export function CheckoutDialog({
         }}
       >
         {receipt ? (
-          <ReceiptView receipt={receipt} onNewSale={finish} />
+          <ReceiptView
+            receipt={receipt}
+            meta={{
+              cashier: cashierName,
+              register: registerName,
+              customer: customerLabel(customer, customerAlias),
+              waiter: waiters.find((w) => w.user_id === waiterId)?.full_name ?? null,
+            }}
+            widthMm={ticketWidth}
+            onNewSale={finish}
+          />
         ) : (
           <div className="space-y-6">
             <div className="text-center">
@@ -305,26 +322,39 @@ export function CheckoutDialog({
   );
 }
 
-function ReceiptView({ receipt, onNewSale }: { receipt: Receipt; onNewSale: () => void }) {
-  const { response, lines, received, method } = receipt;
+function customerLabel(
+  customer: { name: string; doc_type?: string | null; doc_number?: string | null } | null,
+  alias: string | null,
+): string {
+  if (customer) {
+    return customer.doc_type && customer.doc_number
+      ? `${customer.name} (${customer.doc_type} ${customer.doc_number})`
+      : customer.name;
+  }
+  return alias ?? "Consumidor final";
+}
+
+function ReceiptView({
+  receipt,
+  meta,
+  widthMm,
+  onNewSale,
+}: {
+  receipt: Receipt;
+  meta: TicketMeta;
+  widthMm: number;
+  onNewSale: () => void;
+}) {
+  const { response, method } = receipt;
   const branchName = useCurrentBranch().name;
-  const cashierName = useSession((s) => s.name);
-  // Los totales del comprobante son los que cobro el servidor, no los del carrito.
-  const subtotal = Number(response.order.subtotal);
-  const tax = Number(response.order.inc_amount);
-  const total = Number(response.order.total_amount);
+  const business = useBusinessInfo();
+  // Los valores del comprobante son los que cobró el servidor, no los del carrito.
+  const model = ticketFromSale(response, meta);
   const change = Number(response.change_due);
 
   return (
     <div className="space-y-5">
-      <PrintTicket
-        response={response}
-        lines={lines}
-        received={received}
-        method={method}
-        branchName={branchName}
-        cashierName={cashierName}
-      />
+      <PrintTicket model={model} business={business} branchName={branchName} widthMm={widthMm} />
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
           <span className="size-2 rounded-full bg-emerald-500" /> Aprobada #{response.receipt_number}
@@ -352,59 +382,51 @@ function ReceiptView({ receipt, onNewSale }: { receipt: Receipt; onNewSale: () =
 
       <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 font-mono text-xs">
         <p className="text-center font-sans text-sm font-bold">{branchName}</p>
-        <p className="text-center text-slate-500">Ticket POS: {response.receipt_number}</p>
-        <p className="mb-3 text-center text-[10px] text-slate-400">
-          {response.fiscal_status === "ACEPTADO"
-            ? "Documento equivalente electrónico validado por la DIAN"
-            : "Documento equivalente electrónico en trámite ante la DIAN"}
-        </p>
-        {lines.map((line) => (
-          <div key={line.key} className="flex justify-between py-0.5">
+        <p className="mb-3 text-center text-slate-500">{model.title}</p>
+        {model.lines.map((line, i) => (
+          <div key={i} className="flex justify-between py-0.5">
             <span>
               {line.qty}x {line.name}
             </span>
-            <span className="font-bold">{formatCOP(linePrice(line) * line.qty)}</span>
+            <span className="font-bold">{formatCOP(line.gross)}</span>
           </div>
         ))}
         <div className="mt-3 space-y-0.5 border-t border-dashed border-slate-300 pt-3">
           <div className="flex justify-between text-slate-500">
             <span>Subtotal</span>
-            <span>{formatCOP(subtotal)}</span>
+            <span>{formatCOP(model.subtotal)}</span>
           </div>
-          <div className="flex justify-between text-slate-500">
-            <span>IVA</span>
-            <span>{formatCOP(tax)}</span>
-          </div>
+          {model.discountTotal > 0 && (
+            <div className="flex justify-between text-emerald-600">
+              <span>Descuentos</span>
+              <span>−{formatCOP(model.discountTotal)}</span>
+            </div>
+          )}
+          {model.taxes.map((t) => (
+            <div key={t.label} className="flex justify-between text-slate-500">
+              <span>{t.label}</span>
+              <span>{formatCOP(t.amount)}</span>
+            </div>
+          ))}
+          {model.tip > 0 && (
+            <div className="flex justify-between text-slate-500">
+              <span>Propina</span>
+              <span>{formatCOP(model.tip)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-sans text-sm font-bold">
             <span>TOTAL PAGADO</span>
-            <span className="text-brand">{formatCOP(total)}</span>
+            <span className="text-brand">{formatCOP(model.total)}</span>
           </div>
-          {method === "EFECTIVO" && (
-            <>
-              <div className="flex justify-between text-slate-500">
-                <span>Efectivo recibido</span>
-                <span>{formatCOP(received)}</span>
-              </div>
-              <div className="flex justify-between text-emerald-600">
-                <span>Cambio</span>
-                <span>{formatCOP(change)}</span>
-              </div>
-            </>
-          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => window.print()}
-          className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 font-medium hover:bg-slate-50"
-        >
-          <Printer className="size-4" /> Imprimir
-        </button>
-        <button className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 font-medium text-white hover:bg-emerald-700">
-          <MessageSquare className="size-4" /> WhatsApp
-        </button>
-      </div>
+      <button
+        onClick={() => window.print()}
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 font-medium hover:bg-slate-50"
+      >
+        <Printer className="size-4" /> Imprimir
+      </button>
       <button
         onClick={onNewSale}
         className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand text-lg font-bold text-white hover:bg-brand-dark"

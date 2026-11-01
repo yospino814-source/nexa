@@ -55,6 +55,10 @@ export type Order = {
   inc_amount: Decimal;
   tip_amount: Decimal;
   total_amount: Decimal;
+  /** F1.11: total devuelto de la venta. */
+  refunded_amount?: Decimal;
+  /** F1.12: motivo de anulación. */
+  void_reason?: string | null;
 };
 
 /** src/orders.rs::OrderItem */
@@ -228,7 +232,7 @@ export type Payment = {
   reference: string | null;
 };
 
-export type FiscalStatus = "PENDIENTE" | "ENVIADO" | "ACEPTADO" | "RECHAZADO";
+export type FiscalStatus = "PENDIENTE" | "ENVIADO" | "ACEPTADO" | "RECHAZADO" | "ANULADO";
 
 /** Respuesta de POST /v1/sales (201 nueva, 200 reintento). */
 export type CheckoutResponse = {
@@ -362,6 +366,7 @@ export type MovementType =
   | "AJUSTE_SALIDA"
   | "TRASLADO_ENTRADA"
   | "TRASLADO_SALIDA"
+  | "DEVOLUCION"
   | "AJUSTE";
 
 /** GET /v1/inventory/movements (kardex) — src/inventory.rs::Movement */
@@ -854,3 +859,101 @@ export type UpdateCouponInput = CreateCouponInput;
 
 /** GET /v1/waiters (F1.10). */
 export type Waiter = { user_id: Uuid; full_name: string };
+
+// ------------------------------------------------- devoluciones (F1.11)
+
+export type RefundDisposition = "REINTEGRAR" | "MERMA" | "SIN_DEVOLUCION";
+export type RefundMethod = "EFECTIVO" | "ORIGINAL";
+export type RefundStatus = "PENDIENTE" | "APROBADA" | "RECHAZADA";
+
+export type RefundItem = {
+  order_item_id: Uuid;
+  name: string;
+  qty: Decimal;
+  disposition: RefundDisposition;
+  line_total: Decimal;
+  tax_amount: Decimal;
+};
+
+/** src/refunds.rs::Refund */
+export type Refund = {
+  id: Uuid;
+  order_id: Uuid;
+  receipt_number: string | null;
+  number: string;
+  status: RefundStatus;
+  method: RefundMethod;
+  original_method: PaymentMethod | null;
+  reversal_reference: string | null;
+  reason: string;
+  subtotal: Decimal;
+  tax_amount: Decimal;
+  total: Decimal;
+  items: RefundItem[];
+  requested_by_name: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  reject_reason: string | null;
+  created_at: string;
+};
+
+/** POST /v1/refunds. `id` lo genera el cliente (idempotencia). */
+export type RefundInput = {
+  id: Uuid;
+  order_id: Uuid;
+  method: RefundMethod;
+  reason: string;
+  reversal_reference?: string | null;
+  items: { order_item_id: Uuid; qty: Decimal; disposition: RefundDisposition }[];
+};
+
+// ------------------------------------------- historial de ventas (F1.13)
+
+export type SaleHistoryQuery = {
+  branch_id: Uuid;
+  from?: string | null;
+  to?: string | null;
+  cashier_id?: Uuid | null;
+  method?: PaymentMethod | null;
+  status?: "COBRADA" | "CANCELADA" | null;
+  q?: string | null;
+  page?: number;
+  page_size?: number;
+};
+
+export type SaleHistoryRow = {
+  id: Uuid;
+  receipt_number: string;
+  created_at: string;
+  cashier_id: Uuid | null;
+  cashier_name: string | null;
+  customer_label: string;
+  total: Decimal;
+  refunded_amount: Decimal;
+  methods: PaymentMethod[];
+  status: OrderStatus;
+  fiscal_status: FiscalStatus | null;
+};
+
+export type SaleHistoryPage = {
+  items: SaleHistoryRow[];
+  total_count: number;
+  totals: { count: number; amount: Decimal };
+};
+
+/** GET /v1/sales/{id} */
+export type SaleDetail = CheckoutResponse & {
+  refunds: Refund[];
+  customer: Customer | null;
+  cashier_name: string | null;
+  register_name: string | null;
+  waiter_name: string | null;
+};
+
+/** GET /v1/business — datos del negocio para la tirilla (F1.15). */
+export type BusinessInfo = {
+  name: string;
+  business_name: string | null;
+  nit: string | null;
+  dv: string | null;
+};
