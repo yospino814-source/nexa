@@ -14,7 +14,8 @@ use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment,
 use crate::test_support::*;
 use crate::{
     AppState, cash, catalog, coupons, customers, inventory, orders, outbox, permissions,
-    procurement, refunds, registers, routes, sales, sequences, settings, tenancy, users,
+    procurement, refunds, registers, routes, sales, sales_history, sequences, settings, tenancy,
+    users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -775,6 +776,7 @@ async fn database_integration() {
     f1_tips(&app, &admin).await;
     f1_refunds(&app, &admin).await;
     f1_void(&app, &admin).await;
+    f1_sales_history(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -5286,4 +5288,104 @@ fn assert_void_why<T: std::fmt::Debug>(r: &Result<T, ApiError>, why: &str) {
         }
         other => panic!("expected VOID_NOT_ALLOWED/{why}, got {other:?}"),
     }
+}
+
+fn history_query(branch: Uuid) -> sales_history::HistoryQuery {
+    sales_history::HistoryQuery {
+        branch_id: branch,
+        from: None,
+        to: None,
+        cashier_id: None,
+        method: None,
+        status: None,
+        q: None,
+        page: None,
+        page_size: None,
+    }
+}
+
+/// F1.13: historial de ventas.
+async fn f1_sales_history(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier_a = seed_user(admin).await;
+    let cashier_b = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier_a, "CAJERO").await;
+    seed_membership(admin, tenant, None, cashier_b, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_a = claims(cashier_a, Some(tenant), Some(branch));
+    let c_b = claims(cashier_b, Some(tenant), Some(branch));
+
+    let prod = seed_product(admin, tenant, "Lapicero", "UND", None, false).await;
+    set_base_price(admin, prod, "1500").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "20", "0").await;
+
+    let reg_a = default_register(admin, branch).await;
+    let reg_b: Uuid = sqlx::query_scalar(
+        "insert into cash_registers (tenant_id, branch_id, name, code)
+         values ($1, $2, 'Caja 2', 'CAJA-2') returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    cash::open(app, &c_a, branch, reg_a, dec(0)).await.unwrap();
+    cash::open(app, &c_b, branch, reg_b, dec(0)).await.unwrap();
+
+    let one = || {
+        let mut req = sale(Uuid::new_v4(), branch, &[(prod, 1)], &[], dec(1500));
+        req.payments = cash_payment("1500");
+        req
+    };
+    let sale_a = created(sales::checkout(app, &c_a, one()).await.unwrap());
+    created(sales::checkout(app, &c_b, one()).await.unwrap());
+    created(sales::checkout(app, &c_b, one()).await.unwrap());
+
+    // El dueño ve las tres ventas del día.
+    let all = sales_history::list(app, &c_owner, history_query(branch))
+        .await
+        .unwrap();
+    assert_eq!(all.total_count, 3);
+    assert_eq!(all.totals.amount.normalize(), dec(4500));
+
+    // [P] Un cajero sin reports:read solo ve sus ventas, aunque mande cashier_id de otro
+    let mut q = history_query(branch);
+    q.cashier_id = Some(cashier_b);
+    let mine = sales_history::list(app, &c_a, q).await.unwrap();
+    assert_eq!(mine.total_count, 1);
+    assert_eq!(mine.items[0].id, sale_a.order.id);
+    assert_eq!(mine.items[0].customer_label, "Consumidor final");
+    assert_eq!(mine.items[0].methods, vec!["EFECTIVO".to_string()]);
+
+    // Ni tampoco el detalle de una venta ajena.
+    let other = all
+        .items
+        .iter()
+        .find(|s| s.id != sale_a.order.id)
+        .unwrap()
+        .id;
+    let r = sales_history::detail(app, &c_a, other).await;
+    assert!(is_forbidden(&r), "{:?}", r.err());
+
+    // Búsqueda por número, en las dos formas.
+    let mut q = history_query(branch);
+    q.q = Some(sale_a.receipt_number.clone());
+    assert_eq!(
+        sales_history::list(app, &c_owner, q)
+            .await
+            .unwrap()
+            .total_count,
+        1
+    );
+    let detail = sales_history::detail(app, &c_a, sale_a.order.id)
+        .await
+        .unwrap();
+    assert_eq!(detail.sale.order.id, sale_a.order.id);
+    assert!(detail.refunds.is_empty());
+
+    cleanup(admin, tenant, &[owner, cashier_a, cashier_b]).await;
 }

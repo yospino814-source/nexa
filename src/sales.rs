@@ -1313,7 +1313,10 @@ fn format_receipt(prefix: &str, number: i64) -> String {
 }
 
 /// Arma la respuesta desde la BD (la misma para la venta y sus reintentos).
-async fn load_response(tx: &mut Tx<'_>, order_id: Uuid) -> Result<SaleResponse, ApiError> {
+pub(crate) async fn load_response(
+    tx: &mut Tx<'_>,
+    order_id: Uuid,
+) -> Result<SaleResponse, ApiError> {
     let order = orders::order_tx(tx, order_id).await?;
     let items = sqlx::query_as::<_, OrderItem>(&format!(
         "select {ITEM_COLS} from {ITEM_FROM} where oi.order_id = $1 order by oi.created_at, oi.id"

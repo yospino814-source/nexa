@@ -18,6 +18,7 @@ pub mod refunds;
 pub mod registers;
 pub mod routes;
 mod sales;
+pub mod sales_history;
 pub mod sequences;
 pub mod settings;
 mod tenancy;

@@ -17,7 +17,7 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
     AppState, audit, cash, catalog, customers, inventory, orders, permissions, procurement,
-    refunds, registers, sales, settings, tenancy, users,
+    refunds, registers, sales, sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -92,7 +92,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/coupons/{id}", put(update_coupon))
         .route("/v1/coupons/{id}/toggle", post(toggle_coupon))
         // Venta de mostrador y caja
-        .route("/v1/sales", post(create_sale))
+        .route("/v1/sales", get(sales_history_list).post(create_sale))
+        .route("/v1/sales/{id}", get(sales_history_detail))
         .route("/v1/sales/quote", post(sales_quote))
         .route("/v1/sales/{id}/void", post(void_sale))
         .route(
@@ -1163,4 +1164,26 @@ async fn void_sale(
     Body(req): Body<sales::VoidRequest>,
 ) -> ApiResult<Json<orders::Order>> {
     Ok(Json(sales::void(&state.pool, &user.claims, id, req).await?))
+}
+
+// ------------------------------------------------------- historial (F1.13)
+
+async fn sales_history_list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<sales_history::HistoryQuery>,
+) -> ApiResult<Json<sales_history::HistoryPage>> {
+    Ok(Json(
+        sales_history::list(&state.pool, &user.claims, q).await?,
+    ))
+}
+
+async fn sales_history_detail(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<sales_history::SaleDetail>> {
+    Ok(Json(
+        sales_history::detail(&state.pool, &user.claims, id).await?,
+    ))
 }
