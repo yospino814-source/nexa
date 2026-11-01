@@ -44,26 +44,82 @@ pub enum Action {
     ManageInventory,
 }
 
-/// Matriz de permisos. `DUENO` y `ADMIN_CAJA` pueden todo.
-pub fn role_allows(role: &str, action: Action) -> bool {
-    use Action::*;
+impl Action {
+    /// Mapea cada Action al cÃ³digo de permiso granular correspondiente.
+    pub fn permission_code(&self) -> &'static str {
+        match self {
+            Action::Read => "inventory:read",
+            Action::TakeOrder => "pos:order",
+            Action::Kitchen => "pos:kitchen",
+            Action::Charge => "pos:sell",
+            Action::ManageCash => "cash:movement",
+            Action::CancelOrder => "pos:refund",
+            Action::ManageInventory => "inventory:adjust",
+        }
+    }
+}
+
+/// Comprueba si el rol otorga el permiso de forma base.
+pub fn base_allows(role: &str, code: &str) -> bool {
     match role {
         "DUENO" | "ADMIN_CAJA" => true,
-        "CAJERO" => matches!(action, Read | TakeOrder | Charge | ManageCash),
-        "MESERO" => matches!(action, Read | TakeOrder),
-        "COCINA" => matches!(action, Read | Kitchen),
+        "CAJERO" => matches!(
+            code,
+            "inventory:read"
+                | "pos:order"
+                | "pos:sell"
+                | "cash:movement"
+                | "cash:open"
+                | "cash:close"
+                | "cash:history"
+                | "pos:discount"
+                | "pos:custom_item"
+                | "customers:read"
+                | "customers:write"
+                | "credit:collect"
+        ),
+        "MESERO" => matches!(code, "inventory:read" | "pos:order" | "customers:read"),
+        "COCINA" => matches!(code, "inventory:read" | "pos:kitchen"),
+        "SUPERVISOR" => matches!(
+            code,
+            "inventory:read"
+                | "pos:order"
+                | "pos:sell"
+                | "cash:movement"
+                | "cash:open"
+                | "cash:close"
+                | "cash:history"
+                | "pos:discount"
+                | "pos:custom_item"
+                | "customers:read"
+                | "customers:write"
+                | "credit:collect"
+                | "pos:refund"
+                | "inventory:adjust"
+                | "reports:read"
+        ),
+        "BODEGA" => matches!(
+            code,
+            "inventory:read"
+                | "inventory:adjust"
+                | "inventory:adjust_approve"
+                | "inventory:transfer"
+                | "purchases:receive"
+        ),
+        "REPARTIDOR" => matches!(code, "inventory:read" | "pos:sell"),
         _ => false,
     }
 }
 
+/// Matriz de permisos base. `DUENO` y `ADMIN_CAJA` pueden todo.
+pub fn role_allows(role: &str, action: Action) -> bool {
+    base_allows(role, action.permission_code())
+}
+
 impl Scope {
-    /// Exige que el rol del usuario permita la accion.
+    /// Exige que el rol del usuario (con overrides) permita la accion.
     pub fn require(&self, action: Action) -> Result<(), ApiError> {
-        if role_allows(&self.role, action) {
-            Ok(())
-        } else {
-            Err(ApiError::Domain(DomainError::Forbidden))
-        }
+        self.require_permission(action.permission_code())
     }
 
     /// Comprueba si el rol u overrides otorgan un permiso por codigo.
@@ -164,6 +220,7 @@ async fn membership_tx(
            from memberships m
            join tbl_tipos_maestra t on t.tima_id = m.role_id
           where m.user_id = auth.uid()
+            and m.active
             and ($1::uuid is null or m.tenant_id = $1)
             and ($2::uuid is null or m.branch_id is null or m.branch_id = $2)
           order by (m.branch_id is not distinct from $2) desc,
@@ -219,12 +276,12 @@ pub async fn branches(pool: &PgPool, claims: &Claims) -> Result<Vec<BranchAccess
            left join lateral (
              select t.tima_codigo as role
                from memberships m join tbl_tipos_maestra t on t.tima_id = m.role_id
-              where m.user_id = auth.uid() and m.tenant_id = b.tenant_id and m.branch_id = b.id
+              where m.user_id = auth.uid() and m.active and m.tenant_id = b.tenant_id and m.branch_id = b.id
               limit 1) own on true
            left join lateral (
              select t.tima_codigo as role
                from memberships m join tbl_tipos_maestra t on t.tima_id = m.role_id
-              where m.user_id = auth.uid() and m.tenant_id = b.tenant_id and m.branch_id is null
+              where m.user_id = auth.uid() and m.active and m.tenant_id = b.tenant_id and m.branch_id is null
               limit 1) wide on true
           where b.tenant_id = $1 and coalesce(own.role, wide.role) is not null
           order by b.name",

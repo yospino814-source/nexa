@@ -43,6 +43,8 @@ insert into public.permissions (code, module, description) values
   ('pos:discount', 'pos', 'Aplicar descuento en venta'),
   ('pos:custom_item', 'pos', 'Agregar ítem personalizado'),
   ('pos:refund', 'pos', 'Anular o devolver ventas'),
+  ('pos:order', 'pos', 'Tomar pedidos y comandas de mesa'),
+  ('pos:kitchen', 'pos', 'Ver y preparar pedidos en pantalla de cocina'),
   ('cash:open', 'cash', 'Abrir turno de caja'),
   ('cash:close', 'cash', 'Cerrar turno y realizar arqueo de caja'),
   ('cash:movement', 'cash', 'Registrar ingresos y egresos de caja'),
@@ -79,7 +81,7 @@ insert into public.role_permissions (role_id, permission_code)
 select r.tima_id, p.code
 from public.tbl_tipos_maestra r
 join public.permissions p on p.code in (
-  'pos:sell', 'pos:discount', 'pos:custom_item',
+  'pos:sell', 'pos:order', 'pos:discount', 'pos:custom_item',
   'cash:open', 'cash:close', 'cash:movement', 'cash:history',
   'inventory:read', 'customers:read', 'customers:write', 'credit:collect'
 )
@@ -91,7 +93,7 @@ on conflict do nothing;
 insert into public.role_permissions (role_id, permission_code)
 select r.tima_id, p.code
 from public.tbl_tipos_maestra r
-join public.permissions p on p.code in ('pos:sell', 'inventory:read', 'customers:read')
+join public.permissions p on p.code in ('pos:order', 'inventory:read', 'customers:read')
 where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
   and r.tima_codigo = 'MESERO'
 on conflict do nothing;
@@ -100,9 +102,46 @@ on conflict do nothing;
 insert into public.role_permissions (role_id, permission_code)
 select r.tima_id, p.code
 from public.tbl_tipos_maestra r
-join public.permissions p on p.code in ('pos:sell', 'inventory:read')
+join public.permissions p on p.code in ('pos:kitchen', 'inventory:read')
 where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
   and r.tima_codigo = 'COCINA'
+on conflict do nothing;
+
+-- Permisos base para SUPERVISOR (los de cajero más pos:refund, inventory:adjust, reports:read)
+insert into public.role_permissions (role_id, permission_code)
+select r.tima_id, p.code
+from public.tbl_tipos_maestra r
+join public.permissions p on p.code in (
+  'pos:sell', 'pos:order', 'pos:discount', 'pos:custom_item',
+  'cash:open', 'cash:close', 'cash:movement', 'cash:history',
+  'inventory:read', 'customers:read', 'customers:write', 'credit:collect',
+  'pos:refund', 'inventory:adjust', 'reports:read'
+)
+where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
+  and r.tima_codigo = 'SUPERVISOR'
+on conflict do nothing;
+
+-- Permisos base para BODEGA (inventory:* y purchases:receive)
+insert into public.role_permissions (role_id, permission_code)
+select r.tima_id, p.code
+from public.tbl_tipos_maestra r
+join public.permissions p on p.code in (
+  'inventory:read', 'inventory:adjust', 'inventory:adjust_approve', 'inventory:transfer',
+  'purchases:receive'
+)
+where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
+  and r.tima_codigo = 'BODEGA'
+on conflict do nothing;
+
+-- Permisos base para REPARTIDOR (pos:sell e inventory:read)
+insert into public.role_permissions (role_id, permission_code)
+select r.tima_id, p.code
+from public.tbl_tipos_maestra r
+join public.permissions p on p.code in (
+  'pos:sell', 'inventory:read'
+)
+where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
+  and r.tima_codigo = 'REPARTIDOR'
 on conflict do nothing;
 
 -- ============================================================
@@ -231,9 +270,6 @@ create policy invitations_isolation on public.invitations for all
   using (tenant_id = public.current_tenant_id())
   with check (tenant_id = public.current_tenant_id());
 
-create policy login_attempts_all on public.login_attempts for all
-  using (true) with check (true);
-
 create policy branch_settings_isolation on public.branch_settings for all
   using (tenant_id = public.current_tenant_id())
   with check (tenant_id = public.current_tenant_id());
@@ -250,5 +286,5 @@ create policy outbox_isolation on public.outbox for all
 
 grant select on public.permissions, public.role_permissions to authenticated;
 grant select, insert, update, delete on public.tenant_role_overrides, public.invitations, public.branch_settings, public.outbox to authenticated;
-grant select, insert on public.audit_log, public.login_attempts to authenticated;
+grant select, insert on public.audit_log to authenticated;
 

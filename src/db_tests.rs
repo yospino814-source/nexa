@@ -880,6 +880,10 @@ fn is_validation<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
     matches!(r, Err(ApiError::Domain(DomainError::Validation(_))))
 }
 
+fn is_too_many_requests<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
+    matches!(r, Err(ApiError::Domain(DomainError::TooManyRequests(_))))
+}
+
 /// Una membresia de sucursal solo ve y opera su sucursal, aunque el JWT pida otra.
 async fn branch_access_checks(app: &PgPool, admin: &PgPool) {
     let tenant = seed_tenant(admin).await;
@@ -1686,6 +1690,108 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(invited.email, "nuevo.empleado@ejemplo.com");
     assert_eq!(invited.status, "PENDIENTE");
 
+    // [P] Solo el DUENO puede asignar o quitar el rol DUENO, cambiarle el rol a un dueño o desactivarlo.
+    // ADMIN_CAJA no puede subir a nadie a dueño ni tocar a un dueño.
+    let admin_user = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), admin_user, "ADMIN_CAJA").await;
+    let c_admin = claims(admin_user, Some(tenant), Some(branch));
+
+    let cashier_membership_id: Uuid =
+        sqlx::query_scalar("select id from memberships where tenant_id = $1 and user_id = $2")
+            .bind(tenant)
+            .bind(cashier)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    // 1. ADMIN_CAJA intenta invitar a alguien como DUENO -> 403
+    let admin_invite_owner = users::invite_user(
+        app,
+        &c_admin,
+        users::InviteUserRequest {
+            email: "otro.dueno@ejemplo.com".into(),
+            full_name: "Otro Dueno".into(),
+            role: "DUENO".into(),
+            branch_id: None,
+        },
+    )
+    .await;
+    assert!(is_forbidden(&admin_invite_owner));
+
+    // 2. ADMIN_CAJA intenta subir a un cajero a DUENO -> 403
+    let admin_promote_owner = users::update_user_role(
+        app,
+        &c_admin,
+        cashier_membership_id,
+        users::UpdateUserRoleRequest {
+            role: "DUENO".into(),
+        },
+    )
+    .await;
+    assert!(is_forbidden(&admin_promote_owner));
+
+    // 3. ADMIN_CAJA intenta cambiarle el rol a un DUENO -> 403
+    let admin_demote_owner = users::update_user_role(
+        app,
+        &c_admin,
+        owner_membership_id,
+        users::UpdateUserRoleRequest {
+            role: "CAJERO".into(),
+        },
+    )
+    .await;
+    assert!(is_forbidden(&admin_demote_owner));
+
+    // 4. ADMIN_CAJA intenta desactivar a un DUENO -> 403
+    let admin_deactivate_owner = users::update_user_status(
+        app,
+        &c_admin,
+        owner_membership_id,
+        users::UpdateUserStatusRequest { active: false },
+    )
+    .await;
+    assert!(is_forbidden(&admin_deactivate_owner));
+
+    // [P] membership_tx debe ignorar las membresías con active = false: un usuario desactivado recibe 403.
+    users::update_user_status(
+        app,
+        &c_owner,
+        cashier_membership_id,
+        users::UpdateUserStatusRequest { active: false },
+    )
+    .await
+    .unwrap();
+
+    let deactivated_cashier_op = tenancy::begin_in_branch(app, &c_cashier, branch).await;
+    assert!(is_forbidden(&deactivated_cashier_op));
+
+    // Reactivar cajero para continuar con las pruebas
+    users::update_user_status(
+        app,
+        &c_owner,
+        cashier_membership_id,
+        users::UpdateUserStatusRequest { active: true },
+    )
+    .await
+    .unwrap();
+
+    // [P] Permisos base a SUPERVISOR, BODEGA y REPARTIDOR
+    assert!(tenancy::base_allows("SUPERVISOR", "pos:sell"));
+    assert!(tenancy::base_allows("SUPERVISOR", "pos:refund"));
+    assert!(tenancy::base_allows("SUPERVISOR", "inventory:adjust"));
+    assert!(tenancy::base_allows("SUPERVISOR", "reports:read"));
+
+    assert!(tenancy::base_allows("BODEGA", "inventory:read"));
+    assert!(tenancy::base_allows("BODEGA", "inventory:adjust"));
+    assert!(tenancy::base_allows("BODEGA", "inventory:adjust_approve"));
+    assert!(tenancy::base_allows("BODEGA", "inventory:transfer"));
+    assert!(tenancy::base_allows("BODEGA", "purchases:receive"));
+    assert!(!tenancy::base_allows("BODEGA", "pos:sell"));
+
+    assert!(tenancy::base_allows("REPARTIDOR", "pos:sell"));
+    assert!(tenancy::base_allows("REPARTIDOR", "inventory:read"));
+    assert!(!tenancy::base_allows("REPARTIDOR", "pos:refund"));
+
     // 3. Ajustes por sucursal
     // [P] pos.allow_price_override (false por defecto) y pos.max_discount_pct (15)
     let prod = seed_product(admin, tenant, "Gaseosa Ajustes", "UND", None, false).await;
@@ -1718,7 +1824,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         }],
         tip_amount: None,
     };
-    let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req).await;
+    let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req.clone()).await;
     assert!(is_validation(&try_override_sale));
 
     // [P] pos.max_discount_pct (15): venta con 20% de descuento rechazada
@@ -1759,7 +1865,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         }],
         tip_amount: None,
     };
-    let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req)
+    let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req.clone())
         .await
         .unwrap()
     {
@@ -1767,6 +1873,90 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         Checkout::Replayed(r) => r,
     };
     assert!(ok_sale.receipt_number.starts_with("POS-"));
+
+    // [P] Override que le quita pos:sell al cajero lo bloquea (403)
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:sell".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let try_blocked_sale = sales::checkout(app, &c_cashier, valid_sale_req.clone()).await;
+    assert!(is_forbidden(&try_blocked_sale));
+
+    // Restaurar pos:sell para el cajero
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:sell".into(),
+                allowed: true,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // [P] Cambio de precio exige pos:price_override además del ajuste de la sucursal
+    let mut allow_override_settings = settings::BranchSettings::default();
+    allow_override_settings.pos.allow_price_override = true;
+    settings::update_settings(
+        app,
+        &c_owner,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: allow_override_settings,
+        },
+    )
+    .await
+    .unwrap();
+
+    let try_cashier_override_without_perm =
+        sales::checkout(app, &c_cashier, sale_override_req.clone()).await;
+    assert!(is_forbidden(&try_cashier_override_without_perm));
+
+    // [P] Descuento exige pos:discount: quitamos pos:discount por override -> 403 Forbidden
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let try_disc_without_perm = sales::checkout(app, &c_cashier, valid_sale_req.clone()).await;
+    assert!(is_forbidden(&try_disc_without_perm));
+
+    // Restaurar pos:discount para el cajero
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: true,
+            }],
+        },
+    )
+    .await
+    .unwrap();
 
     // [P] pos.refund_requires_approval (true): cajero no puede cancelar sin aprobacion admin
     let unbilled_order =
@@ -1880,5 +2070,44 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(outbox_status, "PENDIENTE");
 
-    cleanup(admin, tenant, &[owner, cashier]).await;
+    // [P] F0.3: después de 5 intentos fallidos en 15 minutos, responde 429
+    let test_rate_email = "bloqueo.test@ejemplo.com";
+    for i in 1..=4 {
+        let res = crate::auth::check_and_record_login_attempt(
+            app,
+            test_rate_email,
+            Some("192.168.1.50"),
+            Some("TestAgent/1.0"),
+            Some(false),
+            Some("invalid password"),
+        )
+        .await;
+        assert!(res.is_ok(), "intento {i} fallido dentro del límite");
+    }
+
+    // Pre-check antes del 5to intento todavía pasa (4 fallos < 5)
+    let pre_check_ok =
+        crate::auth::check_and_record_login_attempt(app, test_rate_email, None, None, None, None)
+            .await;
+    assert!(pre_check_ok.is_ok());
+
+    // 5to intento fallido responde 429 TooManyRequests
+    let fifth_attempt = crate::auth::check_and_record_login_attempt(
+        app,
+        test_rate_email,
+        Some("192.168.1.50"),
+        Some("TestAgent/1.0"),
+        Some(false),
+        Some("invalid password"),
+    )
+    .await;
+    assert!(is_too_many_requests(&fifth_attempt));
+
+    // Pre-check posterior responde 429 bloqueando el login
+    let blocked_pre_check =
+        crate::auth::check_and_record_login_attempt(app, test_rate_email, None, None, None, None)
+            .await;
+    assert!(is_too_many_requests(&blocked_pre_check));
+
+    cleanup(admin, tenant, &[owner, cashier, admin_user]).await;
 }

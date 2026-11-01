@@ -53,19 +53,23 @@ pub async fn next_tx(
     .await?;
 
     // Bloquear fila y avanzar el contador
-    let row: Option<(String, i64, Option<i64>)> = sqlx::query_as(
+    let row: Option<(String, i64, Option<i64>, bool)> = sqlx::query_as(
         "update document_sequences
             set next_number = next_number + 1
           where branch_id = $1 and doc_type = $2
-          returning prefix, next_number - 1, range_to",
+          returning prefix, next_number - 1, range_to, coalesce(valid_until < current_date, false)",
     )
     .bind(branch_id)
     .bind(doc_type)
     .fetch_optional(&mut **tx)
     .await?;
 
-    let (prefix, number, range_to) =
+    let (prefix, number, range_to, expired) =
         row.ok_or_else(|| state(format!("sequence for {doc_type} not found")))?;
+
+    if expired {
+        return Err(state("receipt numbering resolution has expired"));
+    }
 
     if let Some(limit) = range_to
         && number > limit

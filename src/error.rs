@@ -18,6 +18,8 @@ pub enum DomainError {
     /// (p. ej. vender sin turno de caja abierto). Se responde 409 con el motivo.
     #[error("{0}")]
     State(String),
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
 }
 
 impl DomainError {
@@ -27,6 +29,7 @@ impl DomainError {
             DomainError::Conflict | DomainError::State(_) => StatusCode::CONFLICT,
             DomainError::Forbidden => StatusCode::FORBIDDEN,
             DomainError::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            DomainError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 }
@@ -38,6 +41,10 @@ pub fn validation(msg: impl Into<String>) -> ApiError {
 
 pub fn state(msg: impl Into<String>) -> ApiError {
     ApiError::Domain(DomainError::State(msg.into()))
+}
+
+pub fn too_many_requests(msg: impl Into<String>) -> ApiError {
+    ApiError::Domain(DomainError::TooManyRequests(msg.into()))
 }
 
 /// Error de la capa API.
@@ -127,6 +134,10 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(status_of(state("no open session")), StatusCode::CONFLICT);
+        assert_eq!(
+            status_of(too_many_requests("rate limited")),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         assert_eq!(status_of(ApiError::Unauthorized), StatusCode::UNAUTHORIZED);
     }
 

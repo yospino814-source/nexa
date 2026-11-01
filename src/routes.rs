@@ -117,6 +117,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/users/invite", post(invite_user))
         .route("/v1/users/{id}/role", put(update_user_role))
         .route("/v1/users/{id}/status", put(update_user_status))
+        // Auth / seguridad
+        .route("/v1/auth/login-attempt", post(auth_login_attempt))
 }
 
 #[derive(Deserialize)]
@@ -790,4 +792,40 @@ async fn update_user_status(
 ) -> ApiResult<Json<serde_json::Value>> {
     users::update_user_status(&state.pool, &user.claims, id, req).await?;
     Ok(Json(json!({ "status": "ok" })))
+}
+
+// ---------------------------------------------------------------------- auth / seguridad
+
+#[derive(Debug, Deserialize)]
+pub struct LoginAttemptRequest {
+    pub email: String,
+    pub success: Option<bool>,
+    #[serde(alias = "failure_reason")]
+    pub reason: Option<String>,
+}
+
+async fn auth_login_attempt(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Body(req): Body<LoginAttemptRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim());
+    let user_agent = headers.get("user-agent").and_then(|h| h.to_str().ok());
+
+    let count = crate::auth::check_and_record_login_attempt(
+        &state.pool,
+        &req.email,
+        ip,
+        user_agent,
+        req.success,
+        req.reason.as_deref(),
+    )
+    .await?;
+
+    Ok(Json(
+        json!({ "status": "ok", "failed_attempts_in_window": count }),
+    ))
 }

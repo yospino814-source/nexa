@@ -236,13 +236,17 @@ pub async fn checkout_tx(
     let settings = crate::settings::load_tx(tx, branch).await?;
 
     for item in &req.items {
-        if item.unit_price_override.is_some() && !settings.pos.allow_price_override {
-            return Err(validation("price override is not allowed in this branch"));
+        if item.unit_price_override.is_some() {
+            if !settings.pos.allow_price_override {
+                return Err(validation("price override is not allowed in this branch"));
+            }
+            scope.require_permission("pos:price_override")?;
         }
-        if let Some(disc) = item.discount_pct
-            && disc > settings.pos.max_discount_pct
-        {
-            return Err(validation("discount exceeds maximum allowed"));
+        if let Some(disc) = item.discount_pct {
+            if disc > settings.pos.max_discount_pct {
+                return Err(validation("discount exceeds maximum allowed"));
+            }
+            scope.require_permission("pos:discount")?;
         }
     }
 
@@ -263,9 +267,9 @@ pub async fn checkout_tx(
         let final_price = match item.discount_pct {
             Some(disc) if disc > Decimal::ZERO => {
                 let factor = Decimal::ONE - (disc / Decimal::new(100, 0));
-                base_price * factor
+                (base_price * factor).round_dp(2)
             }
-            _ => base_price,
+            _ => base_price.round_dp(2),
         };
         sqlx::query(
             "insert into order_items
@@ -326,7 +330,7 @@ pub async fn checkout_tx(
     }
 
     // 7. Consecutivo sin huecos + documento fiscal en la outbox.
-    let (prefix, number) = next_receipt_number(tx, scope, branch).await?;
+    let (prefix, number) = crate::sequences::next_tx(tx, scope, branch, "POS").await?;
     sqlx::query(
         "insert into fiscal_documents (tenant_id, branch_id, order_id, doc_type, prefix, number, status_id)
          values ($1, $2, $3, 'POS', $4, $5, public.tipo_id('DOCF', 'PENDIENTE'))",
@@ -357,45 +361,6 @@ pub async fn checkout_tx(
     .await?;
 
     Ok(Checkout::Created(load_response(tx, req.id).await?))
-}
-
-/// Toma el siguiente numero de la sucursal con bloqueo de fila. Si la venta se
-/// revierte, el numero vuelve a estar libre. Respeta rango y vigencia de la
-/// resolucion DIAN cuando estan configurados.
-async fn next_receipt_number(
-    tx: &mut Tx<'_>,
-    scope: &Scope,
-    branch: Uuid,
-) -> Result<(String, i64), ApiError> {
-    // Numeracion por defecto (sin resolucion) para sucursales sin configurar.
-    sqlx::query(
-        "insert into document_sequences (tenant_id, branch_id, doc_type, prefix)
-         values ($1, $2, 'POS', 'POS')
-         on conflict (branch_id, doc_type) do nothing",
-    )
-    .bind(scope.tenant)
-    .bind(branch)
-    .execute(&mut **tx)
-    .await?;
-
-    let (prefix, number, range_to, expired): (String, i64, Option<i64>, bool) = sqlx::query_as(
-        "update document_sequences
-            set next_number = next_number + 1
-          where branch_id = $1 and doc_type = 'POS'
-          returning prefix, next_number - 1, range_to,
-                    coalesce(valid_until < current_date, false)",
-    )
-    .bind(branch)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    if range_to.is_some_and(|max| number > max) {
-        return Err(state("authorized receipt numbering range is exhausted"));
-    }
-    if expired {
-        return Err(state("receipt numbering resolution has expired"));
-    }
-    Ok((prefix, number))
 }
 
 fn format_receipt(prefix: &str, number: i64) -> String {

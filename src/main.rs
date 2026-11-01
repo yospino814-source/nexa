@@ -1,5 +1,5 @@
 mod audit;
-mod auth;
+pub mod auth;
 mod cash;
 mod catalog;
 mod db;
@@ -173,6 +173,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn login_attempt_without_token_is_not_unauthorized() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/auth/login-attempt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"email":""}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]

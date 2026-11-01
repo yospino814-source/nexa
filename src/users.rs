@@ -116,6 +116,10 @@ pub async fn invite_user(
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("users:manage")?;
 
+    if req.role == "DUENO" && scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+
     let role_id: Option<i32> = sqlx::query_scalar(
         "select tima_id from tbl_tipos_maestra
           where padre_id = (select tima_id from tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
@@ -189,6 +193,12 @@ pub async fn update_user_role(
     let (target_user_id, current_role) =
         target.ok_or_else(|| ApiError::Domain(DomainError::NotFound))?;
 
+    // [P] Solo el DUENO puede asignar o quitar el rol DUENO, o cambiarle el rol a un dueño.
+    // ADMIN_CAJA no puede subir a nadie a dueño ni tocar a un dueño.
+    if scope.role != "DUENO" && (req.role == "DUENO" || current_role == "DUENO") {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+
     // [P] El dueño no puede quitarse su propio rol
     if target_user_id == scope.user && current_role == "DUENO" && req.role != "DUENO" {
         return Err(state("an owner cannot remove their own DUENO role"));
@@ -251,6 +261,11 @@ pub async fn update_user_status(
     .await?;
 
     let (target_user_id, role) = target.ok_or_else(|| ApiError::Domain(DomainError::NotFound))?;
+
+    // [P] Solo el DUENO puede desactivar a un dueño. ADMIN_CAJA no puede tocar a un dueño.
+    if role == "DUENO" && scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
 
     // No permitir desactivarse a sí mismo si es el dueño
     if target_user_id == scope.user && role == "DUENO" && !req.active {

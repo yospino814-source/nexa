@@ -160,3 +160,51 @@ impl FromRequestParts<AppState> for AuthUser {
         Ok(AuthUser { claims })
     }
 }
+
+/// Registra o comprueba un intento de login para un correo.
+/// Si en los últimos 15 minutos hay 5 o más fallos para ese correo, responde error 429 TooManyRequests.
+pub async fn check_and_record_login_attempt(
+    pool: &sqlx::PgPool,
+    email: &str,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+    success: Option<bool>,
+    reason: Option<&str>,
+) -> Result<i64, ApiError> {
+    let email = email.trim().to_lowercase();
+    if email.is_empty() {
+        return Err(crate::error::validation("email is required"));
+    }
+
+    if let Some(success) = success {
+        sqlx::query(
+            "insert into public.login_attempts (email, ip, user_agent, success, reason, at)
+             values ($1, $2, $3, $4, $5, now())",
+        )
+        .bind(&email)
+        .bind(ip)
+        .bind(user_agent)
+        .bind(success)
+        .bind(reason)
+        .execute(pool)
+        .await?;
+    }
+
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from public.login_attempts
+          where lower(email) = lower($1)
+            and not success
+            and at >= now() - interval '15 minutes'",
+    )
+    .bind(&email)
+    .fetch_one(pool)
+    .await?;
+
+    if count >= 5 {
+        return Err(crate::error::too_many_requests(
+            "demasiados intentos fallidos en los últimos 15 minutos",
+        ));
+    }
+
+    Ok(count)
+}
