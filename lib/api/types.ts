@@ -210,6 +210,8 @@ export type CheckoutRequest = {
   payments: { method: PaymentMethod; amount: Decimal; reference?: string | null }[];
   quoted_total: Decimal;
   tip_amount?: Decimal | null;
+  /** F1.10: mesero que recibe la propina. */
+  tip_waiter_id?: Uuid | null;
   customer_id?: Uuid | null;
   customer_alias?: string | null;
   coupon_code?: string | null;
@@ -849,3 +851,6 @@ export type CreateCouponInput = {
 
 export type UpdateCouponInput = CreateCouponInput;
 
+
+/** GET /v1/waiters (F1.10). */
+export type Waiter = { user_id: Uuid; full_name: string };

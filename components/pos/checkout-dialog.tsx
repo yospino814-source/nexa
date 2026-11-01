@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Banknote, Check, CheckCircle2, Loader2, MessageSquare, PlusCircle, Printer, ShoppingBag } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { api, friendlyError, type CheckoutResponse, type PaymentMethod } from "@/lib/api";
+import { api, friendlyError, type CheckoutResponse, type PaymentMethod, type Waiter } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
 import { cartTotals, linePrice, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
+
+import { MoneyInput } from "@/components/caja/money-input";
 
 import { PAYMENT_METHODS } from "./payment-methods";
 import { PrintTicket } from "./print-ticket";
@@ -30,6 +32,8 @@ export function CheckoutDialog({
   lines,
   initialMethod,
   branchId,
+  tipsEnabled = false,
+  suggestedTipPct = 0,
   onCompleted,
 }: {
   open: boolean;
@@ -37,6 +41,10 @@ export function CheckoutDialog({
   lines: CartLine[];
   initialMethod: PaymentMethod;
   branchId: string;
+  /** Ajuste `tips.enabled` de la sucursal (F1.10). */
+  tipsEnabled?: boolean;
+  /** Ajuste `tips.suggested_pct` (porcentaje sobre el subtotal). */
+  suggestedTipPct?: number;
   onCompleted: () => void;
 }) {
   const [method, setMethod] = useState(initialMethod);
@@ -52,6 +60,22 @@ export function CheckoutDialog({
   const customerAlias = useCart((s) => s.customerAlias);
   const couponCode = useCart((s) => s.couponCode);
   const couponDiscount = useCart((s) => s.couponDiscount);
+  const [tipMode, setTipMode] = useState<"NONE" | "SUGGESTED" | "CUSTOM">("NONE");
+  const [customTip, setCustomTip] = useState(0);
+  const [waiterId, setWaiterId] = useState<string | null>(null);
+  const [waiters, setWaiters] = useState<Waiter[]>([]);
+
+  useEffect(() => {
+    if (!open || !tipsEnabled) return;
+    let alive = true;
+    api.users
+      .waiters(branchId)
+      .then((list) => alive && setWaiters(list))
+      .catch(() => alive && setWaiters([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, tipsEnabled, branchId]);
 
   // Al abrir el modal se reinicia con el metodo elegido en el carrito.
   const [lastOpen, setLastOpen] = useState(open);
@@ -63,10 +87,23 @@ export function CheckoutDialog({
       setError(null);
       setReceipt(null);
       setSaleId(crypto.randomUUID());
+      setTipMode("NONE");
+      setCustomTip(0);
+      setWaiterId(null);
     }
   }
 
-  const { total, units } = cartTotals(lines, couponDiscount);
+  const { total: saleTotal, subtotal, units } = cartTotals(lines, couponDiscount);
+  // Propina sin impuesto, sumada después del IVA (F1.10).
+  const suggestedTip = Math.round((subtotal * suggestedTipPct) / 100);
+  const tip = !tipsEnabled
+    ? 0
+    : tipMode === "SUGGESTED"
+      ? suggestedTip
+      : tipMode === "CUSTOM"
+        ? customTip
+        : 0;
+  const total = saleTotal + tip;
   const isCash = method === "EFECTIVO";
   const paid = isCash ? (received ?? total) : total;
   const change = Math.max(paid - total, 0);
@@ -83,6 +120,8 @@ export function CheckoutDialog({
         items: toSaleItems(lines),
         payments: [{ method, amount: String(paid) }],
         quoted_total: String(total),
+        tip_amount: tip > 0 ? String(tip) : null,
+        tip_waiter_id: tip > 0 ? waiterId : null,
         customer_id: customer?.id ?? null,
         customer_alias: customerAlias ?? null,
         coupon_code: couponCode ?? null,
@@ -145,6 +184,51 @@ export function CheckoutDialog({
                 ))}
               </div>
             </div>
+
+            {tipsEnabled && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Propina</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      ["NONE", "Sin propina"],
+                      ["SUGGESTED", `Sugerida (${suggestedTipPct} %)`],
+                      ["CUSTOM", "Otro valor"],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setTipMode(mode)}
+                      className={cn(
+                        "h-11 rounded-full border text-sm font-medium",
+                        tipMode === mode ? "border-brand bg-teal-50 text-brand" : "border-slate-200 hover:bg-slate-50",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {tipMode === "CUSTOM" && <MoneyInput value={customTip} onChange={setCustomTip} />}
+                {tip > 0 && (
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-slate-500">Propina {formatCOP(tip)} · Mesero</span>
+                    <select
+                      value={waiterId ?? ""}
+                      onChange={(e) => setWaiterId(e.target.value || null)}
+                      className="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3"
+                    >
+                      <option value="">Sin mesero</option>
+                      {waiters.map((w) => (
+                        <option key={w.user_id} value={w.user_id}>
+                          {w.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
 
             {isCash && (
               <div className="space-y-3 rounded-2xl border border-slate-200/60 bg-slate-50 p-4">

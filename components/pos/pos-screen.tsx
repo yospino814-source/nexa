@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronUp, X } from "lucide-react";
 
-import { api, type CatalogItem, type PaymentMethod } from "@/lib/api";
+import { api, type BranchSettings, type CatalogItem, type PaymentMethod } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
 import { cartTotals, useCart } from "@/lib/stores/cart";
@@ -25,7 +25,7 @@ export function PosScreen() {
   const [cartOpen, setCartOpen] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
-  const [allowPriceOverride, setAllowPriceOverride] = useState(false);
+  const [settings, setSettings] = useState<BranchSettings | null>(null);
   const can = useSession((s) => s.can);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -46,12 +46,12 @@ export function PosScreen() {
   }, [branchId]);
 
   useEffect(() => {
-    // Ajuste de la sucursal que habilita el cambio de precio (F1.9).
+    // Ajustes de la sucursal: cambio de precio (F1.9) y propinas (F1.10).
     let alive = true;
     api.settings
       .get(branchId)
-      .then((s) => alive && setAllowPriceOverride(s.pos.allow_price_override))
-      .catch(() => alive && setAllowPriceOverride(false));
+      .then((s) => alive && setSettings(s))
+      .catch(() => alive && setSettings(null));
     return () => {
       alive = false;
     };
@@ -94,7 +94,7 @@ export function PosScreen() {
       onCharge={openCheckout}
       customerDialogOpen={customerDialogOpen}
       onCustomerDialogOpenChange={setCustomerDialogOpen}
-      allowPriceOverride={allowPriceOverride}
+      allowPriceOverride={settings?.pos.allow_price_override ?? false}
     />
   );
 
@@ -166,6 +166,8 @@ export function PosScreen() {
         lines={lines}
         initialMethod={method}
         branchId={branchId}
+        tipsEnabled={settings?.tips.enabled ?? false}
+        suggestedTipPct={Number(settings?.tips.suggested_pct ?? 0)}
         onCompleted={() => {
           clear();
           setCartOpen(false);

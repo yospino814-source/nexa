@@ -37,6 +37,7 @@ import {
   mockUpdateUserRole,
   mockUpdateUserStatus,
   mockUsersList,
+  mockWaiters,
   mockRecordLoginAttempt,
   PERMISSION_CATALOG,
 } from "./mock-platform";
@@ -100,6 +101,7 @@ import type {
   UpdateUserRoleInput,
   UpdateUserStatusInput,
   Uuid,
+  Waiter,
 } from "./types";
 
 export * from "./types";
@@ -1456,6 +1458,15 @@ export const api = {
   },
 
   users: {
+    /** Meseros activos de la sucursal, para la propina (pos:sell). */
+    async waiters(branchId: Uuid): Promise<Waiter[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockWaiters();
+      }
+      return request(`/v1/waiters?branch_id=${branchId}`);
+    },
+
     async list(): Promise<{ users: TenantUser[]; invitations: Invitation[] }> {
       if (USE_MOCKS) {
         await delay();

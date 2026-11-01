@@ -499,3 +499,14 @@ export function mockRecordLoginAttempt(input: LoginAttemptInput): { ok: boolean;
 }
 
 
+
+/**
+ * Meseros para el selector de propina (GET /v1/waiters). En el modo demo se
+ * listan todos los meseros activos, sin filtrar por sucursal, para que el
+ * selector tenga datos en cualquier sucursal de prueba.
+ */
+export function mockWaiters(): { user_id: string; full_name: string }[] {
+  return mockUsersData
+    .filter((u) => u.role === "MESERO" && u.active)
+    .map((u) => ({ user_id: u.id, full_name: u.full_name ?? u.email ?? "Mesero" }));
+}
