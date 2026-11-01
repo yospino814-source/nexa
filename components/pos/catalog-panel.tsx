@@ -44,11 +44,14 @@ export function CatalogPanel({
   loading,
   onAdd,
   searchRef,
+  onCustomItem,
 }: {
   items: CatalogItem[];
   loading: boolean;
   onAdd: (item: CatalogItem, tier?: AddItemTier) => void;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** F1.9: abre el diálogo de ítem libre. Si no se pasa, el botón no aparece. */
+  onCustomItem?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
@@ -112,6 +115,15 @@ export function CatalogPanel({
         <kbd className="hidden rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-500 sm:block">
           F2
         </kbd>
+        {onCustomItem && (
+          <button
+            type="button"
+            onClick={onCustomItem}
+            className="shrink-0 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50"
+          >
+            Ítem libre
+          </button>
+        )}
       </div>
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">

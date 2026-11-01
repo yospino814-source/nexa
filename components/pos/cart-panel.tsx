@@ -5,11 +5,12 @@ import { ArrowRight, Minus, Pencil, Percent, Plus, ShoppingCart, Tag, Trash2, Us
 
 import { api, COUPON_ERROR_MESSAGES, friendlyError, type PaymentMethod } from "@/lib/api";
 import { formatCOP, taxLabel } from "@/lib/format";
-import { cartTotals, useCart } from "@/lib/stores/cart";
-import { useCurrentBranch } from "@/lib/stores/session";
+import { cartTotals, linePrice, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
+import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { cn } from "@/lib/utils";
 
 import { CustomerDialog } from "./customer-dialog";
+import { PriceOverrideDialog } from "./price-override-dialog";
 import { PAYMENT_METHODS } from "./payment-methods";
 
 /** Componente compartido "Carrito": lineas + totales + accion principal. */
@@ -19,12 +20,15 @@ export function CartPanel({
   onCharge,
   customerDialogOpen: controlledDialogOpen,
   onCustomerDialogOpenChange: setControlledDialogOpen,
+  allowPriceOverride = false,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   onCharge: () => void;
   customerDialogOpen?: boolean;
   onCustomerDialogOpenChange?: (open: boolean) => void;
+  /** Ajuste `pos.allow_price_override` de la sucursal. */
+  allowPriceOverride?: boolean;
 }) {
   const {
     lines,
@@ -43,6 +47,9 @@ export function CartPanel({
     setCouponError,
   } = useCart();
   const branch = useCurrentBranch();
+  const can = useSession((s) => s.can);
+  const canOverride = allowPriceOverride && can("pos:price_override");
+  const [overrideLine, setOverrideLine] = useState<CartLine | null>(null);
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   const isDialogOpen = controlledDialogOpen !== undefined ? controlledDialogOpen : internalDialogOpen;
   const setDialogOpen = setControlledDialogOpen !== undefined ? setControlledDialogOpen : setInternalDialogOpen;
@@ -62,11 +69,7 @@ export function CartPanel({
     try {
       const res = await api.sales.quote({
         branch_id: branch.id,
-        items: lines.map((l) => ({
-          product_id: l.productId,
-          qty: String(l.qty),
-          tier_id: l.tierId ?? null,
-        })),
+        items: toSaleItems(lines),
         customer_id: customer?.id ?? null,
         customer_alias: customerAlias ?? null,
         coupon_code: raw,
@@ -178,7 +181,7 @@ export function CartPanel({
         ) : (
           <ul className="divide-y divide-slate-100">
             {lines.map((line) => (
-              <li key={line.productId} className="flex items-center gap-3 py-4">
+              <li key={line.key} className="flex items-center gap-3 py-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <p className="truncate font-medium">{line.name}</p>
@@ -189,10 +192,26 @@ export function CartPanel({
                     )}
                   </div>
                   <p className="text-xs text-slate-500">
-                    {formatCOP(line.unitPrice)} c/u · {taxLabel(line.taxRate)}
+                    {line.priceOverride != null && (
+                      <span className="mr-1 line-through">{formatCOP(line.unitPrice)}</span>
+                    )}
+                    {formatCOP(linePrice(line))} c/u · {taxLabel(line.taxRate)}
                     {line.unitsPerPackage && line.unitsPerPackage > 1 ? ` · x${line.unitsPerPackage} un.` : ""}
                   </p>
-                  {line.promotionName && (
+                  {line.productId === null && (
+                    <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                      Ítem libre
+                    </span>
+                  )}
+                  {canOverride && line.productId !== null && (
+                    <button
+                      onClick={() => setOverrideLine(line)}
+                      className="mt-1 ml-1 inline-block text-[11px] font-semibold text-brand hover:underline"
+                    >
+                      Cambiar precio
+                    </button>
+                  )}
+                  {line.promotionName && line.priceOverride == null && (
                     <span className="inline-block mt-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                       {line.promotionName} {line.promotionDiscount ? `−${formatCOP(line.promotionDiscount * line.qty)}` : ""}
                     </span>
@@ -200,7 +219,7 @@ export function CartPanel({
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1">
                   <button
-                    onClick={() => setQty(line.productId, line.qty - 1)}
+                    onClick={() => setQty(line.key, line.qty - 1)}
                     aria-label="Quitar uno"
                     className="flex size-9 items-center justify-center rounded-full bg-white shadow-xs hover:bg-slate-100"
                   >
@@ -208,7 +227,7 @@ export function CartPanel({
                   </button>
                   <span className="w-8 text-center font-semibold tabular-nums">{line.qty}</span>
                   <button
-                    onClick={() => setQty(line.productId, line.qty + 1)}
+                    onClick={() => setQty(line.key, line.qty + 1)}
                     disabled={line.maxQty != null && line.qty >= line.maxQty}
                     aria-label="Agregar uno"
                     className="flex size-9 items-center justify-center rounded-full bg-white shadow-xs hover:bg-slate-100 disabled:opacity-40"
@@ -216,9 +235,9 @@ export function CartPanel({
                     <Plus className="size-4" />
                   </button>
                 </div>
-                <span className="w-20 text-right font-bold tabular-nums">{formatCOP(line.unitPrice * line.qty)}</span>
+                <span className="w-20 text-right font-bold tabular-nums">{formatCOP(linePrice(line) * line.qty)}</span>
                 <button
-                  onClick={() => remove(line.productId)}
+                  onClick={() => remove(line.key)}
                   aria-label={`Eliminar ${line.name}`}
                   className="text-slate-300 hover:text-rose-500"
                 >
@@ -329,6 +348,7 @@ export function CartPanel({
         </div>
       </div>
 
+      <PriceOverrideDialog line={overrideLine} onClose={() => setOverrideLine(null)} />
       <CustomerDialog
         open={isDialogOpen}
         onOpenChange={setDialogOpen}

@@ -538,7 +538,10 @@ function mockQuote(req: QuoteRequest): QuoteResponse {
     const discPct = item.discount_pct ? Number(item.discount_pct) : 0;
     const manualDisc = cents(gross * (discPct / 100));
     const lineTotal = cents(gross - manualDisc);
-    const rate = Number(product?.tax_rate ?? 0);
+    const customRates: Record<string, number> = { IVA19: 0.19, IVA5: 0.05, INC8: 0.08, EXENTO: 0 };
+    const rate = item.product_id
+      ? Number(product?.tax_rate ?? 0)
+      : customRates[item.custom_tax ?? "EXENTO"] ?? 0;
     const taxAmount = cents(lineTotal * rate);
 
     subtotalGross += gross;

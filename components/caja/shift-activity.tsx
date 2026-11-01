@@ -168,3 +168,4 @@ export function ShiftActivity({ activity }: { activity: CashActivity[] | null })
     </section>
   );
 }
+

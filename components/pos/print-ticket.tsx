@@ -3,7 +3,7 @@
 import { PrintArea } from "@/components/nexa/print-area";
 
 import type { CheckoutResponse, PaymentMethod } from "@/lib/api";
-import type { CartLine } from "@/lib/stores/cart";
+import { linePrice, type CartLine } from "@/lib/stores/cart";
 import { formatCOP } from "@/lib/format";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -59,13 +59,13 @@ export function PrintTicket({
       )}
       <hr />
       {lines.map((line) => (
-        <div key={line.productId} className="t-item">
+        <div key={line.key} className="t-item">
           <p>{line.name}</p>
           <p className="t-row">
             <span>
-              {line.qty} x {formatCOP(line.unitPrice)}
+              {line.qty} x {formatCOP(linePrice(line))}
             </span>
-            <span>{formatCOP(line.unitPrice * line.qty)}</span>
+            <span>{formatCOP(linePrice(line) * line.qty)}</span>
           </p>
         </div>
       ))}

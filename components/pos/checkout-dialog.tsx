@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api, friendlyError, type CheckoutResponse, type PaymentMethod } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
-import { cartTotals, useCart, type CartLine } from "@/lib/stores/cart";
+import { cartTotals, linePrice, toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { PAYMENT_METHODS } from "./payment-methods";
@@ -80,11 +80,7 @@ export function CheckoutDialog({
       const response = await api.sales.checkout({
         id: saleId,
         branch_id: branchId,
-        items: lines.map((line) => ({
-          product_id: line.productId,
-          qty: String(line.qty),
-          tier_id: line.tierId ?? null,
-        })),
+        items: toSaleItems(lines),
         payments: [{ method, amount: String(paid) }],
         quoted_total: String(total),
         customer_id: customer?.id ?? null,
@@ -279,11 +275,11 @@ function ReceiptView({ receipt, onNewSale }: { receipt: Receipt; onNewSale: () =
             : "Documento equivalente electrónico en trámite ante la DIAN"}
         </p>
         {lines.map((line) => (
-          <div key={line.productId} className="flex justify-between py-0.5">
+          <div key={line.key} className="flex justify-between py-0.5">
             <span>
               {line.qty}x {line.name}
             </span>
-            <span className="font-bold">{formatCOP(line.unitPrice * line.qty)}</span>
+            <span className="font-bold">{formatCOP(linePrice(line) * line.qty)}</span>
           </div>
         ))}
         <div className="mt-3 space-y-0.5 border-t border-dashed border-slate-300 pt-3">

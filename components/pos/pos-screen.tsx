@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronUp, X } from "lucide-react";
 
 import { api, type CatalogItem, type PaymentMethod } from "@/lib/api";
-import { useCurrentBranch } from "@/lib/stores/session";
+import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
 import { cartTotals, useCart } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { CartPanel } from "./cart-panel";
 import { CatalogPanel } from "./catalog-panel";
 import { CheckoutDialog } from "./checkout-dialog";
+import { CustomItemDialog } from "./custom-item-dialog";
 
 /** Pantalla 13: POS mostrador (catalogo 60% / carrito 40%). */
 export function PosScreen() {
@@ -23,6 +24,9 @@ export function PosScreen() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [customItemOpen, setCustomItemOpen] = useState(false);
+  const [allowPriceOverride, setAllowPriceOverride] = useState(false);
+  const can = useSession((s) => s.can);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const lines = useCart((state) => state.lines);
@@ -42,6 +46,18 @@ export function PosScreen() {
   }, [branchId]);
 
   useEffect(() => {
+    // Ajuste de la sucursal que habilita el cambio de precio (F1.9).
+    let alive = true;
+    api.settings
+      .get(branchId)
+      .then((s) => alive && setAllowPriceOverride(s.pos.allow_price_override))
+      .catch(() => alive && setAllowPriceOverride(false));
+    return () => {
+      alive = false;
+    };
+  }, [branchId]);
+
+  useEffect(() => {
     // Carga inicial del catalogo de la sucursal.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadCatalog();
@@ -53,7 +69,7 @@ export function PosScreen() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (checkoutOpen || customerDialogOpen) return;
+      if (checkoutOpen || customerDialogOpen || customItemOpen) return;
       if (e.key === "F2") {
         e.preventDefault();
         searchRef.current?.focus();
@@ -69,7 +85,7 @@ export function PosScreen() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [checkoutOpen, customerDialogOpen, clear, openCheckout]);
+  }, [checkoutOpen, customerDialogOpen, customItemOpen, clear, openCheckout]);
 
   const cart = (
     <CartPanel
@@ -78,6 +94,7 @@ export function PosScreen() {
       onCharge={openCheckout}
       customerDialogOpen={customerDialogOpen}
       onCustomerDialogOpenChange={setCustomerDialogOpen}
+      allowPriceOverride={allowPriceOverride}
     />
   );
 
@@ -92,7 +109,13 @@ export function PosScreen() {
             </button>
           </p>
         )}
-        <CatalogPanel items={catalog} loading={loading} onAdd={add} searchRef={searchRef} />
+        <CatalogPanel
+          items={catalog}
+          loading={loading}
+          onAdd={add}
+          searchRef={searchRef}
+          onCustomItem={can("pos:custom_item") ? () => setCustomItemOpen(true) : undefined}
+        />
       </div>
 
       {/* Escritorio / tablet horizontal: carrito fijo a la derecha */}
@@ -134,6 +157,8 @@ export function PosScreen() {
           {cart}
         </div>
       </div>
+
+      <CustomItemDialog open={customItemOpen} onOpenChange={setCustomItemOpen} />
 
       <CheckoutDialog
         open={checkoutOpen}

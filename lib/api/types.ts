@@ -130,7 +130,11 @@ export type QuoteItemInput = {
   discount_pct?: Decimal | null;
   tier_id?: Uuid | null;
   price_override_reason?: string | null;
+  /** Impuesto del ítem libre (F1.9). */
+  custom_tax?: CustomTax | null;
 };
+
+export type CustomTax = "IVA19" | "IVA5" | "INC8" | "EXENTO";
 
 export type QuoteRequest = {
   branch_id: Uuid;
