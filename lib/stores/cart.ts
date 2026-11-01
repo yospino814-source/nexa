@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-import type { CatalogItem } from "@/lib/api";
+import type { CatalogItem, Customer } from "@/lib/api";
 import { toNumber } from "@/lib/format";
 
 export type CartLine = {
@@ -18,14 +18,22 @@ export type CartLine = {
 
 type CartState = {
   lines: CartLine[];
+  customer: Customer | null;
+  customerAlias: string | null;
   add: (item: CatalogItem) => void;
   setQty: (productId: string, qty: number) => void;
   remove: (productId: string) => void;
+  setCustomer: (customer: Customer | null) => void;
+  setCustomerAlias: (alias: string | null) => void;
   clear: () => void;
 };
 
 export const useCart = create<CartState>((set) => ({
   lines: [],
+  customer: null,
+  customerAlias: null,
+  setCustomer: (customer) => set({ customer, customerAlias: null }),
+  setCustomerAlias: (customerAlias) => set({ customerAlias, customer: null }),
   add: (item) =>
     set((state) => {
       const maxQty = toNumber(item.available);
@@ -65,7 +73,7 @@ export const useCart = create<CartState>((set) => ({
     })),
   remove: (productId) =>
     set((state) => ({ lines: state.lines.filter((line) => line.productId !== productId) })),
-  clear: () => set({ lines: [] }),
+  clear: () => set({ lines: [], customer: null, customerAlias: null }),
 }));
 
 export type CartTotals = { subtotal: number; tax: number; total: number; units: number };

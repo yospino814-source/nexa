@@ -45,6 +45,9 @@ export type Order = {
   table_id: Uuid | null;
   branch_id: Uuid;
   waiter_id: Uuid | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
+  customer_name?: string | null;
   subtotal: Decimal;
   inc_amount: Decimal;
   tip_amount: Decimal;
@@ -114,6 +117,8 @@ export type CheckoutRequest = {
    */
   payments: { method: PaymentMethod; amount: Decimal; reference?: string | null }[];
   tip_amount?: Decimal | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
 };
 
 /** src/sales.rs::Payment */
@@ -538,6 +543,35 @@ export type LoginAttemptInput = {
   email: string;
   success?: boolean;
   failure_reason?: string;
+};
+
+// ---------------------------------------------------------------- clientes
+
+export type DocType = "CC" | "NIT" | "CE" | "PP" | "TI" | "PEP" | "PPT" | "NIUP";
+
+export type Customer = {
+  id: Uuid;
+  doc_type: DocType | null;
+  doc_number: string | null;
+  dv: string | null;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  price_tier_id: Uuid | null;
+};
+
+export type CreateCustomerInput = {
+  name: string;
+  doc_type?: DocType | null;
+  doc_number?: string | null;
+  dv?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
+export type CustomerQuery = {
+  q?: string;
+  limit?: number;
 };
 
 // ---------------------------------------------------------------- PROPUESTOS

@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api, friendlyError, type CheckoutResponse, type PaymentMethod } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
-import { cartTotals, type CartLine } from "@/lib/stores/cart";
+import { cartTotals, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { PAYMENT_METHODS } from "./payment-methods";
@@ -48,6 +48,8 @@ export function CheckoutDialog({
   // un doble clic o un corte de red no cobren dos veces.
   const [saleId, setSaleId] = useState(() => crypto.randomUUID());
   const cashierName = useSession((s) => s.name);
+  const customer = useCart((s) => s.customer);
+  const customerAlias = useCart((s) => s.customerAlias);
 
   // Al abrir el modal se reinicia con el metodo elegido en el carrito.
   const [lastOpen, setLastOpen] = useState(open);
@@ -78,6 +80,8 @@ export function CheckoutDialog({
         branch_id: branchId,
         items: lines.map((line) => ({ product_id: line.productId, qty: String(line.qty) })),
         payments: [{ method, amount: String(paid) }],
+        customer_id: customer?.id ?? null,
+        customer_alias: customerAlias ?? null,
       });
       setReceipt({ response, lines, received: paid, method });
     } catch (e) {

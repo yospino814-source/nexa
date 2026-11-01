@@ -57,10 +57,14 @@ import type {
   CatalogItem,
   CheckoutRequest,
   CheckoutResponse,
+  CreateCustomerInput,
   CreatePurchaseInput,
   CreateSupplierInput,
+  Customer,
+  CustomerQuery,
   DashboardSummary,
   Decimal,
+  DocType,
   Invitation,
   InviteUserInput,
   LoginAttemptInput,
@@ -170,6 +174,69 @@ const mockRegisters: CashRegister[] = [
     default_opening: "100000.00",
     active: true,
     open_session: null,
+  },
+];
+
+const mockCustomers: Customer[] = [
+  {
+    id: "c0000000-0000-0000-0000-000000000001",
+    doc_type: "NIT",
+    doc_number: "900123456",
+    dv: "1",
+    name: "Distribuidora El Triunfo SAS",
+    phone: "3104567890",
+    email: "contacto@eltriunfo.com.co",
+    price_tier_id: null,
+  },
+  {
+    id: "c0000000-0000-0000-0000-000000000002",
+    doc_type: "CC",
+    doc_number: "1020304050",
+    dv: null,
+    name: "Juan Carlos Pérez",
+    phone: "3001234567",
+    email: "juan.perez@gmail.com",
+    price_tier_id: "t0000000-0000-0000-0000-000000000001",
+  },
+  {
+    id: "c0000000-0000-0000-0000-000000000003",
+    doc_type: "CC",
+    doc_number: "52987654",
+    dv: null,
+    name: "María Fernanda Gómez",
+    phone: "3159876543",
+    email: "mafe.gomez@hotmail.com",
+    price_tier_id: null,
+  },
+  {
+    id: "c0000000-0000-0000-0000-000000000004",
+    doc_type: "CC",
+    doc_number: "80123456",
+    dv: null,
+    name: "Carlos Alberto Rodríguez",
+    phone: "3201122334",
+    email: "carlos.rodriguez@outlook.com",
+    price_tier_id: null,
+  },
+  {
+    id: "c0000000-0000-0000-0000-000000000005",
+    doc_type: "CC",
+    doc_number: "1032456789",
+    dv: null,
+    name: "Laura Camila Restrepo",
+    phone: "3118899001",
+    email: "laura.restrepo@yahoo.es",
+    price_tier_id: null,
+  },
+  {
+    id: "c0000000-0000-0000-0000-000000000006",
+    doc_type: "CC",
+    doc_number: "79654321",
+    dv: null,
+    name: "Andrés Felipe Morales",
+    phone: "3187766554",
+    email: "andres.morales@empresa.co",
+    price_tier_id: null,
   },
 ];
 
@@ -360,6 +427,7 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
 
   receiptSeq += 1;
   sessionOf.set(orderId, mockCash.id);
+  const cust = body.customer_id ? mockCustomers.find((c) => c.id === body.customer_id) : null;
   const response: CheckoutResponse = {
     order: {
       id: orderId,
@@ -368,6 +436,9 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
       table_id: null,
       branch_id: body.branch_id,
       waiter_id: null,
+      customer_id: body.customer_id ?? null,
+      customer_alias: body.customer_alias ?? null,
+      customer_name: cust ? cust.name : null,
       subtotal: dec(subtotal),
       inc_amount: dec(tax),
       tip_amount: "0",
@@ -989,6 +1060,95 @@ export const api = {
         return;
       }
       await request("/v1/auth/login-attempt", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+  },
+
+  customers: {
+    /** GET /v1/customers?q=&limit= */
+    async search(query?: CustomerQuery): Promise<Customer[]> {
+      if (USE_MOCKS) {
+        await delay();
+        const q = query?.q?.trim().toLowerCase() || "";
+        const limit = Math.min(Math.max(query?.limit || 20, 1), 50);
+        if (!q) {
+          return structuredClone(mockCustomers.slice(0, limit));
+        }
+        const filtered = mockCustomers.filter(
+          (c) =>
+            c.name.toLowerCase().includes(q) ||
+            (c.doc_number && c.doc_number.toLowerCase().startsWith(q)) ||
+            (c.phone && c.phone.startsWith(q)),
+        );
+        return structuredClone(filtered.slice(0, limit));
+      }
+      const params = new URLSearchParams();
+      if (query?.q) params.set("q", query.q);
+      if (query?.limit) params.set("limit", String(query.limit));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/customers${qs}`);
+    },
+
+    /** POST /v1/customers */
+    async create(input: CreateCustomerInput): Promise<Customer> {
+      if (USE_MOCKS) {
+        await delay();
+        const name = input.name.trim().replace(/\s+/g, " ");
+        if (!name || name.length > 120) {
+          throw new ApiError(422, "El nombre debe tener entre 1 y 120 caracteres", "CUSTOMER_INVALID");
+        }
+        let doc_number = input.doc_number ? input.doc_number.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : null;
+        let doc_type = input.doc_type ? (input.doc_type.trim().toUpperCase() as DocType) : null;
+        if (!doc_number) doc_number = null;
+        if (!doc_type) doc_type = null;
+        if ((doc_number === null) !== (doc_type === null)) {
+          throw new ApiError(422, "Tipo y número de documento deben proporcionarse juntos", "CUSTOMER_INVALID");
+        }
+        let dv = input.dv ? input.dv.replace(/[^0-9]/g, "") : null;
+        if (!dv) dv = null;
+        if (dv && doc_type !== "NIT") {
+          throw new ApiError(422, "El dígito de verificación (DV) solo aplica para NIT", "CUSTOMER_INVALID");
+        }
+        if (dv && dv.length !== 1) {
+          throw new ApiError(422, "El DV debe ser un único dígito", "CUSTOMER_INVALID");
+        }
+        let phone = input.phone ? input.phone.replace(/[^0-9]/g, "") : null;
+        if (!phone) phone = null;
+        if (phone && (phone.length < 7 || phone.length > 15)) {
+          throw new ApiError(422, "El teléfono debe tener entre 7 y 15 dígitos", "CUSTOMER_INVALID");
+        }
+        let email = input.email ? input.email.trim().toLowerCase() : null;
+        if (!email) email = null;
+        if (email) {
+          const atCount = (email.match(/@/g) || []).length;
+          if (atCount !== 1 || email.startsWith("@") || email.endsWith("@") || email.length < 3) {
+            throw new ApiError(422, "El correo electrónico no es válido", "CUSTOMER_INVALID");
+          }
+        }
+        if (doc_number && doc_type) {
+          const dup = mockCustomers.find(
+            (c) => c.doc_type === doc_type && c.doc_number?.toUpperCase() === doc_number?.toUpperCase(),
+          );
+          if (dup) {
+            throw new ApiError(409, "Ya existe un cliente con ese documento.", "CUSTOMER_DUPLICATED", { id: dup.id });
+          }
+        }
+        const newCust: Customer = {
+          id: `c0000000-0000-0000-0000-${String(mockCustomers.length + 1).padStart(12, "0")}`,
+          name,
+          doc_type,
+          doc_number,
+          dv,
+          phone,
+          email,
+          price_tier_id: null,
+        };
+        mockCustomers.push(newCust);
+        return structuredClone(newCust);
+      }
+      return request("/v1/customers", {
         method: "POST",
         body: JSON.stringify(input),
       });

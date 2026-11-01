@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowRight, Minus, Pencil, Percent, Plus, ShoppingCart, Trash2, User, X } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Minus, Pencil, Percent, Plus, ShoppingCart, Tag, Trash2, User, X } from "lucide-react";
 
 import type { PaymentMethod } from "@/lib/api";
 import { formatCOP, taxLabel } from "@/lib/format";
 import { cartTotals, useCart } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
+import { CustomerDialog } from "./customer-dialog";
 import { PAYMENT_METHODS } from "./payment-methods";
 
 /** Componente compartido "Carrito": lineas + totales + accion principal. */
@@ -14,12 +16,20 @@ export function CartPanel({
   method,
   onMethodChange,
   onCharge,
+  customerDialogOpen: controlledDialogOpen,
+  onCustomerDialogOpenChange: setControlledDialogOpen,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   onCharge: () => void;
+  customerDialogOpen?: boolean;
+  onCustomerDialogOpenChange?: (open: boolean) => void;
 }) {
-  const { lines, setQty, remove, clear } = useCart();
+  const { lines, customer, customerAlias, setCustomer, setCustomerAlias, setQty, remove, clear } = useCart();
+  const [internalDialogOpen, setInternalDialogOpen] = useState(false);
+  const isDialogOpen = controlledDialogOpen !== undefined ? controlledDialogOpen : internalDialogOpen;
+  const setDialogOpen = setControlledDialogOpen !== undefined ? setControlledDialogOpen : setInternalDialogOpen;
+
   const totals = cartTotals(lines);
   const empty = lines.length === 0;
 
@@ -45,15 +55,49 @@ export function CartPanel({
           </button>
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200/60 bg-slate-50/60 p-3">
-          <span className="flex size-10 items-center justify-center rounded-full bg-teal-50 text-brand">
-            <User className="size-5" />
+          <span className="flex size-10 items-center justify-center rounded-full bg-teal-50 text-brand shrink-0">
+            {customerAlias ? <Tag className="size-5" /> : <User className="size-5" />}
           </span>
-          <div className="flex-1 leading-tight">
-            <p className="text-sm font-semibold">Consumidor Final</p>
-            <p className="text-xs text-slate-500">CC / NIT: 222222222222</p>
+          <div className="flex-1 min-w-0 leading-tight">
+            {customer ? (
+              <>
+                <p className="truncate text-sm font-semibold">{customer.name}</p>
+                <p className="text-xs text-slate-500">
+                  {customer.doc_type && customer.doc_number
+                    ? `${customer.doc_type} ${customer.doc_number}${customer.dv ? `-${customer.dv}` : ""}`
+                    : "Sin documento"}
+                </p>
+              </>
+            ) : customerAlias ? (
+              <>
+                <p className="truncate text-sm font-semibold">Alias: {customerAlias}</p>
+                <p className="text-xs text-slate-500">Venta identificada</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold">Consumidor Final</p>
+                <p className="text-xs text-slate-500">Sin cliente asignado</p>
+              </>
+            )}
           </div>
-          <button className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
-            <Pencil className="size-3" /> Cambiar
+          {customer || customerAlias ? (
+            <button
+              onClick={() => {
+                setCustomer(null);
+                setCustomerAlias(null);
+              }}
+              title="Quitar cliente o alias"
+              aria-label="Quitar cliente o alias"
+              className="flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:text-rose-600 hover:bg-slate-50"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+          <button
+            onClick={() => setDialogOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+          >
+            <Pencil className="size-3" /> {customer || customerAlias ? "Cambiar" : "Cliente (F4)"}
           </button>
           <button aria-label="Descuento" className="flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">
             <Percent className="size-3.5" />
@@ -146,12 +190,12 @@ export function CartPanel({
         >
           <span>Cobrar {formatCOP(totals.total)}</span>
           <span className="flex items-center gap-2">
-            <kbd className="rounded-md bg-white/15 px-2 py-0.5 text-xs font-medium">F4</kbd>
+            <kbd className="rounded-md bg-white/15 px-2 py-0.5 text-xs font-medium">Espacio</kbd>
             <ArrowRight className="size-5" />
           </span>
         </button>
         <div className="hidden justify-between text-xs text-slate-400 lg:flex">
-          {[["F2", "Buscar"], ["F4", "Cobrar"], ["Esc", "Vaciar"]].map(([key, label]) => (
+          {[["F2", "Buscar"], ["F4", "Cliente"], ["Espacio", "Cobrar"], ["Esc", "Vaciar"]].map(([key, label]) => (
             <span key={key} className="flex items-center gap-1.5">
               <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5">{key}</kbd>
               {label}
@@ -159,6 +203,15 @@ export function CartPanel({
           ))}
         </div>
       </div>
+
+      <CustomerDialog
+        open={isDialogOpen}
+        onOpenChange={setDialogOpen}
+        currentCustomer={customer}
+        currentAlias={customerAlias}
+        onSelectCustomer={setCustomer}
+        onSelectAlias={setCustomerAlias}
+      />
     </div>
   );
 }

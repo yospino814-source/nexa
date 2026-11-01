@@ -22,6 +22,7 @@ export function PosScreen() {
   const [method, setMethod] = useState<PaymentMethod>("EFECTIVO");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const lines = useCart((state) => state.lines);
@@ -52,11 +53,14 @@ export function PosScreen() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (checkoutOpen) return;
+      if (checkoutOpen || customerDialogOpen) return;
       if (e.key === "F2") {
         e.preventDefault();
         searchRef.current?.focus();
       } else if (e.key === "F4") {
+        e.preventDefault();
+        setCustomerDialogOpen(true);
+      } else if (e.key === "F12" || (e.code === "Space" && e.target === document.body)) {
         e.preventDefault();
         openCheckout();
       } else if (e.key === "Escape") {
@@ -65,9 +69,17 @@ export function PosScreen() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [checkoutOpen, clear, openCheckout]);
+  }, [checkoutOpen, customerDialogOpen, clear, openCheckout]);
 
-  const cart = <CartPanel method={method} onMethodChange={setMethod} onCharge={openCheckout} />;
+  const cart = (
+    <CartPanel
+      method={method}
+      onMethodChange={setMethod}
+      onCharge={openCheckout}
+      customerDialogOpen={customerDialogOpen}
+      onCustomerDialogOpenChange={setCustomerDialogOpen}
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-1">
