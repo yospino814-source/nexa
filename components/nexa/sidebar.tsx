@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   { href: "/pos", label: "POS mostrador", icon: Calculator, match: ["/pos", "/caja"] },
   { href: "/inventario", label: "Inventario", icon: Package, match: ["/inventario", "/recetas"] },
   { href: "/compras", label: "Compras", icon: ShoppingCart },
-  { href: "/ventas", label: "Ventas y reportes", icon: BarChart3, match: ["/ventas", "/ordenes", "/gastos"] },
+  { href: "/ordenes", label: "Ventas y órdenes", icon: BarChart3, match: ["/ventas", "/ordenes", "/gastos"], permission: "cash:history" },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/mesas", label: "Restaurante", icon: UtensilsCrossed, match: ["/mesas", "/comanda", "/cocina"] },
   { href: "/rutas", label: "Rutas y mayorista", icon: Truck, match: ["/rutas", "/mayorista", "/repartidor"] },
