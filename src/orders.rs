@@ -306,14 +306,11 @@ pub async fn create_order_tx(
         (_, None) => {}
     }
 
-    let order = sqlx::query_as::<_, Order>(
+    let order_id: Uuid = sqlx::query_scalar(
         "insert into orders
            (tenant_id, branch_id, table_id, sale_type_id, status_id, waiter_id, notes)
          values ($1, $2, $3, $4, public.tipo_id('ORD', 'CREADA'), $5, $6)
-         returning id,
-           (select tima_codigo from tbl_tipos_maestra where tima_id = sale_type_id) as sale_type,
-           (select tima_codigo from tbl_tipos_maestra where tima_id = status_id) as status,
-           table_id, branch_id, waiter_id, subtotal, inc_amount, tip_amount, total_amount",
+         returning id",
     )
     .bind(scope.tenant)
     .bind(branch_id)
@@ -324,7 +321,8 @@ pub async fn create_order_tx(
     .fetch_one(&mut **tx)
     .await?;
 
-    Ok(order)
+    // Se relee con las mismas columnas que el resto de la API.
+    order_tx(tx, order_id).await
 }
 
 // -------------------------------------------------------------------- lineas

@@ -226,7 +226,7 @@ pub async fn open(
          from cash_sessions s
          left join users u on u.id = s.opened_by
          where s.register_id = $1 and s.closed_at is null
-         for share",
+         for share of s",
     )
     .bind(register_id)
     .fetch_optional(&mut *tx)

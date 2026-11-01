@@ -187,13 +187,13 @@ alter table public.product_tier_prices enable row level security;
 
 create policy price_tiers_tenant_isolation on public.price_tiers
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 create policy product_tier_prices_tenant_isolation on public.product_tier_prices
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 grant select, insert, update, delete on public.price_tiers to authenticated;
 grant select, insert, update, delete on public.product_tier_prices to authenticated;
@@ -261,22 +261,22 @@ alter table public.promotion_redemptions enable row level security;
 
 create policy promotions_tenant_isolation on public.promotions
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 create policy promotion_targets_tenant_isolation on public.promotion_targets
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 create policy promotion_redemptions_tenant_isolation on public.promotion_redemptions
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 grant select, insert, update, delete on public.promotions to authenticated;
 grant select, insert, update, delete on public.promotion_targets to authenticated;
-grant select, insert, update on public.promotion_redemptions to authenticated;
+grant select, insert, update, delete on public.promotion_redemptions to authenticated;
 
 -- F1.8 Cupones
 create table public.coupons (
@@ -335,22 +335,22 @@ alter table public.coupon_redemptions enable row level security;
 
 create policy coupons_tenant_isolation on public.coupons
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 create policy coupon_targets_tenant_isolation on public.coupon_targets
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 create policy coupon_redemptions_tenant_isolation on public.coupon_redemptions
   for all to authenticated
-  using (tenant_id = public.current_tenant())
-  with check (tenant_id = public.current_tenant());
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
 
 grant select, insert, update, delete on public.coupons to authenticated;
 grant select, insert, update, delete on public.coupon_targets to authenticated;
-grant select, insert, update on public.coupon_redemptions to authenticated;
+grant select, insert, update, delete on public.coupon_redemptions to authenticated;
 
 -- ============================================================
 -- F1.9 Cambio de precio e ítem libre

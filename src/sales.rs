@@ -544,7 +544,7 @@ async fn prepare_pricing_lines(
             Some(pid) => {
                 let row: Option<(String, Option<Uuid>, Option<Decimal>, Option<String>, bool)> =
                     sqlx::query_as(
-                        "select p.name, p.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
+                        "select p.name, bp.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
                                 p.allow_price_override
                            from branch_products bp
                            join products p on p.id = bp.product_id
@@ -789,8 +789,14 @@ pub async fn checkout_tx(
     let body = serde_json::to_value(req).map_err(anyhow::Error::from)?;
     let branch = req.branch_id;
 
-    // 1. Reclamar el id. Si otro request con el mismo id esta en curso, este
-    //    insert espera a que termine y luego no inserta nada.
+    // 1. Reclamar el id. Primero se serializan los reintentos simultaneos del
+    //    mismo id con un candado de transaccion: sin el, dos inserts con
+    //    `on conflict` sobre una tabla con dos indices unicos (id y
+    //    tenant_id+id) pueden bloquearse entre si (deadlock).
+    sqlx::query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(req.id)
+        .execute(&mut **tx)
+        .await?;
     let claimed: Option<Uuid> = sqlx::query_scalar(
         "insert into orders (id, tenant_id, branch_id, sale_type_id, status_id, client_request)
          values ($1, $2, $3, public.tipo_id('VENTA', 'MOSTRADOR'), public.tipo_id('ORD', 'CREADA'), $4)

@@ -571,7 +571,7 @@ pub async fn receive_purchase_tx(
            from purchase_receipts pr
            join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
           where pr.id = $1 and pr.tenant_id = $2
-            for update",
+            for update of pr",
     )
     .bind(purchase_id)
     .bind(scope.tenant)
@@ -674,7 +674,7 @@ pub async fn cancel_purchase_tx(
            from purchase_receipts pr
            join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
           where pr.id = $1 and pr.tenant_id = $2
-            for update",
+            for update of pr",
     )
     .bind(purchase_id)
     .bind(scope.tenant)

@@ -739,12 +739,18 @@ async fn hook_checks(admin: &PgPool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn database_integration() {
-    let Some(admin) = admin_pool().await else {
+    // Sin DATABASE_URL se omite (p. ej. cargo test sin Docker). Con ella, no
+    // conectar es un error: antes se omitia en silencio y parecia que pasaba.
+    if std::env::var("DATABASE_URL").is_err() {
+        eprintln!("database_integration omitido: falta DATABASE_URL");
         return;
-    };
-    let Some(app) = app_pool().await else {
-        return;
-    };
+    }
+    let admin = admin_pool()
+        .await
+        .expect("no se pudo conectar como administrador");
+    let app = app_pool()
+        .await
+        .expect("no se pudo conectar como authenticated (¿faltan las migraciones?)");
 
     context_sets_uid_tenant_branch(&app).await;
     resolve_membership_checks(&app, &admin).await;
@@ -888,8 +894,15 @@ fn is_forbidden<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
     matches!(r, Err(ApiError::Domain(DomainError::Forbidden)))
 }
 
+/// 409 por regla de estado: `state(..)` o un error con código (F1.0) de estado 409.
 fn is_state<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
-    matches!(r, Err(ApiError::Domain(DomainError::State(_))))
+    match r {
+        Err(ApiError::Domain(DomainError::State(_))) => true,
+        Err(e @ ApiError::Domain(DomainError::Coded { .. })) => {
+            e.status() == axum::http::StatusCode::CONFLICT
+        }
+        _ => false,
+    }
 }
 
 fn is_conflict<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
@@ -899,8 +912,15 @@ fn is_conflict<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
     }
 }
 
+/// 422: `validation(..)` o un error con código (F1.0) de estado 422.
 fn is_validation<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
-    matches!(r, Err(ApiError::Domain(DomainError::Validation(_))))
+    match r {
+        Err(ApiError::Domain(DomainError::Validation(_))) => true,
+        Err(e @ ApiError::Domain(DomainError::Coded { .. })) => {
+            e.status() == axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        }
+        _ => false,
+    }
 }
 
 fn is_too_many_requests<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
@@ -1321,7 +1341,16 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(after_out.expected_cash.normalize(), dec(63925));
     // El mesero no maneja caja.
     assert!(is_forbidden(
-        &cash::add_movement(app, &w, session.id, Ingreso, dec(1), Some("x"), None).await
+        &cash::add_movement(
+            app,
+            &w,
+            session.id,
+            Ingreso,
+            dec(1),
+            Some("Base adicional"),
+            None
+        )
+        .await
     ));
 
     // Bitacora: apertura, 3 ventas, ingreso y retiro, la mas reciente primero.
@@ -1974,6 +2003,20 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
 
     // Venta con 10% de descuento es aceptada (10 <= 15)
     let valid_sale_id = Uuid::new_v4();
+    // Más arriba se le quitó pos:discount al cajero; se le devuelve para esta venta.
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: true,
+            }],
+        },
+    )
+    .await
+    .unwrap();
     let valid_sale_req = SaleRequest {
         id: valid_sale_id,
         branch_id: branch,
@@ -2074,7 +2117,10 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     .await
     .unwrap();
 
-    let try_disc_without_perm = sales::checkout(app, &c_cashier, valid_sale_req.clone()).await;
+    // Id nuevo: con el mismo id la venta ya registrada se devolvería sin validar nada.
+    let mut disc_again = valid_sale_req.clone();
+    disc_again.id = Uuid::new_v4();
+    let try_disc_without_perm = sales::checkout(app, &c_cashier, disc_again).await;
     assert!(is_forbidden(&try_disc_without_perm));
 
     // Restaurar pos:discount para el cajero
@@ -2098,7 +2144,11 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             .await
             .unwrap();
     let try_cashier_cancel_unbilled = orders::cancel(app, &c_cashier, unbilled_order.id).await;
-    assert!(is_conflict(&try_cashier_cancel_unbilled) || is_state(&try_cashier_cancel_unbilled));
+    // El cajero no tiene pos:refund: se le niega antes de llegar a la regla del ajuste.
+    assert!(
+        is_forbidden(&try_cashier_cancel_unbilled),
+        "{try_cashier_cancel_unbilled:?}"
+    );
 
     // [P] cash.close_tolerance: cerrar caja con diferencia sin nota obligatoria si supera tolerancia
     // Configuramos close_tolerance = 1000
@@ -2623,7 +2673,9 @@ async fn f1_cash_kinds(app: &PgPool, admin: &PgPool) {
         })) => {
             assert_eq!(status, axum::http::StatusCode::CONFLICT);
             assert_eq!(code, "CASH_INSUFFICIENT");
-            assert_eq!(data, Some(serde_json::json!({ "available": dec(550000) })));
+            let available: Decimal =
+                serde_json::from_value(data.expect("data")["available"].clone()).unwrap();
+            assert_eq!(available.normalize(), dec(550000));
         }
         other => panic!("Expected Coded CASH_INSUFFICIENT, got {:?}", other),
     }
@@ -2812,7 +2864,11 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
 
     // 2. [P] Con allow_alias_sales = false, una venta con alias: 422 SALE_ALIAS_NOT_ALLOWED
     sqlx::query(
-        "update branch_settings set settings = jsonb_set(settings, '{pos,allow_alias_sales}', 'false') where branch_id = $1"
+        "insert into branch_settings (branch_id, tenant_id, data)
+         select id, tenant_id, jsonb_build_object('pos', jsonb_build_object('allow_alias_sales', false))
+           from branches where id = $1
+         on conflict (branch_id) do update
+           set data = jsonb_set(coalesce(branch_settings.data, '{}'), '{pos,allow_alias_sales}', 'false', true)"
     )
     .bind(branch)
     .execute(admin)
@@ -2838,7 +2894,11 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
 
     // 3. [P] Con allow_anonymous_sales = false, una venta sin cliente: 422 SALE_CUSTOMER_REQUIRED
     sqlx::query(
-        "update branch_settings set settings = jsonb_set(settings, '{pos,allow_anonymous_sales}', 'false') where branch_id = $1"
+        "insert into branch_settings (branch_id, tenant_id, data)
+         select id, tenant_id, jsonb_build_object('pos', jsonb_build_object('allow_anonymous_sales', false))
+           from branches where id = $1
+         on conflict (branch_id) do update
+           set data = jsonb_set(coalesce(branch_settings.data, '{}'), '{pos,allow_anonymous_sales}', 'false', true)"
     )
     .bind(branch)
     .execute(admin)
@@ -4455,7 +4515,9 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
     assert_eq!(q_combo.subtotal_gross, dec(10000));
     let line = &q_combo.lines[0];
     assert_eq!(line.gross, dec(10000));
-    assert_eq!(line.discount.promotion, dec(1000));
+    // La promoción es de alcance PEDIDO: va en discount.order, no en discount.promotion.
+    assert_eq!(line.discount.promotion, dec(0));
+    assert_eq!(line.discount.order, dec(1000));
     assert_eq!(line.discount.coupon, dec(900));
     assert_eq!(line.discount.total, dec(1900));
     assert_eq!(line.line_total, dec(8100));

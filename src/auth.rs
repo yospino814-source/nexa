@@ -176,29 +176,17 @@ pub async fn check_and_record_login_attempt(
         return Err(crate::error::validation("email is required"));
     }
 
-    if let Some(success) = success {
-        sqlx::query(
-            "insert into public.login_attempts (email, ip, user_agent, success, reason, at)
-             values ($1, $2, $3, $4, $5, now())",
-        )
+    // La tabla no admite escrituras directas del rol de la API: se usa la
+    // función security definer de la migración 20261102000300.
+    let count: i32 = sqlx::query_scalar("select public.record_login_attempt($1, $2, $3, $4, $5)")
         .bind(&email)
         .bind(ip)
         .bind(user_agent)
         .bind(success)
         .bind(reason)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
-    }
-
-    let count: i64 = sqlx::query_scalar(
-        "select count(*) from public.login_attempts
-          where lower(email) = lower($1)
-            and not success
-            and at >= now() - interval '15 minutes'",
-    )
-    .bind(&email)
-    .fetch_one(pool)
-    .await?;
+    let count = i64::from(count);
 
     if count >= 5 {
         return Err(crate::error::too_many_requests(
