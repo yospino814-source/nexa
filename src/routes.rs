@@ -71,6 +71,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/customers", get(search_customers).post(create_customer))
         // Venta de mostrador y caja
         .route("/v1/sales", post(create_sale))
+        .route("/v1/sales/quote", post(sales_quote))
         .route(
             "/v1/cash-registers",
             get(list_cash_registers).post(create_cash_register),
@@ -211,6 +212,14 @@ async fn create_sale(
             Checkout::Replayed(r) => (StatusCode::OK, Json(r)),
         },
     )
+}
+
+async fn sales_quote(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<sales::QuoteRequest>,
+) -> ApiResult<Json<sales::QuoteResponse>> {
+    Ok(Json(sales::quote(&state.pool, &user.claims, req).await?))
 }
 
 async fn list_cash_registers(

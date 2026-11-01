@@ -115,3 +115,34 @@ alter table public.orders
   add column customer_alias text check (customer_alias is null or length(customer_alias) between 1 and 40),
   add constraint orders_customer_fkey foreign key (tenant_id, customer_id) references public.customers (tenant_id, id),
   add constraint orders_customer_xor check (customer_id is null or customer_alias is null);
+
+
+-- ============================================================
+-- F1.5 Nuevo modelo de líneas y motor de precios
+-- ============================================================
+
+alter table public.order_items drop column tax_amount;
+alter table public.order_items drop column line_total;
+alter table public.order_items
+  alter column product_id drop not null,
+  add column custom_name text check (custom_name is null or length(trim(custom_name)) between 1 and 80),
+  add column tier_id uuid,
+  add column units_per_package numeric(14,4) not null default 1 check (units_per_package > 0),
+  add column list_price numeric(14,2),
+  add column discount_manual numeric(14,2) not null default 0 check (discount_manual >= 0),
+  add column discount_promotion numeric(14,2) not null default 0 check (discount_promotion >= 0),
+  add column discount_order numeric(14,2) not null default 0 check (discount_order >= 0),
+  add column discount_coupon numeric(14,2) not null default 0 check (discount_coupon >= 0),
+  add column promotion_id uuid,
+  add column price_override_reason text,
+  add column line_discount numeric(14,2) generated always as
+    (discount_manual + discount_promotion + discount_order + discount_coupon) stored,
+  add column line_total numeric(14,2) generated always as
+    (round(qty * unit_price, 2) - (discount_manual + discount_promotion + discount_order + discount_coupon)) stored,
+  add column tax_amount numeric(14,2) generated always as
+    (round((round(qty * unit_price, 2) - (discount_manual + discount_promotion + discount_order + discount_coupon)) * tax_rate, 2)) stored,
+  add constraint order_items_product_xor_custom check ((product_id is null) = (custom_name is not null)),
+  add constraint order_items_discount_le_gross check
+    ((discount_manual + discount_promotion + discount_order + discount_coupon) <= round(qty * unit_price, 2));
+
+alter table public.orders add column discount_total numeric(14,2) not null default 0;

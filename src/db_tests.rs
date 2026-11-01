@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
-use crate::sales::{Checkout, PaymentMethod, SaleItem, SalePayment, SaleRequest};
+use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
     AppState, cash, catalog, customers, inventory, orders, outbox, permissions, procurement,
@@ -767,6 +767,7 @@ async fn database_integration() {
     f1_cash_kinds(&app, &admin).await;
     f1_cash_state(&app, &admin).await;
     f1_sale_customer(&app, &admin).await;
+    f1_pricing_db(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1033,6 +1034,7 @@ fn sale(
     branch: Uuid,
     items: &[(Uuid, i64)],
     payments: &[(PaymentMethod, i64)],
+    quoted_total: Decimal,
 ) -> SaleRequest {
     SaleRequest {
         id,
@@ -1040,10 +1042,13 @@ fn sale(
         items: items
             .iter()
             .map(|(product_id, qty)| SaleItem {
-                product_id: *product_id,
+                product_id: Some(*product_id),
+                custom_name: None,
                 qty: dec(*qty),
                 unit_price_override: None,
                 discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
             })
             .collect(),
         payments: payments
@@ -1054,9 +1059,11 @@ fn sale(
                 reference: None,
             })
             .collect(),
+        quoted_total,
         tip_amount: None,
         customer_id: None,
         customer_alias: None,
+        coupon_code: None,
     }
 }
 
@@ -1095,6 +1102,7 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 2), (bread, 1)],
         &[(Efectivo, 10000)],
+        dec(6950),
     );
 
     // Sin turno abierto no se vende; el mesero no puede vender.
@@ -1153,7 +1161,13 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     assert!(is_state(&sales::checkout(app, &c, tampered).await));
 
     // Doble clic: dos requests identicos a la vez -> una venta, un descuento.
-    let twin = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    let twin = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(Qr, 2975)],
+        dec(2975),
+    );
     let (r1, r2) = tokio::join!(
         sales::checkout(app, &c, twin.clone()),
         sales::checkout(app, &c, twin.clone()),
@@ -1169,7 +1183,13 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(stock_row(admin, branch, soda).await, (dec(7), dec(0)));
 
     // Sin stock: la venta se revierte entera y no consume consecutivo.
-    let no_stock = sale(Uuid::new_v4(), branch, &[(bread, 1)], &[(Efectivo, 1000)]);
+    let no_stock = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(bread, 1)],
+        &[(Efectivo, 1000)],
+        dec(1000),
+    );
     assert!(is_state(&sales::checkout(app, &c, no_stock).await));
 
     // Pago mixto: 2975 = 1000 datafono + 2000 efectivo -> vuelto 25.
@@ -1178,13 +1198,20 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(Datafono, 1000), (Efectivo, 2000)],
+        dec(2975),
     );
     let s3 = created(sales::checkout(app, &c, mixed).await.unwrap());
     assert_eq!(s3.receipt_number, "POS-000003");
     assert_eq!(s3.change_due.normalize(), dec(25));
 
     // Pagos que no cubren el total.
-    let short = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Datafono, 100)]);
+    let short = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(Datafono, 100)],
+        dec(2975),
+    );
     assert!(matches!(
         sales::checkout(app, &c, short).await,
         Err(ApiError::Domain(DomainError::Validation(_)))
@@ -1196,7 +1223,13 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
         .execute(admin)
         .await
         .unwrap();
-    let over = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    let over = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(Qr, 2975)],
+        dec(2975),
+    );
     assert!(is_state(&sales::checkout(app, &c, over).await));
     sqlx::query("update document_sequences set range_to = null where branch_id = $1")
         .bind(branch)
@@ -1314,7 +1347,13 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     assert!(cash::current(app, &c, branch).await.unwrap().is_none());
 
     // Con el turno cerrado ya no se vende ni se mueve efectivo.
-    let late = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
+    let late = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(soda, 1)],
+        &[(Qr, 2975)],
+        dec(2975),
+    );
     assert!(is_state(&sales::checkout(app, &c, late).await));
     assert!(is_state(
         &cash::add_movement(app, &c, session.id, Ingreso, dec(1), Some("tarde"), None).await
@@ -1869,19 +1908,24 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         id: Uuid::new_v4(),
         branch_id: branch,
         items: vec![SaleItem {
-            product_id: prod,
+            product_id: Some(prod),
+            custom_name: None,
             qty: dec(1),
             unit_price_override: Some(dec(4500)),
             discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
             amount: dec(5000),
             reference: None,
         }],
+        quoted_total: dec(4500),
         tip_amount: None,
         customer_id: None,
         customer_alias: None,
+        coupon_code: None,
     };
     let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req.clone()).await;
     assert!(is_validation(&try_override_sale));
@@ -1891,19 +1935,24 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         id: Uuid::new_v4(),
         branch_id: branch,
         items: vec![SaleItem {
-            product_id: prod,
+            product_id: Some(prod),
+            custom_name: None,
             qty: dec(1),
             unit_price_override: None,
             discount_pct: Some(dec(20)),
+            tier_id: None,
+            price_override_reason: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
             amount: dec(5000),
             reference: None,
         }],
+        quoted_total: dec(4000),
         tip_amount: None,
         customer_id: None,
         customer_alias: None,
+        coupon_code: None,
     };
     let try_high_disc = sales::checkout(app, &c_cashier, sale_disc_req).await;
     assert!(is_validation(&try_high_disc));
@@ -1914,19 +1963,24 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         id: valid_sale_id,
         branch_id: branch,
         items: vec![SaleItem {
-            product_id: prod,
+            product_id: Some(prod),
+            custom_name: None,
             qty: dec(1),
             unit_price_override: None,
             discount_pct: Some(dec(10)),
+            tier_id: None,
+            price_override_reason: None,
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
             amount: dec(5000),
             reference: None,
         }],
+        quoted_total: dec(4500),
         tip_amount: None,
         customer_id: None,
         customer_alias: None,
+        coupon_code: None,
     };
     let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req.clone())
         .await
@@ -2642,6 +2696,7 @@ async fn f1_cash_state(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(PaymentMethod::Efectivo, 2975)],
+        dec(2975),
     );
     sales::checkout(app, &c_cashier, s).await.unwrap();
 
@@ -2724,6 +2779,7 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(PaymentMethod::Efectivo, 2975)],
+        dec(2975),
     );
     sale_both.customer_id = Some(customer.id);
     sale_both.customer_alias = Some("Mesa 4".into());
@@ -2750,6 +2806,7 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(PaymentMethod::Efectivo, 2975)],
+        dec(2975),
     );
     sale_alias.customer_alias = Some("Mesa 4".into());
     let try_alias = sales::checkout(app, &c_cashier, sale_alias).await;
@@ -2775,6 +2832,7 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(PaymentMethod::Efectivo, 2975)],
+        dec(2975),
     );
     let try_anon = sales::checkout(app, &c_cashier, sale_anon).await;
     match try_anon {
@@ -2791,6 +2849,7 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
         branch,
         &[(soda, 1)],
         &[(PaymentMethod::Efectivo, 2975)],
+        dec(2975),
     );
     sale_with_customer.customer_id = Some(customer.id);
     let ok_sale = sales::checkout(app, &c_cashier, sale_with_customer)
@@ -2805,4 +2864,185 @@ async fn f1_sale_customer(app: &PgPool, admin: &PgPool) {
     }
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let cashier = seed_user(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let soda = seed_product(admin, tenant, "Gaseosa F15", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "10", "0").await;
+
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    // 1. Cotización: POST /v1/sales/quote
+    let quote = sales::quote(
+        app,
+        &c_cashier,
+        QuoteRequest {
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+            }],
+            tip_amount: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(quote.subtotal.normalize(), dec(5000));
+    assert_eq!(quote.tax_total.normalize(), dec(950));
+    assert_eq!(quote.total.normalize(), dec(5950));
+    assert_eq!(quote.lines.len(), 1);
+    assert_eq!(quote.lines[0].line_total.normalize(), dec(5000));
+
+    // 2. Venta con quoted_total incorrecto da 409 PRICE_CHANGED
+    let bad_quote_sale = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(2),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5950),
+            reference: None,
+        }],
+        quoted_total: dec(5000), // Incorrecto, real es 5950
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    };
+    let err = sales::checkout(app, &c_cashier, bad_quote_sale).await;
+    match err {
+        Err(ApiError::Domain(DomainError::Coded {
+            status, code, data, ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "PRICE_CHANGED");
+            let data_val = data.expect("should have data payload");
+            let total_val: Decimal = serde_json::from_value(data_val["total"].clone()).unwrap();
+            assert_eq!(total_val.normalize(), dec(5950));
+        }
+        other => panic!("expected 409 PRICE_CHANGED, got {:?}", other),
+    }
+
+    // 3. Venta con descuento manual del 10% guarda discount_manual, line_total y orders.total_amount
+    // Precio 2 * 2500 = 5000. Descuento 10% = 500. Subtotal neto = 4500. IVA 19% = 855. Total = 5355.
+    let sale_id = Uuid::new_v4();
+    let disc_sale = SaleRequest {
+        id: sale_id,
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(2),
+            unit_price_override: None,
+            discount_pct: Some(dec(10)),
+            tier_id: None,
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5355),
+            reference: None,
+        }],
+        quoted_total: dec(5355),
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    };
+    let res = sales::checkout(app, &c_cashier, disc_sale).await.unwrap();
+    match res {
+        Checkout::Created(s) => {
+            assert_eq!(s.order.subtotal.normalize(), dec(4500));
+            assert_eq!(s.order.discount_total.normalize(), dec(500));
+            assert_eq!(s.order.inc_amount.normalize(), dec(855));
+            assert_eq!(s.order.total_amount.normalize(), dec(5355));
+        }
+        Checkout::Replayed(_) => panic!("unexpected replay"),
+    }
+
+    let (disc_m, line_d, line_t, tax_a): (Decimal, Decimal, Decimal, Decimal) = sqlx::query_as(
+        "select discount_manual, line_discount, line_total, tax_amount from order_items where order_id = $1",
+    )
+    .bind(sale_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(disc_m.normalize(), dec(500));
+    assert_eq!(line_d.normalize(), dec(500));
+    assert_eq!(line_t.normalize(), dec(4500));
+    assert_eq!(tax_a.normalize(), dec(855));
+
+    // 4. Cajero sin pos:discount mandando descuento da 403
+    permissions::update_role_permissions(
+        app,
+        &c_owner,
+        "CAJERO",
+        permissions::UpdateRolePermissionsRequest {
+            overrides: vec![permissions::RolePermissionOverrideInput {
+                permission_code: "pos:discount".into(),
+                allowed: false,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let try_forbidden_disc = SaleRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        items: vec![SaleItem {
+            product_id: Some(soda),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: Some(dec(10)),
+            tier_id: None,
+            price_override_reason: None,
+        }],
+        payments: vec![SalePayment {
+            method: PaymentMethod::Efectivo,
+            amount: dec(5000),
+            reference: None,
+        }],
+        quoted_total: dec(2678),
+        tip_amount: None,
+        customer_id: None,
+        customer_alias: None,
+        coupon_code: None,
+    };
+    let disc_err = sales::checkout(app, &c_cashier, try_forbidden_disc).await;
+    assert!(is_forbidden(&disc_err));
+
+    cleanup(admin, tenant, &[cashier, owner]).await;
 }

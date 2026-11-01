@@ -79,6 +79,7 @@ pub struct Order {
     pub subtotal: Decimal,
     /// Suma del impuesto de las lineas (IVA o INC segun el producto).
     pub inc_amount: Decimal,
+    pub discount_total: Decimal,
     pub tip_amount: Decimal,
     /// `subtotal + inc_amount + tip_amount`.
     pub total_amount: Decimal,
@@ -90,26 +91,42 @@ pub struct Order {
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct OrderItem {
     pub id: Uuid,
-    pub product_id: Uuid,
+    pub product_id: Option<Uuid>,
+    pub custom_name: Option<String>,
+    pub name: String,
+    pub tier_id: Option<Uuid>,
+    pub units_per_package: Decimal,
     pub qty: Decimal,
     pub unit_price: Decimal,
+    pub list_price: Option<Decimal>,
+    pub discount_manual: Decimal,
+    pub discount_promotion: Decimal,
+    pub discount_order: Decimal,
+    pub discount_coupon: Decimal,
+    pub line_discount: Decimal,
     pub line_total: Decimal,
     /// Tasa congelada al agregar la linea (0.19 = 19%).
     pub tax_rate: Decimal,
     pub tax_amount: Decimal,
+    pub promotion_id: Option<Uuid>,
+    pub price_override_reason: Option<String>,
     pub station_id: Option<i32>,
     pub status_id: Option<i32>,
 }
 
 const ORDER_COLS: &str = "o.id, st.tima_codigo as sale_type, os.tima_codigo as status, \
-     o.table_id, o.branch_id, o.waiter_id, o.subtotal, o.inc_amount, o.tip_amount, o.total_amount, \
+     o.table_id, o.branch_id, o.waiter_id, o.subtotal, o.inc_amount, o.discount_total, o.tip_amount, o.total_amount, \
      o.customer_id, o.customer_alias, c.name as customer_name";
 const ORDER_FROM: &str = "orders o \
      join tbl_tipos_maestra st on st.tima_id = o.sale_type_id \
      join tbl_tipos_maestra os on os.tima_id = o.status_id \
      left join customers c on c.id = o.customer_id";
-pub(crate) const ITEM_COLS: &str =
-    "id, product_id, qty, unit_price, line_total, tax_rate, tax_amount, station_id, status_id";
+pub(crate) const ITEM_COLS: &str = "oi.id, oi.product_id, oi.custom_name, coalesce(p.name, oi.custom_name, '') as name, \
+     oi.tier_id, oi.units_per_package, oi.qty, oi.unit_price, oi.list_price, \
+     oi.discount_manual, oi.discount_promotion, oi.discount_order, oi.discount_coupon, \
+     oi.line_discount, oi.line_total, oi.tax_rate, oi.tax_amount, oi.promotion_id, \
+     oi.price_override_reason, oi.station_id, oi.status_id";
+pub(crate) const ITEM_FROM: &str = "order_items oi left join products p on p.id = oi.product_id";
 
 /// Estado, sucursal y mesa de una orden, bloqueando su fila hasta el commit.
 /// Serializa las operaciones concurrentes sobre la misma orden.
@@ -166,9 +183,11 @@ pub(crate) async fn recalc_totals(tx: &mut Tx<'_>, order_id: Uuid) -> Result<(),
         "update orders o
             set subtotal = s.subtotal,
                 inc_amount = s.tax,
+                discount_total = s.discount,
                 total_amount = s.subtotal + s.tax + o.tip_amount
            from (select coalesce(sum(line_total), 0) as subtotal,
-                        coalesce(sum(tax_amount), 0) as tax
+                        coalesce(sum(tax_amount), 0) as tax,
+                        coalesce(sum(line_discount), 0) as discount
                    from order_items where order_id = $1) s
           where o.id = $1",
     )
@@ -348,10 +367,13 @@ pub async fn add_line_tx(
     let (price, tax_rate) = sellable_price(tx, branch_id, product_id).await?;
 
     let line = sqlx::query_as::<_, OrderItem>(&format!(
-        "insert into order_items
-           (tenant_id, branch_id, order_id, product_id, qty, unit_price, tax_rate, notes)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         returning {ITEM_COLS}"
+        "with ins as (
+           insert into order_items
+             (tenant_id, branch_id, order_id, product_id, qty, unit_price, tax_rate, notes)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)
+           returning *
+         )
+         select {ITEM_COLS} from ins oi left join products p on p.id = oi.product_id"
     ))
     .bind(scope.tenant)
     .bind(branch_id)
@@ -395,7 +417,7 @@ pub async fn line(pool: &PgPool, claims: &Claims, line_id: Uuid) -> Result<Order
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require(Action::Read)?;
     let found = sqlx::query_as::<_, OrderItem>(&format!(
-        "select {ITEM_COLS} from order_items where id = $1"
+        "select {ITEM_COLS} from {ITEM_FROM} where oi.id = $1"
     ))
     .bind(line_id)
     .fetch_optional(&mut *tx)
