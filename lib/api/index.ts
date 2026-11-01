@@ -121,6 +121,9 @@ import type {
   ProductListResponse,
   ProductRow,
   UpdateBranchProductInput,
+  CreateOptionGroupInput,
+  OptionGroupDetail,
+  UpdateProductOptionGroupInput,
 } from "./types";
 
 export * from "./types";
@@ -169,6 +172,67 @@ const mockTiers: PriceTier[] = [
   },
 ];
 const mockProductTierPrices = new Map<Uuid, ProductTierPrice[]>();
+
+const mockOptionGroups: OptionGroupDetail[] = [
+  {
+    id: "og-11111111-1111-1111-1111-111111111111",
+    name: "Toppings y Adiciones",
+    min_select: 0,
+    max_select: 5,
+    active: true,
+    options: [
+      {
+        id: "opt-11111111-1111-1111-1111-111111111111",
+        group_id: "og-11111111-1111-1111-1111-111111111111",
+        name: "Extra Queso",
+        price_delta: "2000.00",
+        input_product_id: null,
+        input_qty: null,
+        sort_order: 1,
+        active: true,
+      },
+      {
+        id: "opt-22222222-2222-2222-2222-222222222222",
+        group_id: "og-11111111-1111-1111-1111-111111111111",
+        name: "Tocineta",
+        price_delta: "3500.00",
+        input_product_id: null,
+        input_qty: null,
+        sort_order: 2,
+        active: true,
+      },
+    ],
+  },
+  {
+    id: "og-22222222-2222-2222-2222-222222222222",
+    name: "Término de la carne",
+    min_select: 1,
+    max_select: 1,
+    active: true,
+    options: [
+      {
+        id: "opt-33333333-3333-3333-3333-333333333333",
+        group_id: "og-22222222-2222-2222-2222-222222222222",
+        name: "Tres cuartos (3/4)",
+        price_delta: "0.00",
+        input_product_id: null,
+        input_qty: null,
+        sort_order: 1,
+        active: true,
+      },
+      {
+        id: "opt-44444444-4444-4444-4444-444444444444",
+        group_id: "og-22222222-2222-2222-2222-222222222222",
+        name: "Bien cocido",
+        price_delta: "0.00",
+        input_product_id: null,
+        input_qty: null,
+        sort_order: 2,
+        active: true,
+      },
+    ],
+  },
+];
 
 const mockPromotions: Promotion[] = [
   {
@@ -1673,6 +1737,88 @@ export const api = {
       return request(`/v1/branch-products/${productId}`, {
         method: "PUT",
         body: JSON.stringify(input),
+      });
+    },
+  },
+
+  options: {
+    async listGroups(): Promise<OptionGroupDetail[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockOptionGroups);
+      }
+      return request("/v1/option-groups");
+    },
+
+    async createGroup(input: CreateOptionGroupInput): Promise<OptionGroupDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const id = crypto.randomUUID();
+        const group: OptionGroupDetail = {
+          id,
+          name: input.name,
+          min_select: input.min_select ?? 0,
+          max_select: input.max_select ?? 1,
+          active: input.active ?? true,
+          options: (input.options ?? []).map((o, idx) => ({
+            id: o.id ?? crypto.randomUUID(),
+            group_id: id,
+            name: o.name,
+            price_delta: o.price_delta ?? "0",
+            input_product_id: o.input_product_id ?? null,
+            input_qty: o.input_qty ?? null,
+            sort_order: o.sort_order ?? idx + 1,
+            active: o.active ?? true,
+          })),
+        };
+        mockOptionGroups.push(group);
+        return group;
+      }
+      return request("/v1/option-groups", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async updateGroup(id: Uuid, input: CreateOptionGroupInput): Promise<OptionGroupDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const idx = mockOptionGroups.findIndex((g) => g.id === id);
+        const group: OptionGroupDetail = {
+          id,
+          name: input.name,
+          min_select: input.min_select ?? 0,
+          max_select: input.max_select ?? 1,
+          active: input.active ?? true,
+          options: (input.options ?? []).map((o, optIdx) => ({
+            id: o.id ?? crypto.randomUUID(),
+            group_id: id,
+            name: o.name,
+            price_delta: o.price_delta ?? "0",
+            input_product_id: o.input_product_id ?? null,
+            input_qty: o.input_qty ?? null,
+            sort_order: o.sort_order ?? optIdx + 1,
+            active: o.active ?? true,
+          })),
+        };
+        if (idx >= 0) mockOptionGroups[idx] = group;
+        else mockOptionGroups.push(group);
+        return group;
+      }
+      return request(`/v1/option-groups/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+
+    async setProductOptionGroups(productId: Uuid, groups: UpdateProductOptionGroupInput[]): Promise<{ status: string }> {
+      if (USE_MOCKS) {
+        await delay();
+        return { status: "ok" };
+      }
+      return request(`/v1/products/${productId}/option-groups`, {
+        method: "PUT",
+        body: JSON.stringify(groups),
       });
     },
   },

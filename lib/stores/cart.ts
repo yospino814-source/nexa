@@ -34,6 +34,9 @@ export type CartLine = {
   customTax?: CustomTax | null;
   /** Descuento manual en porcentaje (F1.5). */
   discountPct?: number | null;
+  /** F2.4: modificadores y opciones elegidas. */
+  optionIds?: string[];
+  optionNames?: string[];
 };
 
 export type AddItemTier = {
@@ -41,6 +44,12 @@ export type AddItemTier = {
   tierName: string;
   price?: number | null;
   unitsPerPackage?: number | null;
+};
+
+export type AddItemOptions = {
+  optionIds: string[];
+  optionNames: string[];
+  priceDelta: number;
 };
 
 export type CustomItemInput = {
@@ -85,7 +94,7 @@ type CartState = {
   couponCode: string | null;
   couponDiscount: number;
   couponError: string | null;
-  add: (item: CatalogItem, tier?: AddItemTier) => void;
+  add: (item: CatalogItem, tier?: AddItemTier, options?: AddItemOptions) => void;
   addCustom: (item: CustomItemInput) => void;
   setQty: (key: string, qty: number) => void;
   setLineTier: (
@@ -151,16 +160,20 @@ export const useCart = create<CartState>((set) => ({
       return { customer, customerAlias: null, lines: updatedLines };
     }),
   setCustomerAlias: (customerAlias) => set({ customerAlias, customer: null }),
-  add: (item, tier) =>
+  add: (item, tier, options) =>
     set((state) => {
       const maxQty = toNumber(item.available);
-      // Se suma a una linea igual (mismo producto y tarifa, sin precio cambiado).
-      const existing = state.lines.find(
-        (line) =>
-          line.productId === item.product_id &&
-          (line.tierId ?? null) === (tier?.tierId ?? state.customer?.price_tier_id ?? null) &&
-          line.priceOverride == null,
-      );
+      const hasOptions = !!(options && options.optionIds.length > 0);
+      // Se suma a una linea igual (mismo producto y tarifa, sin precio cambiado ni opciones).
+      const existing = !hasOptions
+        ? state.lines.find(
+            (line) =>
+              line.productId === item.product_id &&
+              (line.tierId ?? null) === (tier?.tierId ?? state.customer?.price_tier_id ?? null) &&
+              line.priceOverride == null &&
+              (!line.optionIds || line.optionIds.length === 0),
+          )
+        : null;
       if (existing) {
         if (existing.maxQty != null && existing.qty >= existing.maxQty) return state;
         return {
@@ -172,7 +185,8 @@ export const useCart = create<CartState>((set) => ({
       }
       if (maxQty != null && maxQty <= 0) return state;
       const basePrice = toNumber(item.price) ?? 0;
-      const unitPrice = tier?.price != null ? Number(tier.price) : basePrice;
+      const rawUnitPrice = tier?.price != null ? Number(tier.price) : basePrice;
+      const unitPrice = rawUnitPrice + (options?.priceDelta ?? 0);
       const tierId = tier?.tierId ?? state.customer?.price_tier_id ?? null;
       const tierName = tier?.tierName ?? null;
       const unitsPerPackage = tier?.unitsPerPackage ?? 1;
@@ -194,6 +208,8 @@ export const useCart = create<CartState>((set) => ({
             tierId,
             tierName,
             unitsPerPackage,
+            optionIds: options?.optionIds,
+            optionNames: options?.optionNames,
           },
         ],
       };
@@ -311,6 +327,7 @@ export function toSaleItems(lines: CartLine[]): QuoteItemInput[] {
           unit_price_override: line.priceOverride != null ? String(line.priceOverride) : null,
           price_override_reason: line.priceOverride != null ? line.overrideReason ?? null : null,
           discount_pct: line.discountPct != null ? String(line.discountPct) : null,
+          option_ids: line.optionIds ?? [],
         },
   );
 }

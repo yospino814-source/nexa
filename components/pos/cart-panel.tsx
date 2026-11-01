@@ -258,6 +258,11 @@ export function CartPanel({
                         </span>
                       )}
                     </div>
+                    {line.optionNames && line.optionNames.length > 0 && (
+                      <p className="text-[11px] text-emerald-700 font-medium truncate">
+                        + {line.optionNames.join(", ")}
+                      </p>
+                    )}
                     <p className="text-xs text-slate-500">
                       {line.priceOverride != null && (
                         <span className="mr-1 line-through">{formatCOP(line.unitPrice)}</span>

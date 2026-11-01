@@ -11,6 +11,7 @@ import {
   Package,
   Plus,
   Save,
+  Sliders,
   Tag,
   Warehouse,
   X,
@@ -18,6 +19,7 @@ import {
 
 import {
   api,
+  type OptionGroupDetail,
   type ProductDetail,
   type ProductInput,
   type ProductKind,
@@ -76,14 +78,27 @@ export function ProductScreen({ productId }: { productId: string }) {
   // Full product detail if editing
   const [detail, setDetail] = useState<ProductDetail | null>(null);
 
+  // Modificadores / Option Groups State
+  const [allOptionGroups, setAllOptionGroups] = useState<OptionGroupDetail[]>([]);
+  const [assignedOptionGroups, setAssignedOptionGroups] = useState<
+    Array<{ group_id: string; sort_order: number }>
+  >([]);
+  const [savingModifiers, setSavingModifiers] = useState(false);
+
   useEffect(() => {
     if (isNew) return;
     let mounted = true;
-    api.products
-      .get(productId, branch.id)
-      .then((data) => {
+    Promise.all([api.products.get(productId, branch.id), api.options.listGroups()])
+      .then(([data, groups]) => {
         if (!mounted) return;
         setDetail(data);
+        setAllOptionGroups(groups);
+        setAssignedOptionGroups(
+          (data.option_groups ?? []).map((g, idx) => ({
+            group_id: g.id,
+            sort_order: idx + 1,
+          }))
+        );
         setName(data.name);
         setSku(data.sku ?? "");
         setBarcode(data.barcode ?? "");
@@ -326,6 +341,18 @@ export function ProductScreen({ productId }: { productId: string }) {
               <Layers className="size-4" /> Variantes ({detail?.variants.length ?? 0})
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setActiveTab("modificadores")}
+            className={cn(
+              "pb-3 border-b-2 transition-colors flex items-center gap-2",
+              activeTab === "modificadores"
+                ? "border-emerald-600 text-emerald-600 font-semibold"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            )}
+          >
+            <Sliders className="size-4" /> Modificadores ({assignedOptionGroups.length})
+          </button>
         </div>
       )}
 
@@ -904,6 +931,138 @@ export function ProductScreen({ productId }: { productId: string }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Pestaña Modificadores */}
+      {!isNew && activeTab === "modificadores" && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Grupos de modificadores asignados</h2>
+              <p className="text-sm text-slate-500">
+                Selecciona los grupos de opciones que se ofrecerán al cajero al vender este producto.
+              </p>
+            </div>
+            <Link
+              href="/inventario/modificadores"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <Sliders className="size-3.5" /> Gestionar modificadores
+            </Link>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+            {allOptionGroups.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-500">
+                No hay grupos de modificadores registrados.{" "}
+                <Link href="/inventario/modificadores" className="text-emerald-600 font-medium hover:underline">
+                  Crear grupos de modificadores
+                </Link>
+              </div>
+            ) : (
+              allOptionGroups.map((group) => {
+                const assigned = assignedOptionGroups.find((g) => g.group_id === group.id);
+                return (
+                  <div
+                    key={group.id}
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        id={`group-${group.id}`}
+                        checked={!!assigned}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAssignedOptionGroups([
+                              ...assignedOptionGroups,
+                              { group_id: group.id, sort_order: assignedOptionGroups.length + 1 },
+                            ]);
+                          } else {
+                            setAssignedOptionGroups(
+                              assignedOptionGroups.filter((g) => g.group_id !== group.id)
+                            );
+                          }
+                        }}
+                        className="mt-1 size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div>
+                        <label
+                          htmlFor={`group-${group.id}`}
+                          className="text-sm font-bold text-slate-900 cursor-pointer"
+                        >
+                          {group.name}
+                        </label>
+                        <p className="text-xs text-slate-500">
+                          {group.min_select === 0
+                            ? "Opcional"
+                            : `Obligatorio (mín. ${group.min_select})`}{" "}
+                          • Máx. {group.max_select} • {group.options.length} opciones
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {group.options.map((opt) => (
+                            <span
+                              key={opt.id}
+                              className="inline-flex items-center gap-1 text-[11px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5"
+                            >
+                              {opt.name}{" "}
+                              {Number(opt.price_delta) > 0 && `(+${formatCOP(Number(opt.price_delta))})`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {assigned && (
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <label className="text-xs text-slate-500">Orden:</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={assigned.sort_order}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setAssignedOptionGroups(
+                              assignedOptionGroups.map((g) =>
+                                g.group_id === group.id ? { ...g, sort_order: val } : g
+                              )
+                            );
+                          }}
+                          className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-xs text-center focus:border-emerald-600 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={savingModifiers}
+              onClick={async () => {
+                setSavingModifiers(true);
+                setErrorMsg(null);
+                try {
+                  await api.options.setProductOptionGroups(productId, assignedOptionGroups);
+                  setToast("Modificadores asignados guardados exitosamente");
+                } catch (err: unknown) {
+                  setErrorMsg(
+                    err instanceof Error ? err.message : "Error al guardar modificadores"
+                  );
+                } finally {
+                  setSavingModifiers(false);
+                }
+              }}
+              className="flex h-10 items-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
+            >
+              <Save className="size-4" />{" "}
+              {savingModifiers ? "Guardando..." : "Guardar modificadores asignados"}
+            </button>
           </div>
         </div>
       )}

@@ -446,8 +446,51 @@ export type ProductDetail = {
   description: string | null;
   variants: ProductRow[];
   tier_prices: ProductTierPrice[];
-  option_groups: unknown[];
+  option_groups: OptionGroupDetail[];
   stock_by_location: LocationStock[];
+};
+
+export type OptionItem = {
+  id: Uuid;
+  group_id: Uuid;
+  name: string;
+  price_delta: Decimal;
+  input_product_id?: Uuid | null;
+  input_qty?: Decimal | null;
+  sort_order: number;
+  active: boolean;
+};
+
+export type OptionGroupDetail = {
+  id: Uuid;
+  name: string;
+  min_select: number;
+  max_select: number;
+  active: boolean;
+  options: OptionItem[];
+};
+
+export type OptionInput = {
+  id?: Uuid;
+  name: string;
+  price_delta?: Decimal;
+  input_product_id?: Uuid | null;
+  input_qty?: Decimal | null;
+  sort_order?: number;
+  active?: boolean;
+};
+
+export type CreateOptionGroupInput = {
+  name: string;
+  min_select?: number;
+  max_select?: number;
+  active?: boolean;
+  options?: OptionInput[];
+};
+
+export type UpdateProductOptionGroupInput = {
+  group_id: Uuid;
+  sort_order?: number;
 };
 
 export type ProductInput = {

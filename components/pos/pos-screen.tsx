@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronUp, X } from "lucide-react";
 
-import { api, type BranchSettings, type CatalogItem, type PaymentMethod } from "@/lib/api";
+import { api, type BranchSettings, type CatalogItem, type OptionGroupDetail, type PaymentMethod } from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
-import { useCart } from "@/lib/stores/cart";
+import { useCart, type AddItemTier } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { CartPanel } from "./cart-panel";
 import { CatalogPanel } from "./catalog-panel";
 import { CheckoutDialog } from "./checkout-dialog";
 import { CustomItemDialog } from "./custom-item-dialog";
+import { CustomizeDialog } from "./customize-dialog";
 import { holdCurrentSale } from "./held-sales";
 import { useLiveQuote } from "./use-live-quote";
 
@@ -28,6 +29,11 @@ export function PosScreen() {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [discountOpen, setDiscountOpen] = useState(false);
+  const [customizeItem, setCustomizeItem] = useState<{
+    item: CatalogItem;
+    tier?: AddItemTier;
+    groups: OptionGroupDetail[];
+  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useState<BranchSettings | null>(null);
   const [registerName, setRegisterName] = useState<string | null>(null);
@@ -80,6 +86,22 @@ export function PosScreen() {
   const openCheckout = useCallback(() => {
     if (useCart.getState().lines.length > 0) setCheckoutOpen(true);
   }, []);
+
+  const handleCatalogAdd = useCallback(
+    async (item: CatalogItem, tier?: AddItemTier) => {
+      try {
+        const prod = await api.products.get(item.product_id, branchId);
+        if (prod.option_groups && prod.option_groups.length > 0) {
+          setCustomizeItem({ item, tier, groups: prod.option_groups });
+          return;
+        }
+      } catch {
+        // En caso de error consultando opciones, se añade directamente
+      }
+      add(item, tier);
+    },
+    [add, branchId],
+  );
 
   useEffect(() => {
     /** Atajos de F1.14; solo con el POS activo y sin otro diálogo abierto (salvo Esc). */
@@ -158,7 +180,7 @@ export function PosScreen() {
         <CatalogPanel
           items={catalog}
           loading={loading}
-          onAdd={add}
+          onAdd={handleCatalogAdd}
           searchRef={searchRef}
           onCustomItem={can("pos:custom_item") ? () => setCustomItemOpen(true) : undefined}
         />
@@ -223,6 +245,18 @@ export function PosScreen() {
           searchRef.current?.focus();
         }}
       />
+
+      {customizeItem && (
+        <CustomizeDialog
+          open={!!customizeItem}
+          item={customizeItem.item}
+          optionGroups={customizeItem.groups}
+          onClose={() => setCustomizeItem(null)}
+          onConfirm={(optionIds, optionNames, priceDelta) => {
+            add(customizeItem.item, customizeItem.tier, { optionIds, optionNames, priceDelta });
+          }}
+        />
+      )}
     </div>
   );
 }
