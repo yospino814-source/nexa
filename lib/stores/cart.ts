@@ -33,6 +33,9 @@ type CartState = {
   lines: CartLine[];
   customer: Customer | null;
   customerAlias: string | null;
+  couponCode: string | null;
+  couponDiscount: number;
+  couponError: string | null;
   add: (item: CatalogItem, tier?: AddItemTier) => void;
   setQty: (productId: string, qty: number) => void;
   setLineTier: (
@@ -42,6 +45,9 @@ type CartState = {
   remove: (productId: string) => void;
   setCustomer: (customer: Customer | null) => void;
   setCustomerAlias: (alias: string | null) => void;
+  setCoupon: (code: string | null) => void;
+  setCouponDiscount: (discount: number) => void;
+  setCouponError: (error: string | null) => void;
   clear: () => void;
 };
 
@@ -49,6 +55,12 @@ export const useCart = create<CartState>((set) => ({
   lines: [],
   customer: null,
   customerAlias: null,
+  couponCode: null,
+  couponDiscount: 0,
+  couponError: null,
+  setCoupon: (couponCode) => set({ couponCode }),
+  setCouponDiscount: (couponDiscount) => set({ couponDiscount }),
+  setCouponError: (couponError) => set({ couponError }),
   setCustomer: (customer) =>
     set((state) => {
       const oldTierId = state.customer?.price_tier_id;
@@ -136,7 +148,15 @@ export const useCart = create<CartState>((set) => ({
     })),
   remove: (productId) =>
     set((state) => ({ lines: state.lines.filter((line) => line.productId !== productId) })),
-  clear: () => set({ lines: [], customer: null, customerAlias: null }),
+  clear: () =>
+    set({
+      lines: [],
+      customer: null,
+      customerAlias: null,
+      couponCode: null,
+      couponDiscount: 0,
+      couponError: null,
+    }),
 }));
 
 export type CartTotals = { subtotal: number; tax: number; total: number; units: number; discountTotal: number };
@@ -151,7 +171,7 @@ function roundCents(value: number): number {
  * Replica el calculo del backend (order_items.tax_amount, por linea) para que
  * lo que ve el cajero coincida con lo que cobra el servidor.
  */
-export function cartTotals(lines: CartLine[]): CartTotals {
+export function cartTotals(lines: CartLine[], couponDiscount: number = 0): CartTotals {
   let subtotal = 0;
   let tax = 0;
   let units = 0;
@@ -165,8 +185,9 @@ export function cartTotals(lines: CartLine[]): CartTotals {
     tax += line.taxRate ? roundCents(base * line.taxRate) : 0;
     units += line.qty;
   }
-  subtotal = roundCents(subtotal);
-  discountTotal = roundCents(discountTotal);
+  const couponD = roundCents(couponDiscount);
+  discountTotal = roundCents(discountTotal + couponD);
+  subtotal = roundCents(Math.max(0, subtotal - couponD));
   tax = roundCents(tax);
   return { subtotal, tax, total: roundCents(subtotal + tax), units, discountTotal };
 }

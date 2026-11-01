@@ -107,6 +107,7 @@ export const screens: Screen[] = [
   s("33", "tarifas", "Tarifas y presentaciones", "/configuracion/tarifas", "configuracion", "admin", "react"),
   // Marketing
   s("34", "promociones", "Promociones", "/marketing/promociones", "marketing", "admin", "react"),
+  s("35", "cupones", "Cupones", "/marketing/cupones", "marketing", "admin", "react"),
 ];
 
 export function screenByRoute(route: string): Screen | undefined {

@@ -50,6 +50,8 @@ export function CheckoutDialog({
   const cashierName = useSession((s) => s.name);
   const customer = useCart((s) => s.customer);
   const customerAlias = useCart((s) => s.customerAlias);
+  const couponCode = useCart((s) => s.couponCode);
+  const couponDiscount = useCart((s) => s.couponDiscount);
 
   // Al abrir el modal se reinicia con el metodo elegido en el carrito.
   const [lastOpen, setLastOpen] = useState(open);
@@ -64,7 +66,7 @@ export function CheckoutDialog({
     }
   }
 
-  const { total, units } = cartTotals(lines);
+  const { total, units } = cartTotals(lines, couponDiscount);
   const isCash = method === "EFECTIVO";
   const paid = isCash ? (received ?? total) : total;
   const change = Math.max(paid - total, 0);
@@ -87,6 +89,7 @@ export function CheckoutDialog({
         quoted_total: String(total),
         customer_id: customer?.id ?? null,
         customer_alias: customerAlias ?? null,
+        coupon_code: couponCode ?? null,
       });
       setReceipt({ response, lines, received: paid, method });
     } catch (e) {

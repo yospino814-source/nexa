@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { ArrowRight, Minus, Pencil, Percent, Plus, ShoppingCart, Tag, Trash2, User, X } from "lucide-react";
 
-import type { PaymentMethod } from "@/lib/api";
+import { api, COUPON_ERROR_MESSAGES, friendlyError, type PaymentMethod } from "@/lib/api";
 import { formatCOP, taxLabel } from "@/lib/format";
 import { cartTotals, useCart } from "@/lib/stores/cart";
+import { useCurrentBranch } from "@/lib/stores/session";
 import { cn } from "@/lib/utils";
 
 import { CustomerDialog } from "./customer-dialog";
@@ -25,13 +26,76 @@ export function CartPanel({
   customerDialogOpen?: boolean;
   onCustomerDialogOpenChange?: (open: boolean) => void;
 }) {
-  const { lines, customer, customerAlias, setCustomer, setCustomerAlias, setQty, remove, clear } = useCart();
+  const {
+    lines,
+    customer,
+    customerAlias,
+    setCustomer,
+    setCustomerAlias,
+    setQty,
+    remove,
+    clear,
+    couponCode,
+    couponDiscount,
+    couponError,
+    setCoupon,
+    setCouponDiscount,
+    setCouponError,
+  } = useCart();
+  const branch = useCurrentBranch();
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   const isDialogOpen = controlledDialogOpen !== undefined ? controlledDialogOpen : internalDialogOpen;
   const setDialogOpen = setControlledDialogOpen !== undefined ? setControlledDialogOpen : setInternalDialogOpen;
 
-  const totals = cartTotals(lines);
+  const [couponInput, setCouponInput] = useState("");
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+
+  const totals = cartTotals(lines, couponDiscount);
   const empty = lines.length === 0;
+
+  async function handleApplyCoupon(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = couponInput.trim().toUpperCase();
+    if (!raw) return;
+    setApplyingCoupon(true);
+    setCouponError(null);
+    try {
+      const res = await api.sales.quote({
+        branch_id: branch.id,
+        items: lines.map((l) => ({
+          product_id: l.productId,
+          qty: String(l.qty),
+          tier_id: l.tierId ?? null,
+        })),
+        customer_id: customer?.id ?? null,
+        customer_alias: customerAlias ?? null,
+        coupon_code: raw,
+      });
+
+      if (res.coupon_error) {
+        const msg = COUPON_ERROR_MESSAGES[res.coupon_error.code] ?? res.coupon_error.message;
+        setCouponError(msg);
+        setCoupon(null);
+        setCouponDiscount(0);
+      } else if (res.coupon) {
+        setCoupon(res.coupon.code);
+        setCouponDiscount(Number(res.coupon.amount));
+        setCouponError(null);
+        setCouponInput("");
+      }
+    } catch (err) {
+      setCouponError(friendlyError(err));
+    } finally {
+      setApplyingCoupon(false);
+    }
+  }
+
+  function handleRemoveCoupon() {
+    setCoupon(null);
+    setCouponDiscount(0);
+    setCouponError(null);
+    setCouponInput("");
+  }
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -167,6 +231,48 @@ export function CartPanel({
       </div>
 
       <div className="space-y-4 border-t border-slate-100 p-5">
+        {/* Cupón */}
+        <div className="space-y-1.5 pb-3 border-b border-slate-100">
+          {couponCode ? (
+            <div className="flex items-center justify-between rounded-xl bg-teal-50 border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-800">
+              <span className="flex items-center gap-1.5 font-mono">
+                <Tag className="size-3.5 text-brand" />
+                {couponCode}
+                <span className="text-brand font-bold">−{formatCOP(couponDiscount)}</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleRemoveCoupon}
+                aria-label="Quitar cupón"
+                className="text-teal-600 hover:text-rose-600 ml-2"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleApplyCoupon} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Código de cupón"
+                value={couponInput}
+                onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                disabled={empty || applyingCoupon}
+                className="flex-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-mono uppercase focus:border-brand focus:ring-1 focus:ring-brand disabled:opacity-40"
+              />
+              <button
+                type="submit"
+                disabled={empty || applyingCoupon || !couponInput.trim()}
+                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40 transition-colors"
+              >
+                {applyingCoupon ? "..." : "Aplicar"}
+              </button>
+            </form>
+          )}
+          {couponError && (
+            <p className="text-xs text-rose-600 font-medium">{couponError}</p>
+          )}
+        </div>
+
         <dl className="space-y-1 text-sm text-slate-500">
           <div className="flex justify-between">
             <dt>Subtotal</dt>

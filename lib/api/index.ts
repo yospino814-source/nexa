@@ -68,6 +68,9 @@ import type {
   Promotion,
   CreatePromotionInput,
   UpdatePromotionInput,
+  Coupon,
+  CreateCouponInput,
+  UpdateCouponInput,
   CreateCustomerInput,
   CreatePurchaseInput,
   CreateSupplierInput,
@@ -213,6 +216,30 @@ const mockPromotions: Promotion[] = [
     per_customer_limit: 1,
     skip_tier_lines: true,
     created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+    product_ids: [],
+    category_ids: [],
+  },
+];
+
+const mockCoupons: Coupon[] = [
+  {
+    id: "c1111111-1111-1111-1111-111111111111",
+    branch_id: null,
+    code: "BIENVENIDA10",
+    name: "Bienvenida 10%",
+    kind: "PORCENTAJE",
+    value: "10.0000",
+    scope: "PEDIDO",
+    min_qty: null,
+    min_subtotal: "30000.00",
+    max_discount: "10000.00",
+    starts_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+    ends_at: null,
+    status: "ACTIVO",
+    usage_limit: null,
+    usage_count: 3,
+    per_customer_limit: null,
+    created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
     product_ids: [],
     category_ids: [],
   },
@@ -543,19 +570,58 @@ function mockQuote(req: QuoteRequest): QuoteResponse {
   });
 
   const tip = req.tip_amount ? Number(req.tip_amount) : 0;
-  const total = cents(subtotal + taxTotal + tip);
+  let couponApplied: { id: Uuid; code: string; name: string; amount: Decimal } | null = null;
+  let couponError: { code: string; message: string } | null = null;
+  let finalSubtotal = subtotal;
+  let finalDiscountTotal = discountTotal;
+
+  if (req.coupon_code) {
+    const code = req.coupon_code.trim().toUpperCase();
+    const found = mockCoupons.find((c) => c.code === code);
+    if (!found) {
+      couponError = { code: "COUPON_NOT_FOUND", message: ERROR_MESSAGES.COUPON_NOT_FOUND };
+    } else if (found.status === "INACTIVO") {
+      couponError = { code: "COUPON_INACTIVE", message: ERROR_MESSAGES.COUPON_INACTIVE };
+    } else if (found.min_subtotal && subtotalGross < Number(found.min_subtotal)) {
+      couponError = { code: "COUPON_MIN_SUBTOTAL", message: ERROR_MESSAGES.COUPON_MIN_SUBTOTAL };
+    } else {
+      let disc = 0;
+      if (found.kind === "PORCENTAJE") {
+        disc = cents(finalSubtotal * (Number(found.value) / 100));
+      } else {
+        disc = Math.min(Number(found.value), finalSubtotal);
+      }
+      if (found.max_discount) {
+        disc = Math.min(disc, Number(found.max_discount));
+      }
+      if (disc > 0) {
+        finalSubtotal = cents(finalSubtotal - disc);
+        finalDiscountTotal = cents(finalDiscountTotal + disc);
+        couponApplied = {
+          id: found.id,
+          code: found.code,
+          name: found.name,
+          amount: dec(disc),
+        };
+      } else {
+        couponError = { code: "COUPON_NOT_APPLICABLE", message: ERROR_MESSAGES.COUPON_NOT_APPLICABLE };
+      }
+    }
+  }
+
+  const total = cents(finalSubtotal + taxTotal + tip);
 
   return {
     lines,
     subtotal_gross: dec(subtotalGross),
-    discount_total: dec(discountTotal),
-    subtotal: dec(subtotal),
+    discount_total: dec(finalDiscountTotal),
+    subtotal: dec(finalSubtotal),
     tax_total: dec(taxTotal),
     tip_amount: dec(tip),
     total: dec(total),
     promotions: [],
-    coupon: null,
-    coupon_error: null,
+    coupon: couponApplied,
+    coupon_error: couponError,
   };
 }
 
@@ -1300,6 +1366,92 @@ export const api = {
     },
   },
 
+  coupons: {
+    async list(): Promise<Coupon[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockCoupons);
+      }
+      return request("/v1/coupons");
+    },
+    async create(input: CreateCouponInput): Promise<Coupon> {
+      if (!USE_MOCKS) {
+        return request("/v1/coupons", { method: "POST", body: JSON.stringify(input) });
+      }
+      await delay();
+      const code = input.code.trim().toUpperCase();
+      if (mockCoupons.some((c) => c.code === code)) {
+        throw new ApiError(409, "Ya existe un cupón con ese código", "COUPON_CODE_TAKEN");
+      }
+      const c: Coupon = {
+        id: crypto.randomUUID(),
+        branch_id: input.branch_id ?? null,
+        code,
+        name: input.name,
+        kind: input.kind,
+        value: String(input.value),
+        scope: input.scope,
+        min_qty: input.min_qty ? String(input.min_qty) : null,
+        min_subtotal: input.min_subtotal ? String(input.min_subtotal) : null,
+        max_discount: input.max_discount ? String(input.max_discount) : null,
+        starts_at: input.starts_at,
+        ends_at: input.ends_at ?? null,
+        status: "ACTIVO",
+        usage_limit: input.usage_limit ?? null,
+        usage_count: 0,
+        per_customer_limit: input.per_customer_limit ?? null,
+        created_at: new Date().toISOString(),
+        product_ids: input.product_ids ?? [],
+        category_ids: input.category_ids ?? [],
+      };
+      mockCoupons.unshift(c);
+      return c;
+    },
+    async update(id: string, input: UpdateCouponInput): Promise<Coupon> {
+      if (!USE_MOCKS) {
+        return request(`/v1/coupons/${id}`, { method: "PUT", body: JSON.stringify(input) });
+      }
+      await delay();
+      const idx = mockCoupons.findIndex((c) => c.id === id);
+      if (idx === -1) throw new ApiError(404, "Cupón no encontrado");
+      const code = input.code.trim().toUpperCase();
+      if (mockCoupons.some((c) => c.id !== id && c.code === code)) {
+        throw new ApiError(409, "Ya existe un cupón con ese código", "COUPON_CODE_TAKEN");
+      }
+      const current = mockCoupons[idx];
+      const updated: Coupon = {
+        ...current,
+        branch_id: input.branch_id ?? null,
+        code,
+        name: input.name,
+        kind: input.kind,
+        value: String(input.value),
+        scope: input.scope,
+        min_qty: input.min_qty ? String(input.min_qty) : null,
+        min_subtotal: input.min_subtotal ? String(input.min_subtotal) : null,
+        max_discount: input.max_discount ? String(input.max_discount) : null,
+        starts_at: input.starts_at,
+        ends_at: input.ends_at ?? null,
+        usage_limit: input.usage_limit ?? null,
+        per_customer_limit: input.per_customer_limit ?? null,
+        product_ids: input.product_ids ?? current.product_ids,
+        category_ids: input.category_ids ?? current.category_ids,
+      };
+      mockCoupons[idx] = updated;
+      return updated;
+    },
+    async toggle(id: string): Promise<Coupon> {
+      if (!USE_MOCKS) {
+        return request(`/v1/coupons/${id}/toggle`, { method: "POST" });
+      }
+      await delay();
+      const c = mockCoupons.find((item) => item.id === id);
+      if (!c) throw new ApiError(404, "Cupón no encontrado");
+      c.status = c.status === "ACTIVO" ? "INACTIVO" : "ACTIVO";
+      return structuredClone(c);
+    },
+  },
+
   users: {
     async list(): Promise<{ users: TenantUser[]; invitations: Invitation[] }> {
       if (USE_MOCKS) {
@@ -1590,6 +1742,18 @@ export const ERROR_MESSAGES: Record<string, string> = {
   REFUND_NOT_PENDING: "La devolución ya fue decidida.",
   VOID_NOT_ALLOWED: "No se puede anular: la venta no es de hoy, el turno cerró, tiene devoluciones o ya fue facturada.",
   VOID_REASON_REQUIRED: "Escribí el motivo de la anulación.",
+};
+
+export const COUPON_ERROR_MESSAGES: Record<string, string> = {
+  COUPON_NOT_FOUND: ERROR_MESSAGES.COUPON_NOT_FOUND,
+  COUPON_INACTIVE: ERROR_MESSAGES.COUPON_INACTIVE,
+  COUPON_NOT_STARTED: ERROR_MESSAGES.COUPON_NOT_STARTED,
+  COUPON_EXPIRED: ERROR_MESSAGES.COUPON_EXPIRED,
+  COUPON_EXHAUSTED: ERROR_MESSAGES.COUPON_EXHAUSTED,
+  COUPON_REQUIRES_CUSTOMER: ERROR_MESSAGES.COUPON_REQUIRES_CUSTOMER,
+  COUPON_CUSTOMER_LIMIT: ERROR_MESSAGES.COUPON_CUSTOMER_LIMIT,
+  COUPON_MIN_SUBTOTAL: ERROR_MESSAGES.COUPON_MIN_SUBTOTAL,
+  COUPON_NOT_APPLICABLE: ERROR_MESSAGES.COUPON_NOT_APPLICABLE,
 };
 
 /** Mensajes del backend traducidos para el cajero. */
