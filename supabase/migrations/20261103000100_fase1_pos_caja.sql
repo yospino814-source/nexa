@@ -58,3 +58,22 @@ end $$;
 drop trigger if exists branches_default_register on public.branches;
 create trigger branches_default_register after insert on public.branches
   for each row execute function public.branch_default_register();
+
+
+-- ============================================================
+-- F1.2 Tipos de movimiento de caja y esperado
+-- ============================================================
+
+insert into public.tbl_tipos_maestra (tima_nombre, tima_codigo, padre_id)
+select c.nombre, c.codigo, h.tima_id
+from (values ('Abono de cartera','ABONO_CARTERA'), ('Abono de separado','ABONO_SEPARADO'),
+             ('Recarga de saldo','RECARGA_SALDO'), ('Devolucion','DEVOLUCION'),
+             ('Propina pagada','PROPINA_PAGADA'), ('Pago a proveedor','PAGO_PROVEEDOR'),
+             ('Gasto','GASTO')) c(nombre, codigo)
+cross join (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'CAJA_MOV') h
+on conflict (padre_id, tima_codigo) do nothing;
+
+alter table public.cash_movements
+  add column reason_code text check (reason_code in ('CONSIGNACION','GASTO_MENOR','PRESTAMO','OTRO')),
+  add column ref_type text,
+  add column ref_id uuid;

@@ -764,6 +764,7 @@ async fn database_integration() {
     platform_checks(&app, &admin).await;
     context_returns_permissions(&app, &admin).await;
     f1_registers(&app, &admin).await;
+    f1_cash_kinds(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1226,28 +1227,53 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
 
     // Ingreso y retiro de efectivo: mueven el esperado, no las ventas.
     use cash::CashMovementKind::{Ingreso, Retiro};
-    let after_in = cash::add_movement(app, &c, session.id, Ingreso, dec(10000), "sencillo")
-        .await
-        .unwrap();
+    let after_in = cash::add_movement(
+        app,
+        &c,
+        session.id,
+        Ingreso,
+        dec(10000),
+        Some("sencillo"),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(after_in.cash_in.normalize(), dec(10000));
     assert_eq!(after_in.expected_cash.normalize(), dec(68925));
     // No se puede retirar mas de lo que hay en la gaveta, ni sin motivo.
-    assert!(is_state(
-        &cash::add_movement(app, &c, session.id, Retiro, dec(70000), "banco").await
+    assert!(is_conflict(
+        &cash::add_movement(
+            app,
+            &c,
+            session.id,
+            Retiro,
+            dec(70000),
+            Some("banco"),
+            Some("CONSIGNACION")
+        )
+        .await
     ));
     assert!(matches!(
-        cash::add_movement(app, &c, session.id, Retiro, dec(1), "  ").await,
+        cash::add_movement(app, &c, session.id, Retiro, dec(1), Some("  "), None).await,
         Err(ApiError::Domain(DomainError::Validation(_)))
     ));
-    let after_out = cash::add_movement(app, &c, session.id, Retiro, dec(5000), "hielo")
-        .await
-        .unwrap();
+    let after_out = cash::add_movement(
+        app,
+        &c,
+        session.id,
+        Retiro,
+        dec(5000),
+        Some("hielo"),
+        Some("GASTO_MENOR"),
+    )
+    .await
+    .unwrap();
     assert_eq!(after_out.cash_out.normalize(), dec(5000));
     assert_eq!(after_out.sales_count, 3);
     assert_eq!(after_out.expected_cash.normalize(), dec(63925));
     // El mesero no maneja caja.
     assert!(is_forbidden(
-        &cash::add_movement(app, &w, session.id, Ingreso, dec(1), "x").await
+        &cash::add_movement(app, &w, session.id, Ingreso, dec(1), Some("x"), None).await
     ));
 
     // Bitacora: apertura, 3 ventas, ingreso y retiro, la mas reciente primero.
@@ -1279,7 +1305,7 @@ async fn sales_and_cash_checks(app: &PgPool, admin: &PgPool) {
     let late = sale(Uuid::new_v4(), branch, &[(soda, 1)], &[(Qr, 2975)]);
     assert!(is_state(&sales::checkout(app, &c, late).await));
     assert!(is_state(
-        &cash::add_movement(app, &c, session.id, Ingreso, dec(1), "tarde").await
+        &cash::add_movement(app, &c, session.id, Ingreso, dec(1), Some("tarde"), None).await
     ));
 
     // Historial: el turno cerrado con su arqueo y ventas; la bitacora incluye el cierre.
@@ -2324,4 +2350,209 @@ async fn f1_registers(app: &PgPool, admin: &PgPool) {
     assert!(!deactivated.active);
 
     cleanup(admin, tenant, &[owner, cashier1, cashier2]).await;
+}
+
+/// F1.2 Tipos de movimiento de caja y esperado
+async fn f1_cash_kinds(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let reg_id = default_register(admin, branch).await;
+    let opening = dec(500000);
+    let s = cash::open(app, &c_owner, branch, reg_id, opening)
+        .await
+        .unwrap();
+
+    let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+
+    // [P] El esperado suma y resta los 9 tipos
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::Ingreso,
+        dec(10000),
+        "Ingreso test",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::AbonoCartera,
+        dec(20000),
+        "Abono cartera",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::AbonoSeparado,
+        dec(30000),
+        "Abono separado",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::RecargaSaldo,
+        dec(40000),
+        "Recarga saldo",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::Retiro,
+        dec(15000),
+        "Retiro banco",
+        Some("CONSIGNACION"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::Devolucion,
+        dec(5000),
+        "Devolucion cliente",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::PropinaPagada,
+        dec(8000),
+        "Mesero Juan",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::PagoProveedor,
+        dec(12000),
+        "Pago proveedor verduras",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::Gasto,
+        dec(10000),
+        "Compra bombillos",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let summary = cash::summary_tx(&mut tx, s.id).await.unwrap();
+    assert_eq!(summary.expected_cash, dec(550000));
+    assert_eq!(summary.cash_in, dec(100000));
+    assert_eq!(summary.cash_out, dec(50000));
+    assert_eq!(summary.movements_by_kind.len(), 9);
+
+    // [P] Un retiro mayor al esperado: 409 CASH_INSUFFICIENT
+    let try_huge_withdraw = cash::record_movement_tx(
+        &mut tx,
+        &scope,
+        s.id,
+        cash::CashMovementKind::Retiro,
+        dec(600000),
+        "Retiro excesivo",
+        Some("CONSIGNACION"),
+        None,
+        None,
+    )
+    .await;
+    match try_huge_withdraw {
+        Err(ApiError::Domain(DomainError::Coded {
+            status, code, data, ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "CASH_INSUFFICIENT");
+            assert_eq!(data, Some(serde_json::json!({ "available": dec(550000) })));
+        }
+        other => panic!("Expected Coded CASH_INSUFFICIENT, got {:?}", other),
+    }
+
+    tx.commit().await.unwrap();
+
+    // [P] El endpoint público rechaza kind = DEVOLUCION: 422 CASH_KIND_NOT_ALLOWED
+    let try_pub_dev = cash::add_movement(
+        app,
+        &c_owner,
+        s.id,
+        cash::CashMovementKind::Devolucion,
+        dec(5000),
+        Some("Devolucion"),
+        None,
+    )
+    .await;
+    match try_pub_dev {
+        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "CASH_KIND_NOT_ALLOWED");
+        }
+        other => panic!("Expected Coded CASH_KIND_NOT_ALLOWED, got {:?}", other),
+    }
+
+    // [P] Un RETIRO sin reason_code: 422
+    let try_no_rc = cash::add_movement(
+        app,
+        &c_owner,
+        s.id,
+        cash::CashMovementKind::Retiro,
+        dec(1000),
+        Some("Sin motivo"),
+        None,
+    )
+    .await;
+    assert!(is_validation(&try_no_rc));
+
+    cleanup(admin, tenant, &[owner]).await;
 }

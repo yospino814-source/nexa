@@ -296,7 +296,10 @@ async fn close_cash_session(
 struct CashMovementBody {
     kind: cash::CashMovementKind,
     amount: Decimal,
-    reason: String,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    reason_code: Option<String>,
 }
 
 /// Ingreso o retiro de efectivo del turno; devuelve el resumen actualizado.
@@ -312,7 +315,8 @@ async fn add_cash_movement(
         id,
         req.kind,
         req.amount,
-        &req.reason,
+        req.reason.as_deref(),
+        req.reason_code.as_deref(),
     )
     .await?;
     Ok((StatusCode::CREATED, Json(summary)))

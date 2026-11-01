@@ -33,43 +33,103 @@ pub struct CashSession {
 }
 
 /// Total cobrado en el turno con un metodo de pago.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct MethodTotal {
     pub method: String,
     pub amount: Decimal,
     pub count: i64,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct MovementByKind {
+    pub kind: String,
+    pub label: String,
+    pub direction: String,
+    pub amount: Decimal,
+    pub count: i64,
+}
+
 /// Estado del turno para la pantalla de caja y el arqueo.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct CashSummary {
     pub session: CashSession,
     pub sales_count: i64,
     pub sales_total: Decimal,
     pub by_method: Vec<MethodTotal>,
-    /// Ingresos de efectivo que no son ventas (cambio que trae el dueno...).
+    pub movements_by_kind: Vec<MovementByKind>,
     pub cash_in: Decimal,
-    /// Retiros de efectivo de la gaveta (gastos menores, envio a banco...).
     pub cash_out: Decimal,
-    /// Base inicial + efectivo cobrado + ingresos - retiros.
     pub expected_cash: Decimal,
+    pub tips_total: Decimal,
+    pub tips_paid: Decimal,
+    pub tips_pending: Decimal,
 }
 
-/// Tipo de movimiento manual de efectivo.
+/// Tipo de movimiento de efectivo del turno (9 tipos).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CashMovementKind {
     Ingreso,
+    AbonoCartera,
+    AbonoSeparado,
+    RecargaSaldo,
     Retiro,
+    Devolucion,
+    PropinaPagada,
+    PagoProveedor,
+    Gasto,
 }
 
 impl CashMovementKind {
-    fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
         match self {
             CashMovementKind::Ingreso => "INGRESO",
+            CashMovementKind::AbonoCartera => "ABONO_CARTERA",
+            CashMovementKind::AbonoSeparado => "ABONO_SEPARADO",
+            CashMovementKind::RecargaSaldo => "RECARGA_SALDO",
             CashMovementKind::Retiro => "RETIRO",
+            CashMovementKind::Devolucion => "DEVOLUCION",
+            CashMovementKind::PropinaPagada => "PROPINA_PAGADA",
+            CashMovementKind::PagoProveedor => "PAGO_PROVEEDOR",
+            CashMovementKind::Gasto => "GASTO",
         }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CashMovementKind::Ingreso => "Ingreso de efectivo",
+            CashMovementKind::AbonoCartera => "Abono de cartera",
+            CashMovementKind::AbonoSeparado => "Abono de separado",
+            CashMovementKind::RecargaSaldo => "Recarga de saldo",
+            CashMovementKind::Retiro => "Retiro de efectivo",
+            CashMovementKind::Devolucion => "Devolución",
+            CashMovementKind::PropinaPagada => "Propina pagada",
+            CashMovementKind::PagoProveedor => "Pago a proveedor",
+            CashMovementKind::Gasto => "Gasto",
+        }
+    }
+
+    pub fn is_inflow(self) -> bool {
+        matches!(
+            self,
+            CashMovementKind::Ingreso
+                | CashMovementKind::AbonoCartera
+                | CashMovementKind::AbonoSeparado
+                | CashMovementKind::RecargaSaldo
+        )
+    }
+
+    pub const ALL: [CashMovementKind; 9] = [
+        CashMovementKind::Ingreso,
+        CashMovementKind::AbonoCartera,
+        CashMovementKind::AbonoSeparado,
+        CashMovementKind::RecargaSaldo,
+        CashMovementKind::Retiro,
+        CashMovementKind::Devolucion,
+        CashMovementKind::PropinaPagada,
+        CashMovementKind::PagoProveedor,
+        CashMovementKind::Gasto,
+    ];
 }
 
 /// Una linea de la bitacora del turno: apertura, venta, ingreso, retiro o cierre.
@@ -254,9 +314,11 @@ pub async fn summary_tx(tx: &mut Tx<'_>, session_id: Uuid) -> Result<CashSummary
         "select t.tima_codigo as method, sum(p.amount) as amount, count(*) as count
            from payments p
            join tbl_tipos_maestra t on t.tima_id = p.method_id
+           join orders o on o.id = p.order_id
           where p.cash_session_id = $1
+            and o.status_id != public.tipo_id('ORD', 'CANCELADA')
           group by t.tima_codigo
-          order by t.tima_codigo",
+          order by case when t.tima_codigo = 'EFECTIVO' then 0 else 1 end, t.tima_codigo",
     )
     .bind(session_id)
     .fetch_all(&mut **tx)
@@ -268,27 +330,81 @@ pub async fn summary_tx(tx: &mut Tx<'_>, session_id: Uuid) -> Result<CashSummary
         .map(|m| m.amount)
         .sum();
 
-    let (cash_in, cash_out): (Decimal, Decimal) = sqlx::query_as(
-        "select coalesce(sum(m.amount) filter (where t.tima_codigo = 'INGRESO'), 0),
-                coalesce(sum(m.amount) filter (where t.tima_codigo = 'RETIRO'), 0)
-           from cash_movements m
-           join tbl_tipos_maestra t on t.tima_id = m.kind_id
-          where m.cash_session_id = $1",
+    let tips_total: Decimal = sqlx::query_scalar(
+        "select coalesce(sum(tip_amount), 0)
+           from orders
+          where cash_session_id = $1
+            and status_id != public.tipo_id('ORD', 'CANCELADA')",
     )
     .bind(session_id)
     .fetch_one(&mut **tx)
     .await?;
 
-    let expected_cash = session.opening_amount + cash_sales + cash_in - cash_out;
+    #[derive(sqlx::FromRow)]
+    struct MovAggRow {
+        kind: String,
+        amount: Decimal,
+        count: i64,
+    }
+
+    let mov_rows = sqlx::query_as::<_, MovAggRow>(
+        "select t.tima_codigo as kind, coalesce(sum(m.amount), 0) as amount, count(m.id) as count
+           from tbl_tipos_maestra t
+           left join cash_movements m on m.kind_id = t.tima_id and m.cash_session_id = $1
+          where t.padre_id = (select tima_id from tbl_tipos_maestra where padre_id is null and tima_codigo = 'CAJA_MOV')
+          group by t.tima_codigo",
+    )
+    .bind(session_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut movements_by_kind = Vec::with_capacity(CashMovementKind::ALL.len());
+    let mut cash_in = Decimal::ZERO;
+    let mut cash_out = Decimal::ZERO;
+    let mut tips_paid = Decimal::ZERO;
+
+    for kind in CashMovementKind::ALL {
+        let (amount, count) = mov_rows
+            .iter()
+            .find(|r| r.kind == kind.code())
+            .map(|r| (r.amount, r.count))
+            .unwrap_or((Decimal::ZERO, 0));
+
+        let direction = if kind.is_inflow() { "IN" } else { "OUT" };
+        if kind.is_inflow() {
+            cash_in += amount;
+        } else {
+            cash_out += amount;
+        }
+        if kind == CashMovementKind::PropinaPagada {
+            tips_paid += amount;
+        }
+
+        movements_by_kind.push(MovementByKind {
+            kind: kind.code().to_string(),
+            label: kind.label().to_string(),
+            direction: direction.to_string(),
+            amount,
+            count,
+        });
+    }
+
+    let tips_pending = tips_total - tips_paid;
+    let expected_cash =
+        crate::money::money(session.opening_amount + cash_sales + cash_in - cash_out);
 
     Ok(CashSummary {
         session,
         sales_count,
         sales_total,
         by_method,
+        movements_by_kind,
         cash_in,
         cash_out,
         expected_cash,
+        tips_total,
+        tips_paid,
+        tips_pending,
     })
 }
 
@@ -318,38 +434,48 @@ async fn lock_open_session_tx(
 
 // --------------------------------------------------- ingresos y retiros
 
-/// Registra un ingreso o retiro de efectivo en un turno abierto. Un retiro no
-/// puede dejar la gaveta en negativo.
-pub async fn add_movement(
-    pool: &PgPool,
-    claims: &Claims,
+/// Función interna única para registrar movimientos de caja.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_movement_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
     session_id: Uuid,
     kind: CashMovementKind,
     amount: Decimal,
     reason: &str,
-) -> Result<CashSummary, ApiError> {
-    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageCash)?;
+    reason_code: Option<&str>,
+    ref_type: Option<&str>,
+    ref_id: Option<Uuid>,
+) -> Result<Uuid, ApiError> {
+    let amount = crate::money::money(amount);
     if amount <= Decimal::ZERO {
-        return Err(validation("amount must be > 0"));
-    }
-    let reason = reason.trim();
-    if reason.is_empty() {
-        return Err(validation("reason is required"));
+        return Err(error::coded(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "CASH_AMOUNT_INVALID",
+            "El monto debe ser mayor a cero",
+            None,
+        ));
     }
 
-    let branch_id = lock_open_session_tx(&mut tx, &scope, session_id).await?;
-    if kind == CashMovementKind::Retiro {
-        let expected = summary_tx(&mut tx, session_id).await?.expected_cash;
-        if amount > expected {
-            return Err(state("withdrawal exceeds the cash in the drawer"));
+    let branch_id = lock_open_session_tx(tx, scope, session_id).await?;
+
+    if !kind.is_inflow() {
+        let available = summary_tx(tx, session_id).await?.expected_cash;
+        if amount > available {
+            return Err(error::coded(
+                axum::http::StatusCode::CONFLICT,
+                "CASH_INSUFFICIENT",
+                "Efectivo insuficiente en gaveta",
+                Some(serde_json::json!({ "available": available })),
+            ));
         }
     }
 
-    sqlx::query(
+    let mov_id: Uuid = sqlx::query_scalar(
         "insert into cash_movements
-           (tenant_id, branch_id, cash_session_id, kind_id, amount, reason, created_by)
-         values ($1, $2, $3, public.tipo_id('CAJA_MOV', $4), $5, $6, $7)",
+           (tenant_id, branch_id, cash_session_id, kind_id, amount, reason, reason_code, ref_type, ref_id, created_by)
+         values ($1, $2, $3, public.tipo_id('CAJA_MOV', $4), $5, $6, $7, $8, $9, $10)
+         returning id",
     )
     .bind(scope.tenant)
     .bind(branch_id)
@@ -357,24 +483,118 @@ pub async fn add_movement(
     .bind(kind.code())
     .bind(amount)
     .bind(reason)
+    .bind(reason_code)
+    .bind(ref_type)
+    .bind(ref_id)
     .bind(scope.user)
-    .execute(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     crate::audit::record_tx(
-        &mut tx,
-        &scope,
-        match kind {
-            CashMovementKind::Ingreso => "INGRESO_CAJA",
-            CashMovementKind::Retiro => "RETIRO_CAJA",
-        },
+        tx,
+        scope,
+        "MOVIMIENTO_CAJA",
         "cash_movements",
         session_id,
         None,
         Some(serde_json::json!({
+            "kind": kind.code(),
             "amount": amount,
-            "reason": reason
+            "reason": reason,
+            "reason_code": reason_code,
+            "ref_type": ref_type,
+            "ref_id": ref_id,
         })),
+        None,
+    )
+    .await?;
+
+    Ok(mov_id)
+}
+
+/// Endpoint público para registrar movimientos de caja (permiso cash:movement).
+pub async fn add_movement(
+    pool: &PgPool,
+    claims: &Claims,
+    session_id: Uuid,
+    kind: CashMovementKind,
+    amount: Decimal,
+    reason: Option<&str>,
+    reason_code: Option<&str>,
+) -> Result<CashSummary, ApiError> {
+    let (final_reason, final_reason_code) = match kind {
+        CashMovementKind::Ingreso => {
+            if reason_code.is_some() {
+                return Err(validation("reason_code must be null for INGRESO"));
+            }
+            let r = reason.unwrap_or("").trim();
+            if r.chars().count() < 3 || r.chars().count() > 200 {
+                return Err(validation(
+                    "reason must be between 3 and 200 characters for INGRESO",
+                ));
+            }
+            (r.to_string(), None)
+        }
+        CashMovementKind::Retiro => {
+            let rc = match reason_code {
+                Some(c) => c.trim(),
+                None => return Err(validation("reason_code is required for RETIRO")),
+            };
+            if !matches!(rc, "CONSIGNACION" | "GASTO_MENOR" | "PRESTAMO" | "OTRO") {
+                return Err(validation(
+                    "reason_code must be CONSIGNACION, GASTO_MENOR, PRESTAMO or OTRO",
+                ));
+            }
+            let label = match rc {
+                "CONSIGNACION" => "Consignación a banco",
+                "GASTO_MENOR" => "Gasto menor",
+                "PRESTAMO" => "Préstamo",
+                _ => "Otro",
+            };
+            let r = reason.unwrap_or("").trim();
+            if rc == "OTRO" {
+                if r.chars().count() < 3 || r.chars().count() > 200 {
+                    return Err(validation(
+                        "reason must be between 3 and 200 characters when reason_code is OTRO",
+                    ));
+                }
+                (r.to_string(), Some(rc.to_string()))
+            } else {
+                let actual_reason = if r.is_empty() { label } else { r };
+                (actual_reason.to_string(), Some(rc.to_string()))
+            }
+        }
+        CashMovementKind::PropinaPagada => {
+            let r = reason.unwrap_or("").trim();
+            if r.is_empty() || r.chars().count() > 200 {
+                return Err(validation(
+                    "reason (waiter name) is required for PROPINA_PAGADA",
+                ));
+            }
+            (r.to_string(), None)
+        }
+        _ => {
+            return Err(error::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                "CASH_KIND_NOT_ALLOWED",
+                "Tipo de movimiento no permitido en este endpoint",
+                None,
+            ));
+        }
+    };
+
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("cash:movement")?;
+
+    record_movement_tx(
+        &mut tx,
+        &scope,
+        session_id,
+        kind,
+        amount,
+        &final_reason,
+        final_reason_code.as_deref(),
+        None,
         None,
     )
     .await?;
