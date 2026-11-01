@@ -151,6 +151,7 @@ pub fn router() -> Router<AppState> {
         // Usuarios y roles
         .route("/v1/users", get(list_users))
         .route("/v1/waiters", get(list_waiters))
+        .route("/v1/business", get(business_info))
         .route("/v1/users/invite", post(invite_user))
         .route("/v1/users/{id}/role", put(update_user_role))
         .route("/v1/users/{id}/status", put(update_user_status))
@@ -1185,5 +1186,14 @@ async fn sales_history_detail(
 ) -> ApiResult<Json<sales_history::SaleDetail>> {
     Ok(Json(
         sales_history::detail(&state.pool, &user.claims, id).await?,
+    ))
+}
+
+async fn business_info(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<settings::BusinessInfo>> {
+    Ok(Json(
+        settings::business_info(&state.pool, &user.claims).await?,
     ))
 }

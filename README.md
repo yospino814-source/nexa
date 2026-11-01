@@ -130,6 +130,7 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | PUT | `/v1/settings?branch_id=` | Modificar ajustes operativos de sucursal |
 | GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
 | GET | `/v1/users` | Lista de usuarios y membresías del negocio |
+| GET | `/v1/business` | Nombre, razón social, NIT y DV del negocio, para la tirilla (cualquier miembro) |
 | GET | `/v1/waiters?branch_id=` | Meseros activos de la sucursal, para la propina del POS (`pos:sell`) |
 | POST | `/v1/users/invite` | Invitar usuario por email con rol y sucursales asignadas |
 | PUT | `/v1/users/{id}/role` | Modificar rol de usuario (protege al dueño de auto-degradarse) |

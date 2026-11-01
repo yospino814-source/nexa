@@ -42,6 +42,7 @@ pub struct SaleRow {
     pub id: Uuid,
     pub receipt_number: String,
     pub created_at: DateTime<Utc>,
+    pub cashier_id: Option<Uuid>,
     pub cashier_name: Option<String>,
     pub customer_label: String,
     pub total: Decimal,
@@ -71,6 +72,8 @@ pub struct SaleDetail {
     pub refunds: Vec<Refund>,
     pub customer: Option<Customer>,
     pub cashier_name: Option<String>,
+    pub register_name: Option<String>,
+    pub waiter_name: Option<String>,
 }
 
 /// Filtro común de la lista: sucursal, fechas locales, estado, método, cajero,
@@ -158,6 +161,8 @@ pub async fn list(
         "select o.id,
                 o.receipt_prefix || '-' || lpad(o.receipt_number::text, 6, '0') as receipt_number,
                 o.created_at,
+                (select p.created_by from payments p
+                  where p.order_id = o.id order by p.created_at, p.id limit 1) as cashier_id,
                 (select u.full_name from payments p join users u on u.id = p.created_by
                   where p.order_id = o.id order by p.created_at, p.id limit 1) as cashier_name,
                 coalesce((select c.name from customers c where c.id = o.customer_id),
@@ -245,12 +250,26 @@ pub async fn detail(
     .fetch_optional(&mut *tx)
     .await?;
 
+    let (register_name, waiter_name): (Option<String>, Option<String>) = sqlx::query_as(
+        "select r.name, w.full_name
+           from orders o
+           left join cash_sessions s on s.id = o.cash_session_id
+           left join cash_registers r on r.id = s.register_id
+           left join users w on w.id = o.waiter_id
+          where o.id = $1",
+    )
+    .bind(order_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
     tx.commit().await?;
     Ok(SaleDetail {
         sale,
         refunds,
         customer,
         cashier_name,
+        register_name,
+        waiter_name,
     })
 }
 

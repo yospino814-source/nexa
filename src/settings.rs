@@ -254,3 +254,25 @@ pub async fn update_settings(
     tx.commit().await?;
     Ok(req.settings)
 }
+
+/// Datos del negocio para la tirilla (F1.15).
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct BusinessInfo {
+    pub name: String,
+    pub business_name: Option<String>,
+    pub nit: Option<String>,
+    pub dv: Option<String>,
+}
+
+/// `GET /v1/business`: cualquier miembro del negocio.
+pub async fn business_info(pool: &PgPool, claims: &Claims) -> Result<BusinessInfo, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    let info = sqlx::query_as::<_, BusinessInfo>(
+        "select name, business_name, nit, dv::text as dv from tenants where id = $1",
+    )
+    .bind(scope.tenant)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(info)
+}

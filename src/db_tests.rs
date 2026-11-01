@@ -5386,6 +5386,12 @@ async fn f1_sales_history(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(detail.sale.order.id, sale_a.order.id);
     assert!(detail.refunds.is_empty());
+    assert_eq!(detail.register_name.as_deref(), Some("Caja 1"));
+    assert_eq!(mine.items[0].cashier_id, Some(cashier_a));
+
+    // Datos del negocio para la tirilla: cualquier miembro los lee.
+    let biz = settings::business_info(app, &c_a).await.unwrap();
+    assert_eq!(biz.name, "itest");
 
     cleanup(admin, tenant, &[owner, cashier_a, cashier_b]).await;
 }
