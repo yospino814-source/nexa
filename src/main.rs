@@ -8,6 +8,7 @@ mod db;
 mod error;
 mod inventory;
 pub mod money;
+pub mod options;
 mod orders;
 pub mod outbox;
 pub mod permissions;

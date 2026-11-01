@@ -16,8 +16,8 @@ use crate::error::{ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, inventory, orders, permissions, procurement,
-    products, refunds, registers, sales, sales_history, settings, tenancy, users,
+    AppState, audit, cash, catalog, customers, inventory, options, orders, permissions,
+    procurement, products, refunds, registers, sales, sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -74,6 +74,16 @@ pub fn router() -> Router<AppState> {
         .route(
             "/v1/branch-products/{product_id}",
             put(update_branch_product),
+        )
+        // Modificadores (F2.4)
+        .route(
+            "/v1/option-groups",
+            get(list_option_groups).post(create_option_group),
+        )
+        .route("/v1/option-groups/{id}", put(update_option_group))
+        .route(
+            "/v1/products/{id}/option-groups",
+            put(set_product_option_groups),
         )
         // Clientes
         .route("/v1/customers", get(search_customers).post(create_customer))
@@ -297,6 +307,48 @@ async fn update_branch_product(
 ) -> ApiResult<Json<serde_json::Value>> {
     Ok(Json(
         products::update_branch_product(&state.pool, &user.claims, product_id, input).await?,
+    ))
+}
+
+// ----------------------------------------------------------- modificadores (F2.4)
+
+async fn list_option_groups(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<options::OptionGroupDetail>>> {
+    Ok(Json(
+        options::list_option_groups(&state.pool, &user.claims).await?,
+    ))
+}
+
+async fn create_option_group(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(input): Body<options::CreateOptionGroupInput>,
+) -> ApiResult<(StatusCode, Json<options::OptionGroupDetail>)> {
+    let detail = options::create_option_group(&state.pool, &user.claims, input).await?;
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+async fn update_option_group(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<options::CreateOptionGroupInput>,
+) -> ApiResult<Json<options::OptionGroupDetail>> {
+    Ok(Json(
+        options::update_option_group(&state.pool, &user.claims, id, input).await?,
+    ))
+}
+
+async fn set_product_option_groups(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(input): Body<Vec<options::UpdateProductOptionGroupInput>>,
+) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(
+        options::set_product_option_groups(&state.pool, &user.claims, id, input).await?,
     ))
 }
 

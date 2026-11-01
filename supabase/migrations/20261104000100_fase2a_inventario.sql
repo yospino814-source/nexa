@@ -25,3 +25,86 @@ alter table public.products
   add constraint products_variant_shape check (
     (parent_id is null) or (has_variants = false and variant_attrs is not null)),
   add constraint products_service_no_lots check (kind <> 'SERVICIO' or track_lots = false);
+
+-- ============================================================
+-- F2.4 Modificadores
+-- ============================================================
+
+create table public.option_groups (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null check (length(trim(name)) between 1 and 40),
+  min_select integer not null default 0 check (min_select >= 0),
+  max_select integer not null default 1 check (max_select >= 1),
+  active boolean not null default true,
+  unique (tenant_id, id), unique (tenant_id, name),
+  check (min_select <= max_select)
+);
+
+create table public.options (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  group_id uuid not null,
+  name text not null check (length(trim(name)) between 1 and 40),
+  price_delta numeric(14,2) not null default 0 check (price_delta >= 0),
+  input_product_id uuid,
+  input_qty numeric(14,4) check (input_qty > 0),
+  sort_order integer not null default 0,
+  active boolean not null default true,
+  unique (tenant_id, id),
+  foreign key (tenant_id, group_id) references public.option_groups (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, input_product_id) references public.products (tenant_id, id),
+  check ((input_product_id is null) = (input_qty is null))
+);
+
+create table public.product_option_groups (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  product_id uuid not null,
+  group_id uuid not null,
+  sort_order integer not null default 0,
+  primary key (product_id, group_id),
+  foreign key (tenant_id, product_id) references public.products (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, group_id) references public.option_groups (tenant_id, id)
+);
+
+create table public.order_item_options (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  order_item_id uuid not null,
+  option_id uuid not null,
+  name text not null,
+  price_delta numeric(14,2) not null,
+  primary key (order_item_id, option_id),
+  foreign key (tenant_id, order_item_id) references public.order_items (tenant_id, id) on delete cascade,
+  foreign key (tenant_id, option_id) references public.options (tenant_id, id)
+);
+
+alter table public.option_groups enable row level security;
+alter table public.options enable row level security;
+alter table public.product_option_groups enable row level security;
+alter table public.order_item_options enable row level security;
+
+create policy option_groups_tenant_isolation on public.option_groups
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+create policy options_tenant_isolation on public.options
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+create policy product_option_groups_tenant_isolation on public.product_option_groups
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+create policy order_item_options_tenant_isolation on public.order_item_options
+  for all to authenticated
+  using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+grant select, insert, update, delete on public.option_groups to authenticated;
+grant select, insert, update, delete on public.options to authenticated;
+grant select, insert, update, delete on public.product_option_groups to authenticated;
+grant select, insert, update, delete on public.order_item_options to authenticated;
+

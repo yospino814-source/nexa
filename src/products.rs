@@ -549,6 +549,13 @@ pub async fn get_product_detail_tx(
     // Consultar tier_prices
     let tier_prices = crate::tiers::get_product_tier_prices_tx(tx, scope, id).await?;
 
+    // Consultar option_groups
+    let option_groups = crate::options::get_product_option_groups_tx(tx, scope, id).await?;
+    let option_groups_json: Vec<serde_json::Value> = option_groups
+        .into_iter()
+        .map(|og| serde_json::to_value(og).unwrap_or_default())
+        .collect();
+
     // Consultar stock_by_location (o stock de la sucursal si no hay locations aún)
     let stock_by_location: Vec<LocationStockRow> = sqlx::query_as(
         "select s.branch_id as location_id,
@@ -595,7 +602,7 @@ pub async fn get_product_detail_tx(
         description: row.description,
         variants,
         tier_prices,
-        option_groups: vec![],
+        option_groups: option_groups_json,
         stock_by_location,
     })
 }

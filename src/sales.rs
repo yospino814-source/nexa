@@ -63,6 +63,9 @@ pub struct SaleItem {
     /// Impuesto del ítem libre: "IVA19", "IVA5", "INC8" o "EXENTO".
     #[serde(default)]
     pub custom_tax: Option<String>,
+    /// Opciones y modificadores elegidos (F2.4).
+    #[serde(default)]
+    pub option_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,6 +392,16 @@ async fn validate_customer_and_alias(
 }
 
 #[derive(Debug, Clone)]
+struct SelectedOptionItem {
+    option_id: Uuid,
+    group_id: Uuid,
+    name: String,
+    price_delta: Decimal,
+    input_product_id: Option<Uuid>,
+    input_qty: Option<Decimal>,
+}
+
+#[derive(Debug, Clone)]
 struct PrepItemInfo {
     product_id: Option<Uuid>,
     name: String,
@@ -400,6 +413,7 @@ struct PrepItemInfo {
     /// Precio resuelto (catálogo, tarifa y opciones) antes del cambio manual.
     resolved_price: Decimal,
     price_override_reason: Option<String>,
+    selected_options: Vec<SelectedOptionItem>,
 }
 
 async fn prepare_pricing_lines(
@@ -444,6 +458,14 @@ async fn prepare_pricing_lines(
         }
         match item.product_id {
             None => {
+                if !item.option_ids.is_empty() {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "OPTION_INVALID",
+                        "Un ítem libre no puede tener opciones",
+                        None,
+                    ));
+                }
                 // F1.9: el permiso va antes que cualquier validación del ítem libre.
                 scope.require_permission("pos:custom_item")?;
                 let custom_name = item
@@ -541,6 +563,7 @@ async fn prepare_pricing_lines(
                     list_price: unit_price,
                     resolved_price: unit_price,
                     price_override_reason: None,
+                    selected_options: Vec::new(),
                 });
             }
             Some(pid) => {
@@ -600,9 +623,93 @@ async fn prepare_pricing_lines(
                     .ok_or_else(|| validation(format!("product {pid} has no base price")))?;
                 let tax_rate = crate::catalog::tax_rate_for(tax_code.as_deref());
 
-                let (units_per_package, list_price, resolved_price) = if let Some(tid) =
-                    item.tier_id
-                {
+                // F2.4 Opciones y modificadores
+                let assigned_groups: Vec<(Uuid, i32, i32)> = sqlx::query_as(
+                    "select pog.group_id, og.min_select, og.max_select
+                       from product_option_groups pog
+                       join option_groups og on og.id = pog.group_id
+                      where pog.tenant_id = $1 and pog.product_id = $2 and og.active
+                      order by pog.sort_order",
+                )
+                .bind(scope.tenant)
+                .bind(pid)
+                .fetch_all(&mut **tx)
+                .await?;
+
+                let mut selected_options = Vec::new();
+                let mut options_delta = Decimal::ZERO;
+
+                if !item.option_ids.is_empty() {
+                    let opt_rows: Vec<(
+                        Uuid,
+                        Uuid,
+                        String,
+                        Decimal,
+                        Option<Uuid>,
+                        Option<Decimal>,
+                    )> = sqlx::query_as(
+                        "select id, group_id, name, price_delta, input_product_id, input_qty
+                               from options
+                              where tenant_id = $1 and id = any($2) and active",
+                    )
+                    .bind(scope.tenant)
+                    .bind(&item.option_ids)
+                    .fetch_all(&mut **tx)
+                    .await?;
+
+                    if opt_rows.len() != item.option_ids.len() {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_INVALID",
+                            "Una o más opciones no existen o no están activas",
+                            None,
+                        ));
+                    }
+
+                    let assigned_group_ids: std::collections::HashSet<Uuid> =
+                        assigned_groups.iter().map(|(gid, _, _)| *gid).collect();
+
+                    for opt in &opt_rows {
+                        if !assigned_group_ids.contains(&opt.1) {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "OPTION_INVALID",
+                                "La opción no pertenece a un grupo asignado al producto",
+                                None,
+                            ));
+                        }
+                    }
+
+                    for opt in opt_rows {
+                        options_delta += opt.3;
+                        selected_options.push(SelectedOptionItem {
+                            option_id: opt.0,
+                            group_id: opt.1,
+                            name: opt.2,
+                            price_delta: opt.3,
+                            input_product_id: opt.4,
+                            input_qty: opt.5,
+                        });
+                    }
+                }
+
+                for (gid, min_sel, max_sel) in &assigned_groups {
+                    let count = selected_options
+                        .iter()
+                        .filter(|opt| opt.group_id == *gid)
+                        .count() as i32;
+
+                    if count < *min_sel || count > *max_sel {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_SELECTION_INVALID",
+                            "La selección de opciones no cumple con los límites del grupo",
+                            Some(serde_json::json!({ "group_id": gid })),
+                        ));
+                    }
+                }
+
+                let (units_per_package, base_lp, base_rp) = if let Some(tid) = item.tier_id {
                     let tier_row: Option<(String, String, String, Decimal, Option<Decimal>, bool)> =
                         sqlx::query_as(
                             "select name, kind, adjustment, value, units_per_package, active
@@ -642,6 +749,15 @@ async fn prepare_pricing_lines(
                                 None,
                             )
                         })?;
+
+                    if tier_kind == pricing::TierKind::Presentacion && !item.option_ids.is_empty() {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_INVALID",
+                            "Una línea con opciones no puede usar tarifa de presentación",
+                            None,
+                        ));
+                    }
 
                     let tier_adj = pricing::TierAdjustment::from_str_val(&tier_adj_str)
                         .ok_or_else(|| {
@@ -723,6 +839,9 @@ async fn prepare_pricing_lines(
                 } else {
                     (Decimal::ONE, catalog_price, catalog_price)
                 };
+
+                let list_price = base_lp + options_delta;
+                let resolved_price = base_rp + options_delta;
 
                 let (unit_price, overridden) = if let Some(ov) = item.unit_price_override {
                     let rounded_ov = crate::money::money(ov);
@@ -809,6 +928,7 @@ async fn prepare_pricing_lines(
                     } else {
                         None
                     },
+                    selected_options,
                 });
             }
         }
@@ -1043,6 +1163,20 @@ pub async fn checkout_tx(
         .fetch_one(&mut **tx)
         .await?;
         item_ids.push(item_id);
+
+        for opt in &prep_infos[i].selected_options {
+            sqlx::query(
+                "insert into order_item_options (tenant_id, order_item_id, option_id, name, price_delta)
+                 values ($1, $2, $3, $4, $5)",
+            )
+            .bind(scope.tenant)
+            .bind(item_id)
+            .bind(opt.option_id)
+            .bind(&opt.name)
+            .bind(opt.price_delta)
+            .execute(&mut **tx)
+            .await?;
+        }
     }
 
     // 9b. Auditoría de cambios de precio, por id de línea
@@ -1065,19 +1199,18 @@ pub async fn checkout_tx(
         }
     }
 
-    // 10. Stock: descuento directo, solo productos físicos o preparados (no servicios)
-    let stock_lines: Vec<(Uuid, Decimal)> = prep_infos
-        .iter()
-        .zip(&price_lines)
-        .filter_map(|(prep, pl)| {
-            if prep.kind == "SERVICIO" {
-                None
-            } else {
-                prep.product_id
-                    .map(|pid| (pid, pl.qty * prep.units_per_package))
+    // 10. Stock: descuento directo, solo productos físicos o preparados (no servicios), más opciones con insumos
+    let mut stock_lines: Vec<(Uuid, Decimal)> = Vec::new();
+    for (prep, pl) in prep_infos.iter().zip(&price_lines) {
+        if let Some(pid) = prep.product_id.filter(|_| prep.kind != "SERVICIO") {
+            stock_lines.push((pid, pl.qty * prep.units_per_package));
+        }
+        for opt in &prep.selected_options {
+            if let (Some(in_pid), Some(in_qty)) = (opt.input_product_id, opt.input_qty) {
+                stock_lines.push((in_pid, pl.qty * in_qty));
             }
-        })
-        .collect();
+        }
+    }
     if !stock_lines.is_empty() {
         inventory::sell_tx(tx, scope, branch, req.id, &stock_lines).await?;
     }
@@ -1682,6 +1815,7 @@ mod tests {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             quoted_total: Decimal::from(1000),

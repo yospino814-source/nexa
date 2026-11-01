@@ -13,7 +13,7 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, coupons, customers, inventory, orders, outbox, permissions,
+    AppState, cash, catalog, coupons, customers, inventory, options, orders, outbox, permissions,
     procurement, products, refunds, registers, routes, sales, sales_history, sequences, settings,
     tenancy, users,
 };
@@ -784,6 +784,7 @@ async fn database_integration() {
     f1_void(&app, &admin).await;
     f1_sales_history(&app, &admin).await;
     f2_products(&app, &admin).await;
+    f2_options(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1080,6 +1081,7 @@ fn sale(
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             })
             .collect(),
         payments: payments
@@ -1957,6 +1959,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -1986,6 +1989,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -2030,6 +2034,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -2980,6 +2985,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3010,6 +3016,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3052,6 +3059,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3115,6 +3123,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3264,6 +3273,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             tier_id: Some(paca.id),
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3325,6 +3335,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             tier_id: Some(mayorista.id),
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3370,6 +3381,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
             tier_id: Some(mayorista.id),
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3513,6 +3525,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3569,6 +3582,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3594,6 +3608,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3624,6 +3639,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3681,6 +3697,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3740,6 +3757,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3765,6 +3783,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             tier_id: None,
             price_override_reason: None,
             custom_tax: None,
+            option_ids: vec![],
         }],
         payments: vec![SalePayment {
             method: PaymentMethod::Efectivo,
@@ -3795,6 +3814,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3822,6 +3842,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3879,6 +3900,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3934,6 +3956,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -3987,6 +4010,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4040,6 +4064,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4094,6 +4119,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4122,6 +4148,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![SalePayment {
                 method: PaymentMethod::Efectivo,
@@ -4153,6 +4180,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4207,6 +4235,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4253,6 +4282,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4280,6 +4310,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![SalePayment {
                 method: PaymentMethod::Efectivo,
@@ -4311,6 +4342,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4365,6 +4397,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4419,6 +4452,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4501,6 +4535,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             tip_amount: None,
             tip_waiter_id: None,
@@ -4558,6 +4593,7 @@ fn line_item(
         tier_id: None,
         price_override_reason: reason.map(str::to_string),
         custom_tax: custom_tax.map(str::to_string),
+        option_ids: vec![],
     }
 }
 
@@ -4819,6 +4855,7 @@ async fn f1_tips(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             },
             total,
         );
@@ -5597,6 +5634,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![sales::SalePayment {
                 method: sales::PaymentMethod::Efectivo,
@@ -5634,6 +5672,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![sales::SalePayment {
                 method: sales::PaymentMethod::Efectivo,
@@ -5770,6 +5809,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
                 tier_id: None,
                 price_override_reason: None,
                 custom_tax: None,
+                option_ids: vec![],
             }],
             payments: vec![sales::SalePayment {
                 method: sales::PaymentMethod::Efectivo,
@@ -5798,6 +5838,305 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
     assert_eq!(
         mov_count, 0,
         "Servicio no debe generar movimientos de stock"
+    );
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn f2_options(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // 1. Insumo Queso Mozzarella
+    let queso = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Queso Mozzarella".into(),
+            sku: Some("INS-QUESO".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "INSUMO".into(),
+            unit_measure_code: "G".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(50)),
+            base_price: None,
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 1000g de queso inicial
+    inventory::replenish(
+        app,
+        &c_owner,
+        branch,
+        queso.row.id,
+        dec(1000),
+        "stock inicial queso",
+    )
+    .await
+    .unwrap();
+
+    // 2. Hamburguesa Clásica
+    let burger = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Hamburguesa Clásica".into(),
+            sku: Some("HAMB-01".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(8000)),
+            base_price: Some(dec(15000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 10 hamburguesas iniciales
+    inventory::replenish(
+        app,
+        &c_owner,
+        branch,
+        burger.row.id,
+        dec(10),
+        "stock hamburguesa",
+    )
+    .await
+    .unwrap();
+
+    // 3. Crear grupo opcional "Toppings" con "Extra queso"
+    let group_toppings = options::create_option_group(
+        app,
+        &c_owner,
+        options::CreateOptionGroupInput {
+            name: "Toppings".into(),
+            min_select: 0,
+            max_select: 3,
+            active: true,
+            options: vec![options::OptionInput {
+                id: None,
+                name: "Extra queso".into(),
+                price_delta: dec(2000),
+                input_product_id: Some(queso.row.id),
+                input_qty: Some(dec(30)),
+                sort_order: 1,
+                active: true,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let opt_extra_queso = group_toppings.options[0].id;
+
+    // 4. Crear grupo obligatorio "Término de la carne" (min 1, max 1)
+    let group_termino = options::create_option_group(
+        app,
+        &c_owner,
+        options::CreateOptionGroupInput {
+            name: "Término de la carne".into(),
+            min_select: 1,
+            max_select: 1,
+            active: true,
+            options: vec![
+                options::OptionInput {
+                    id: None,
+                    name: "Bien cocido".into(),
+                    price_delta: dec(0),
+                    input_product_id: None,
+                    input_qty: None,
+                    sort_order: 1,
+                    active: true,
+                },
+                options::OptionInput {
+                    id: None,
+                    name: "Tres cuartos".into(),
+                    price_delta: dec(0),
+                    input_product_id: None,
+                    input_qty: None,
+                    sort_order: 2,
+                    active: true,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    let opt_bien_cocido = group_termino.options[0].id;
+
+    // Asignar ambos grupos a la hamburguesa
+    options::set_product_option_groups(
+        app,
+        &c_owner,
+        burger.row.id,
+        vec![
+            options::UpdateProductOptionGroupInput {
+                group_id: group_termino.id,
+                sort_order: 1,
+            },
+            options::UpdateProductOptionGroupInput {
+                group_id: group_toppings.id,
+                sort_order: 2,
+            },
+        ],
+    )
+    .await
+    .unwrap();
+
+    // Abrir caja
+    let def_reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, def_reg, dec(0))
+        .await
+        .unwrap();
+
+    // [P] No elegir el mínimo de un grupo obligatorio: 422 OPTION_SELECTION_INVALID con data {group_id}
+    let try_sale_no_mandatory = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(burger.row.id),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(15000),
+                reference: None,
+            }],
+            quoted_total: dec(15000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await;
+
+    match try_sale_no_mandatory {
+        Err(ApiError::Domain(DomainError::Coded { code, data, .. })) => {
+            assert_eq!(code, "OPTION_SELECTION_INVALID");
+            let data_obj = data.expect("must contain data");
+            assert_eq!(
+                data_obj.get("group_id").and_then(|v| v.as_str()),
+                Some(group_termino.id.to_string().as_str())
+            );
+        }
+        other => panic!("expected OPTION_SELECTION_INVALID, got {:?}", other),
+    }
+
+    // [P] "Extra queso" con un delta de $2.000 y 30 g de queso: el precio sube $2.000 por unidad y el queso baja 30 g por unidad.
+    // Compramos 2 unidades de hamburguesa con extra queso y término bien cocido
+    // Precio unitario: 15.000 + 2.000 = 17.000. Total por 2 = 34.000.
+    let sale_id = Uuid::new_v4();
+    let ok_sale = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(burger.row.id),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![opt_bien_cocido, opt_extra_queso],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(34000),
+                reference: None,
+            }],
+            quoted_total: dec(34000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let created_sale = match ok_sale {
+        sales::Checkout::Created(s) => s,
+        sales::Checkout::Replayed(s) => s,
+    };
+    assert_eq!(created_sale.order.total_amount, dec(34000));
+
+    // Verificar stock de hamburguesa: 10 - 2 = 8
+    let burger_stock: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where tenant_id = $1 and branch_id = $2 and product_id = $3",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(burger.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(burger_stock, dec(8));
+
+    // Verificar stock de queso: 1000 - (2 * 30) = 940
+    let queso_stock: Decimal = sqlx::query_scalar(
+        "select on_hand from stock where tenant_id = $1 and branch_id = $2 and product_id = $3",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(queso.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(queso_stock, dec(940));
+
+    // Verificar registro en order_item_options
+    let order_options_count: i64 =
+        sqlx::query_scalar("select count(*) from order_item_options where tenant_id = $1")
+            .bind(tenant)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        order_options_count, 2,
+        "deben guardarse 2 opciones en order_item_options"
     );
 
     cleanup(admin, tenant, &[owner, cashier]).await;
