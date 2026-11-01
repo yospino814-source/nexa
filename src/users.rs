@@ -282,3 +282,37 @@ pub async fn update_user_status(
     tx.commit().await?;
     Ok(())
 }
+
+/// Mesero activo de una sucursal (selector de propina del POS, F1.10).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct Waiter {
+    pub user_id: Uuid,
+    pub full_name: String,
+}
+
+/// `GET /v1/waiters?branch_id=`: usuarios con rol MESERO y membresía activa en
+/// la sucursal (o en todo el negocio). Exige `pos:sell`.
+pub async fn list_waiters(
+    pool: &PgPool,
+    claims: &Claims,
+    branch_id: Uuid,
+) -> Result<Vec<Waiter>, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
+    scope.require_permission("pos:sell")?;
+    let rows = sqlx::query_as::<_, Waiter>(
+        "select distinct u.id as user_id, u.full_name
+           from memberships m
+           join users u on u.id = m.user_id
+           join tbl_tipos_maestra t on t.tima_id = m.role_id
+          where m.tenant_id = $1 and m.active
+            and (m.branch_id is null or m.branch_id = $2)
+            and t.tima_codigo = 'MESERO'
+          order by u.full_name",
+    )
+    .bind(scope.tenant)
+    .bind(branch_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(rows)
+}

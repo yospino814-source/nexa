@@ -144,6 +144,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/audit", get(list_audit))
         // Usuarios y roles
         .route("/v1/users", get(list_users))
+        .route("/v1/waiters", get(list_waiters))
         .route("/v1/users/invite", post(invite_user))
         .route("/v1/users/{id}/role", put(update_user_role))
         .route("/v1/users/{id}/status", put(update_user_status))
@@ -854,6 +855,16 @@ async fn list_users(
 ) -> ApiResult<Json<users::UsersListResponse>> {
     let resp = users::list_users(&state.pool, &user.claims).await?;
     Ok(Json(resp))
+}
+
+async fn list_waiters(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<BranchQuery>,
+) -> ApiResult<Json<Vec<users::Waiter>>> {
+    Ok(Json(
+        users::list_waiters(&state.pool, &user.claims, q.branch_id).await?,
+    ))
 }
 
 async fn invite_user(

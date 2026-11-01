@@ -772,6 +772,7 @@ async fn database_integration() {
     f1_promotions(&app, &admin).await;
     f1_coupons(&app, &admin).await;
     f1_override(&app, &admin).await;
+    f1_tips(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1066,6 +1067,7 @@ fn sale(
             .collect(),
         quoted_total,
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -1929,6 +1931,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(4500),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -1957,6 +1960,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(4000),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -1986,6 +1990,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(4500),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -2912,6 +2917,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
@@ -2947,6 +2953,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(5000), // Incorrecto, real es 5950
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -2988,6 +2995,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(5355),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -3050,6 +3058,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(2678),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -3198,6 +3207,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(20000),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -3258,6 +3268,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(920),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: Some(customer_regular.id),
         customer_alias: None,
         coupon_code: None,
@@ -3302,6 +3313,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(920),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: Some(customer_mayorista.id),
         customer_alias: None,
         coupon_code: None,
@@ -3438,6 +3450,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
@@ -3493,6 +3506,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
@@ -3523,6 +3537,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(9000),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -3546,6 +3561,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
@@ -3602,6 +3618,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
@@ -3660,6 +3677,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust1.id),
             customer_alias: None,
             coupon_code: None,
@@ -3690,6 +3708,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
         }],
         quoted_total: dec(8000),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: Some(cust1.id),
         customer_alias: None,
         coupon_code: None,
@@ -3713,6 +3732,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust1.id),
             customer_alias: None,
             coupon_code: None,
@@ -3739,6 +3759,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust2.id),
             customer_alias: None,
             coupon_code: None,
@@ -3795,6 +3816,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("NOEXISTE123".into()),
@@ -3849,6 +3871,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("INACTIVO10".into()),
@@ -3901,6 +3924,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("FUTURO10".into()),
@@ -3953,6 +3977,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("VENCIDO10".into()),
@@ -4006,6 +4031,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
@@ -4039,6 +4065,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             }],
             quoted_total: q_lim1.total,
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
@@ -4063,6 +4090,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
@@ -4116,6 +4144,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
@@ -4161,6 +4190,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
@@ -4193,6 +4223,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             }],
             quoted_total: q_cust1.total,
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
@@ -4217,6 +4248,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
@@ -4270,6 +4302,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("MINIMO50K".into()),
@@ -4323,6 +4356,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("SOLOPAPAS".into()),
@@ -4404,6 +4438,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
                 custom_tax: None,
             }],
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("COMBOPROMO".into()),
@@ -4471,6 +4506,7 @@ fn cash_sale(branch: Uuid, item: sales::SaleItem, total: i64) -> sales::SaleRequ
         }],
         quoted_total: dec(total),
         tip_amount: None,
+        tip_waiter_id: None,
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
@@ -4678,4 +4714,105 @@ async fn f1_override(app: &PgPool, admin: &PgPool) {
     assert_eq!(on_hand_before, on_hand_after);
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+/// F1.10: propinas.
+async fn f1_tips(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    let waiter = seed_user(admin).await;
+    let stranger = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    seed_membership(admin, tenant, Some(branch), waiter, "MESERO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // Gaseosa sin impuesto especial: IVA 19 %, 2 x 2.500 = 5.000 + 950 de IVA.
+    let soda = seed_product(admin, tenant, "Gaseosa", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, soda, "2500").await;
+    seed_branch_product(admin, tenant, branch, soda, None, None).await;
+    seed_stock(admin, tenant, branch, soda, "20", "0").await;
+    let reg = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg, dec(0))
+        .await
+        .unwrap();
+
+    let tip_sale = |tip: Option<i64>, waiter_id: Option<Uuid>, total: i64| {
+        let mut req = cash_sale(
+            branch,
+            sales::SaleItem {
+                product_id: Some(soda),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+            },
+            total,
+        );
+        req.tip_amount = tip.map(dec);
+        req.tip_waiter_id = waiter_id;
+        req
+    };
+
+    // [P] Con las propinas apagadas (por defecto): 422 TIPS_DISABLED
+    let r = sales::checkout(app, &c_cashier, tip_sale(Some(1000), None, 6950)).await;
+    assert_eq!(err_code(&r), Some("TIPS_DISABLED"), "{r:?}");
+
+    let mut s = settings::BranchSettings::default();
+    s.tips.enabled = true;
+    settings::update_settings(
+        app,
+        &c_owner,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: s,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Mesero sin propina, o mesero sin membresía en la sucursal: 422 TIP_INVALID
+    let r = sales::checkout(app, &c_cashier, tip_sale(None, Some(waiter), 5950)).await;
+    assert_eq!(err_code(&r), Some("TIP_INVALID"), "{r:?}");
+    let r = sales::checkout(app, &c_cashier, tip_sale(Some(1000), Some(stranger), 6950)).await;
+    assert_eq!(err_code(&r), Some("TIP_INVALID"), "{r:?}");
+
+    // [P] La propina entra en total_amount, no en subtotal ni en inc_amount
+    let resp = created(
+        sales::checkout(app, &c_cashier, tip_sale(Some(1000), Some(waiter), 6950))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(resp.order.subtotal.normalize(), dec(5000));
+    assert_eq!(resp.order.inc_amount.normalize(), dec(950));
+    assert_eq!(resp.order.tip_amount.normalize(), dec(1000));
+    assert_eq!(resp.order.total_amount.normalize(), dec(6950));
+    let saved_waiter: Option<Uuid> =
+        sqlx::query_scalar("select waiter_id from orders where id = $1")
+            .bind(resp.order.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(saved_waiter, Some(waiter));
+
+    // El selector de meseros solo lista meseros activos de la sucursal.
+    let waiters = users::list_waiters(app, &c_cashier, branch).await.unwrap();
+    assert_eq!(waiters.len(), 1);
+    assert_eq!(waiters[0].user_id, waiter);
+
+    // [P] La propina aparece en tips_total del turno
+    let summary = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .expect("turno abierto");
+    assert_eq!(summary.tips_total.normalize(), dec(1000));
+    assert_eq!(summary.tips_pending.normalize(), dec(1000));
+
+    cleanup(admin, tenant, &[owner, cashier, waiter, stranger]).await;
 }

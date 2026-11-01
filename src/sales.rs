@@ -86,6 +86,9 @@ pub struct SaleRequest {
     pub quoted_total: Decimal,
     #[serde(default)]
     pub tip_amount: Option<Decimal>,
+    /// F1.10: mesero que recibe la propina.
+    #[serde(default)]
+    pub tip_waiter_id: Option<Uuid>,
     #[serde(default)]
     pub customer_id: Option<Uuid>,
     #[serde(default)]
@@ -100,6 +103,8 @@ pub struct QuoteRequest {
     pub items: Vec<SaleItem>,
     #[serde(default)]
     pub tip_amount: Option<Decimal>,
+    #[serde(default)]
+    pub tip_waiter_id: Option<Uuid>,
     #[serde(default)]
     pub customer_id: Option<Uuid>,
     #[serde(default)]
@@ -261,6 +266,56 @@ pub async fn checkout(
     let result = checkout_tx(&mut tx, &scope, &req).await?;
     tx.commit().await?;
     Ok(result)
+}
+
+/// F1.10: reglas de la propina, en el orden de la especificación.
+async fn validate_tip(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    settings: &crate::settings::BranchSettings,
+    branch: Uuid,
+    tip: Decimal,
+    waiter: Option<Uuid>,
+) -> Result<(), ApiError> {
+    if tip > Decimal::ZERO && !settings.tips.enabled {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIPS_DISABLED",
+            "tips are disabled in this branch",
+            None,
+        ));
+    }
+    let Some(waiter) = waiter else {
+        return Ok(());
+    };
+    if tip <= Decimal::ZERO {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIP_INVALID",
+            "tip_waiter_id requires tip_amount > 0",
+            None,
+        ));
+    }
+    let member: Option<bool> = sqlx::query_scalar(
+        "select true from memberships
+          where user_id = $1 and tenant_id = $2 and active
+            and (branch_id is null or branch_id = $3)
+          limit 1",
+    )
+    .bind(waiter)
+    .bind(scope.tenant)
+    .bind(branch)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if member.is_none() {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIP_INVALID",
+            "tip waiter has no active membership in this branch",
+            None,
+        ));
+    }
+    Ok(())
 }
 
 async fn validate_customer_and_alias(
@@ -776,6 +831,17 @@ pub async fn checkout_tx(
     )
     .await?;
 
+    // Propina y mesero (F1.10)
+    validate_tip(
+        tx,
+        scope,
+        &settings,
+        branch,
+        req.tip_amount.unwrap_or(Decimal::ZERO),
+        req.tip_waiter_id,
+    )
+    .await?;
+
     let customer_id = req.customer_id;
     let customer_alias = req.customer_alias.as_deref().map(|a| a.trim());
 
@@ -1033,7 +1099,7 @@ pub async fn checkout_tx(
         "update orders
             set status_id = public.tipo_id('ORD', 'COBRADA'),
                 cash_session_id = $2, receipt_prefix = $3, receipt_number = $4,
-                paid_amount = $5, change_due = $6, waiter_id = null
+                paid_amount = $5, change_due = $6, waiter_id = $7
           where id = $1",
     )
     .bind(req.id)
@@ -1042,6 +1108,7 @@ pub async fn checkout_tx(
     .bind(number)
     .bind(settlement.paid)
     .bind(settlement.change_due)
+    .bind(req.tip_waiter_id)
     .execute(&mut **tx)
     .await?;
 
@@ -1145,6 +1212,16 @@ pub async fn quote_tx(
         &settings,
         req.customer_id,
         req.customer_alias.as_deref(),
+    )
+    .await?;
+
+    validate_tip(
+        tx,
+        scope,
+        &settings,
+        branch_id,
+        req.tip_amount.unwrap_or(Decimal::ZERO),
+        req.tip_waiter_id,
     )
     .await?;
 
@@ -1351,6 +1428,7 @@ mod tests {
             payments: vec![pay(PaymentMethod::Efectivo, 1000)],
             quoted_total: Decimal::from(1000),
             tip_amount: None,
+            tip_waiter_id: None,
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
