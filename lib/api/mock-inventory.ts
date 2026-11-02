@@ -4,7 +4,7 @@
 
 import { ApiError } from "./client";
 import { MOCK_BRANCH_ID, mockCatalog } from "./mock";
-import type { Movement, MovementType, StockLevel, StockStatus, Uuid } from "./types";
+import type { ExpiringLot, Movement, MovementType, StockLevel, StockStatus, Uuid } from "./types";
 
 type Meta = { sku: string; barcode: string; cost: number; min: number };
 
@@ -160,4 +160,77 @@ export function mockCount(productId: Uuid, counted: number, cause: string): numb
 export function mockSetMinQty(productId: Uuid, minQty: number) {
   if (minQty < 0) throw new ApiError(422, "validation: min_qty must be >= 0");
   meta.get(productId)!.min = minQty;
+}
+
+export function mockExpiringLots(branchId?: string, days = 30): ExpiringLot[] {
+  const now = new Date();
+  const addDays = (d: number) => {
+    const target = new Date(now.getTime() + d * 86400000);
+    return target.toISOString().slice(0, 10);
+  };
+
+  const sampleLots: ExpiringLot[] = [
+    {
+      id: "lot-001",
+      tenant_id: "mock-tenant",
+      branch_id: branchId || MOCK_BRANCH_ID,
+      location_id: "loc-001",
+      location_name: "Bodega Principal",
+      product_id: mockCatalog[2]?.product_id || "prod-lac-003",
+      product_name: "Leche Entera Alquería 1L",
+      sku: "LAC-003",
+      code: "LOT-2026-081",
+      expires_at: addDays(-2),
+      qty: "6.0000",
+      days_until_expiry: -2,
+      is_expired: true,
+    },
+    {
+      id: "lot-002",
+      tenant_id: "mock-tenant",
+      branch_id: branchId || MOCK_BRANCH_ID,
+      location_id: "loc-001",
+      location_name: "Bodega Principal",
+      product_id: mockCatalog[8]?.product_id || "prod-lac-009",
+      product_name: "Yogurt Melocotón 150g",
+      sku: "LAC-009",
+      code: "LOT-2026-095",
+      expires_at: addDays(4),
+      qty: "12.0000",
+      days_until_expiry: 4,
+      is_expired: false,
+    },
+    {
+      id: "lot-003",
+      tenant_id: "mock-tenant",
+      branch_id: branchId || MOCK_BRANCH_ID,
+      location_id: "loc-001",
+      location_name: "Bodega Principal",
+      product_id: mockCatalog[3]?.product_id || "prod-pan-004",
+      product_name: "Pan Tajado Bimbo 450g",
+      sku: "PAN-004",
+      code: "LOT-2026-102",
+      expires_at: addDays(11),
+      qty: "8.0000",
+      days_until_expiry: 11,
+      is_expired: false,
+    },
+    {
+      id: "lot-004",
+      tenant_id: "mock-tenant",
+      branch_id: branchId || MOCK_BRANCH_ID,
+      location_id: "loc-001",
+      location_name: "Bodega Principal",
+      product_id: mockCatalog[10]?.product_id || "prod-sna-011",
+      product_name: "Galletas Charmy Vainilla",
+      sku: "SNA-011",
+      code: "LOT-2026-114",
+      expires_at: addDays(24),
+      qty: "20.0000",
+      days_until_expiry: 24,
+      is_expired: false,
+    },
+  ];
+
+  return sampleLots.filter((l) => l.days_until_expiry <= days);
 }

@@ -14,6 +14,7 @@ import {
   mockReplenish,
   mockSetMinQty,
   mockStockLevels,
+  mockExpiringLots,
 } from "./mock-inventory";
 import {
   mockPurchaseApprove,
@@ -135,6 +136,7 @@ import type {
   RolePermissionsResponse,
   SessionContext,
   StockAlert,
+  ExpiringLot,
   StockLevel,
   Supplier,
   SupplierDetailResponse,
@@ -1676,6 +1678,16 @@ export const api = {
         return [];
       }
       return request(`/v1/inventory/alerts?branch_id=${branchId}`);
+    },
+
+    /** GET /v1/inventory/expiring?branch_id=&days=30 — lotes por vencer o vencidos con stock. */
+    async expiring(branchId?: Uuid, days = 30): Promise<ExpiringLot[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpiringLots(branchId, days);
+      }
+      const b = branchId ? `branch_id=${branchId}&` : "";
+      return request(`/v1/inventory/expiring?${b}days=${days}`);
     },
 
     /** GET /v1/inventory/movements — kardex, mas reciente primero. */

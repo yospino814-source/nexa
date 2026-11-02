@@ -1546,3 +1546,21 @@ export type CreateExpenseInput = {
 export type RejectExpenseInput = {
   reason: string;
 };
+
+// ---------------------------------------------------------------- LOTES Y VENCIMIENTOS (F2.15)
+
+export interface ExpiringLot {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  location_name: string;
+  product_id: Uuid;
+  product_name: string;
+  sku?: string | null;
+  code: string;
+  expires_at: string;
+  qty: Decimal;
+  days_until_expiry: number;
+  is_expired: boolean;
+}
