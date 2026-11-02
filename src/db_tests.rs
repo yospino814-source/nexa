@@ -13,9 +13,9 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, coupons, customers, inventory, options, orders, outbox, permissions,
-    procurement, products, refunds, registers, routes, sales, sales_history, sequences, settings,
-    tenancy, users,
+    AppState, cash, catalog, coupons, customers, expenses, inventory, options, orders, outbox,
+    payables, permissions, procurement, products, refunds, registers, routes, sales, sales_history,
+    sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -793,6 +793,7 @@ async fn database_integration() {
     f2_suppliers(&app, &admin).await;
     f2_purchases(&app, &admin).await;
     f2_payables(&app, &admin).await;
+    f2_expenses(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -8328,4 +8329,205 @@ async fn f2_payables(app: &PgPool, admin: &PgPool) {
     }
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn f2_expenses(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let reg = default_register(admin, branch).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    // Turno de caja abierto para el dueño con $500,000 en efectivo
+    let session = cash::open(app, &c_owner, branch, reg, dec(500000))
+        .await
+        .unwrap();
+
+    // Obtener categoría activa "Arriendo" o crear una
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let categories = expenses::list_categories_tx(&mut tx, &scope_owner, false)
+        .await
+        .unwrap();
+    let cat_id = categories
+        .iter()
+        .find(|c| c.name.to_lowercase() == "arriendo")
+        .map(|c| c.id)
+        .unwrap_or_else(|| {
+            categories
+                .first()
+                .map(|c| c.id)
+                .expect("at least one category")
+        });
+    tx.commit().await.unwrap();
+
+    // 1. Crear gasto
+    let exp_id = Uuid::new_v4();
+    let today = Utc::now().date_naive();
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let exp_created = expenses::create_expense_tx(
+        &mut tx,
+        &scope_owner,
+        expenses::CreateExpenseRequest {
+            id: exp_id,
+            branch_id: branch,
+            category_id: cat_id,
+            supplier_id: None,
+            description: "Pago arriendo local noviembre".into(),
+            amount: dec(150000),
+            tax_amount: Some(dec(0)),
+            expense_date: today,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(exp_created.status, "PENDIENTE");
+    assert_eq!(exp_created.amount, dec(150000));
+    assert_eq!(exp_created.total, dec(150000));
+    assert!(exp_created.document_number.starts_with("GAS-"));
+
+    // [P] Aprobar crea una cuenta por pagar
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let exp_approved = expenses::approve_expense_tx(&mut tx, &scope_owner, exp_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(exp_approved.status, "APROBADO");
+    assert!(exp_approved.payable_id.is_some());
+
+    // Verificar que la cuenta por pagar existe y tiene los datos esperados
+    let pay_id = exp_approved.payable_id.unwrap();
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let payable_detail = payables::get_payable_detail_tx(&mut tx, &scope_owner, pay_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(payable_detail.payable.source_type, "GASTO");
+    assert_eq!(payable_detail.payable.source_id, exp_id);
+    assert_eq!(payable_detail.payable.amount_total, dec(150000));
+    assert_eq!(payable_detail.payable.amount_paid, dec(0));
+    assert_eq!(payable_detail.payable.balance, dec(150000));
+    assert_eq!(payable_detail.payable.status, "ABIERTA");
+
+    // [P] Pagar en efectivo crea un movimiento GASTO en la caja y deja el gasto PAGADO
+    let pay_payment_id = Uuid::new_v4();
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let pay_res = payables::create_payment_tx(
+        &mut tx,
+        &scope_owner,
+        pay_id,
+        payables::CreatePayablePaymentRequest {
+            id: pay_payment_id,
+            amount: dec(150000),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(pay_res.payable.status, "PAGADA");
+    assert_eq!(pay_res.payable.amount_paid, dec(150000));
+    assert_eq!(pay_res.payable.balance, dec(0));
+
+    // El gasto pasa automáticamente a PAGADO
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let exp_paid = expenses::get_expense_detail_tx(&mut tx, &scope_owner, exp_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(exp_paid.status, "PAGADO");
+
+    // Movimiento en caja con kind = GASTO
+    let (_scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let cash_summary = cash::summary_tx(&mut tx, session.id).await.unwrap();
+    tx.commit().await.unwrap();
+
+    // 500,000 inicial - 150,000 gasto = 350,000 esperado
+    assert_eq!(cash_summary.expected_cash, dec(350000));
+
+    // Verificar en la BD que el movimiento tiene kind = GASTO
+    let mov_kind: String = sqlx::query_scalar(
+        r#"
+        select tm.tima_codigo
+          from cash_movements cm
+          join tbl_tipos_maestra tm on tm.tima_id = cm.kind_id
+         where cm.cash_session_id = $1 and cm.ref_id = $2
+        "#,
+    )
+    .bind(session.id)
+    .bind(pay_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mov_kind, "GASTO");
+
+    // [P] Aprobar un gasto rechazado: 409 EXPENSE_INVALID_STATE
+    let exp2_id = Uuid::new_v4();
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    expenses::create_expense_tx(
+        &mut tx,
+        &scope_owner,
+        expenses::CreateExpenseRequest {
+            id: exp2_id,
+            branch_id: branch,
+            category_id: cat_id,
+            supplier_id: None,
+            description: "Gasto con presupuesto dudoso".into(),
+            amount: dec(80000),
+            tax_amount: None,
+            expense_date: today,
+        },
+    )
+    .await
+    .unwrap();
+    expenses::reject_expense_tx(
+        &mut tx,
+        &scope_owner,
+        exp2_id,
+        expenses::RejectExpenseRequest {
+            reason: "Monto no corresponde a cotización".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Intentar aprobar gasto rechazado
+    let reject_err = expenses::approve_expense_tx(&mut tx, &scope_owner, exp2_id)
+        .await
+        .unwrap_err();
+    tx.rollback().await.unwrap();
+
+    match reject_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "EXPENSE_INVALID_STATE");
+        }
+        other => panic!("esperaba 409 EXPENSE_INVALID_STATE pero obtuve {:?}", other),
+    }
+
+    cleanup(admin, tenant, &[owner]).await;
 }

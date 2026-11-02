@@ -293,6 +293,24 @@ select t.id, c.name, c.color
  ) as c(name, color)
 on conflict (tenant_id, name) do nothing;
 
+create or replace function public.tenant_default_expense_categories() returns trigger language plpgsql as $$
+begin
+  insert into public.expense_categories (tenant_id, name, color)
+  values
+    (new.id, 'Arriendo', '#64748B'),
+    (new.id, 'Servicios públicos', '#0EA5E9'),
+    (new.id, 'Nómina', '#10B981'),
+    (new.id, 'Fletes', '#F59E0B'),
+    (new.id, 'Mantenimiento', '#8B5CF6'),
+    (new.id, 'Otros', '#94A3B8')
+  on conflict (tenant_id, name) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists tenants_default_expense_categories on public.tenants;
+create trigger tenants_default_expense_categories after insert on public.tenants
+  for each row execute function public.tenant_default_expense_categories();
+
 -- F2.15 Lotes y vencimientos
 create table if not exists public.lots (
   id uuid primary key default gen_random_uuid(),

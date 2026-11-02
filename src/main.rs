@@ -7,6 +7,7 @@ pub mod csv_import;
 pub mod customers;
 mod db;
 mod error;
+pub mod expenses;
 mod inventory;
 pub mod locations;
 pub mod money;

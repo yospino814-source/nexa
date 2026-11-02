@@ -16,9 +16,9 @@ use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, inventory, locations, options, orders, payables,
-    permissions, procurement, products, refunds, registers, sales, sales_history, settings,
-    tenancy, users,
+    AppState, audit, cash, catalog, customers, expenses, inventory, locations, options, orders,
+    payables, permissions, procurement, products, refunds, registers, sales, sales_history,
+    settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -177,6 +177,18 @@ pub fn router() -> Router<AppState> {
         .route("/v1/payables/{id}", get(get_payable))
         .route("/v1/payables/{id}/payments", post(create_payable_payment))
         .route("/v1/payables/{id}/write-off", post(write_off_payable))
+        // Gastos (F2.14)
+        .route(
+            "/v1/expense-categories",
+            get(list_expense_categories).post(create_expense_category),
+        )
+        .route("/v1/expense-categories/{id}", put(update_expense_category))
+        .route("/v1/expenses", get(list_expenses).post(create_expense))
+        .route("/v1/expenses/summary", get(get_expenses_summary))
+        .route("/v1/expenses/{id}", get(get_expense))
+        .route("/v1/expenses/{id}/approve", post(approve_expense))
+        .route("/v1/expenses/{id}/reject", post(reject_expense))
+        .route("/v1/expenses/{id}/cancel", post(cancel_expense))
         // Permisos y roles
         .route("/v1/permissions", get(list_permissions))
         .route(
@@ -1163,6 +1175,131 @@ async fn write_off_payable(
     let detail = payables::write_off_tx(&mut tx, &scope, id, body).await?;
     tx.commit().await?;
     Ok(Json(detail))
+}
+
+// ------------------------------------------------------------------- gastos
+
+async fn list_expense_categories(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<expenses::CategoriesFilter>,
+) -> ApiResult<Json<Vec<expenses::ExpenseCategory>>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let rows =
+        expenses::list_categories_tx(&mut tx, &scope, filter.include_inactive.unwrap_or(false))
+            .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+async fn create_expense_category(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(body): Body<expenses::CreateExpenseCategoryRequest>,
+) -> ApiResult<Json<expenses::ExpenseCategory>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let cat = expenses::create_category_tx(&mut tx, &scope, body).await?;
+    tx.commit().await?;
+    Ok(Json(cat))
+}
+
+async fn update_expense_category(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<expenses::UpdateExpenseCategoryRequest>,
+) -> ApiResult<Json<expenses::ExpenseCategory>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let cat = expenses::update_category_tx(&mut tx, &scope, id, body).await?;
+    tx.commit().await?;
+    Ok(Json(cat))
+}
+
+async fn list_expenses(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<expenses::ExpensesFilter>,
+) -> ApiResult<Json<Vec<expenses::ExpenseRow>>> {
+    let (scope, mut tx) = if let Some(bid) = filter.branch_id {
+        tenancy::begin_in_branch(&state.pool, &user.claims, bid).await?
+    } else {
+        tenancy::begin(&state.pool, &user.claims).await?
+    };
+    let rows = expenses::list_expenses_tx(&mut tx, &scope, filter).await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+async fn create_expense(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(body): Body<expenses::CreateExpenseRequest>,
+) -> ApiResult<Json<expenses::ExpenseRow>> {
+    let (scope, mut tx) =
+        tenancy::begin_in_branch(&state.pool, &user.claims, body.branch_id).await?;
+    let row = expenses::create_expense_tx(&mut tx, &scope, body).await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+async fn get_expenses_summary(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<expenses::ExpenseSummaryFilter>,
+) -> ApiResult<Json<expenses::ExpenseSummary>> {
+    let (scope, mut tx) = if let Some(bid) = filter.branch_id {
+        tenancy::begin_in_branch(&state.pool, &user.claims, bid).await?
+    } else {
+        tenancy::begin(&state.pool, &user.claims).await?
+    };
+    let summary = expenses::expenses_summary_tx(&mut tx, &scope, filter).await?;
+    tx.commit().await?;
+    Ok(Json(summary))
+}
+
+async fn get_expense(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<expenses::ExpenseRow>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let row = expenses::get_expense_detail_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+async fn approve_expense(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<expenses::ExpenseRow>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let row = expenses::approve_expense_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+async fn reject_expense(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<expenses::RejectExpenseRequest>,
+) -> ApiResult<Json<expenses::ExpenseRow>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let row = expenses::reject_expense_tx(&mut tx, &scope, id, body).await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+async fn cancel_expense(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<expenses::ExpenseRow>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let row = expenses::cancel_expense_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(row))
 }
 
 // ------------------------------------------------------------- permisos y roles
