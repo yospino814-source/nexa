@@ -404,8 +404,8 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
     .await?;
 
     // 1. Stock: solo REINTEGRAR de líneas con producto.
-    let returns: Vec<(Uuid, Decimal, Decimal)> = sqlx::query_as(
-        "select oi.product_id, ri.qty, oi.units_per_package
+    let returns: Vec<(Uuid, Decimal, Decimal, Uuid)> = sqlx::query_as(
+        "select oi.product_id, ri.qty, oi.units_per_package, ri.order_item_id
            from refund_items ri
            join order_items oi on oi.id = ri.order_item_id
           where ri.refund_id = $1 and ri.disposition = 'REINTEGRAR' and oi.product_id is not null",
@@ -414,7 +414,14 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
     .fetch_all(&mut **tx)
     .await?;
     let label = format!("Devolución {prefix}-{number:06}");
-    for (product_id, qty, units) in returns {
+    for (product_id, qty, units, order_item_id) in returns {
+        let lot_id: Option<Uuid> = sqlx::query_scalar(
+            "select lot_id from order_item_lots where order_item_id = $1 order by qty desc limit 1",
+        )
+        .bind(order_item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
         inventory::return_tx(
             tx,
             scope,
@@ -423,6 +430,7 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
             qty * units,
             &label,
             ("REFUND", refund_id),
+            lot_id,
         )
         .await?;
     }

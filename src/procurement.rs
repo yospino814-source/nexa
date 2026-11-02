@@ -1274,10 +1274,12 @@ async fn validate_products_for_purchase(
     .fetch_all(&mut **tx)
     .await?;
 
-    if prods.len() != product_ids.len() {
-        return Err(validation(
-            "PURCHASE_INVALID: Uno o más productos no existen en el tenant.",
-        ));
+    for pid in product_ids {
+        if !prods.iter().any(|p| p.id == *pid) {
+            return Err(validation(
+                "PURCHASE_INVALID: Uno o más productos no existen en el tenant.",
+            ));
+        }
     }
 
     for p in &prods {
@@ -2204,23 +2206,45 @@ pub async fn receive_purchase_tx(
             let exp = item.expires_at;
             match (code, exp) {
                 (Some(c), Some(e)) if (1..=30).contains(&c.len()) => {
-                    let lid: Uuid = sqlx::query_scalar(
-                        r#"
-                        insert into lots (tenant_id, branch_id, location_id, product_id, code, expires_at, qty)
-                        values ($1, $2, $3, $4, $5, $6, 0)
-                        on conflict (location_id, product_id, code) do update
-                        set expires_at = excluded.expires_at
-                        returning id
-                        "#,
+                    let existing_lot: Option<(Uuid, chrono::NaiveDate)> = sqlx::query_as(
+                        "select id, expires_at from lots where location_id = $1 and product_id = $2 and code = $3",
                     )
-                    .bind(scope.tenant)
-                    .bind(pr.branch_id)
                     .bind(pr.location_id)
                     .bind(pri.product_id)
                     .bind(c)
-                    .bind(e)
-                    .fetch_one(&mut **tx)
+                    .fetch_optional(&mut **tx)
                     .await?;
+
+                    let lid = match existing_lot {
+                        Some((id, existing_exp)) => {
+                            if existing_exp != e {
+                                return Err(crate::error::coded(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "LOT_EXPIRY_MISMATCH",
+                                    "Ese lote ya existe con otra fecha de vencimiento.",
+                                    None,
+                                ));
+                            }
+                            id
+                        }
+                        None => {
+                            sqlx::query_scalar(
+                                r#"
+                                insert into lots (tenant_id, branch_id, location_id, product_id, code, expires_at, qty)
+                                values ($1, $2, $3, $4, $5, $6, 0)
+                                returning id
+                                "#,
+                            )
+                            .bind(scope.tenant)
+                            .bind(pr.branch_id)
+                            .bind(pr.location_id)
+                            .bind(pri.product_id)
+                            .bind(c)
+                            .bind(e)
+                            .fetch_one(&mut **tx)
+                            .await?
+                        }
+                    };
                     lot_id = Some(lid);
                 }
                 _ => {

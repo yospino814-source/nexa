@@ -794,6 +794,7 @@ async fn database_integration() {
     f2_purchases(&app, &admin).await;
     f2_payables(&app, &admin).await;
     f2_expenses(&app, &admin).await;
+    f2_lots(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -6670,6 +6671,7 @@ async fn f2_locations(app: &PgPool, admin: &PgPool) {
             product_id: prod,
             qty: dec(3),
             cause: "Traslado interno a bodega auxiliar".into(),
+            lot_id: None,
         },
     )
     .await
@@ -7261,6 +7263,7 @@ async fn f2_costing(app: &PgPool, admin: &PgPool) {
             product_id: p_trans,
             qty: dec(4),
             cause: "Traslado a anexo".into(),
+            lot_id: None,
         },
     )
     .await
@@ -8528,6 +8531,429 @@ async fn f2_expenses(app: &PgPool, admin: &PgPool) {
         }
         other => panic!("esperaba 409 EXPENSE_INVALID_STATE pero obtuve {:?}", other),
     }
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+/// F2.15: Lotes, vencimientos y FEFO.
+async fn f2_lots(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let def_loc: Uuid = sqlx::query_scalar(
+        "select id from locations where branch_id = $1 and is_default = true limit 1",
+    )
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    let reg = crate::registers::create(
+        app,
+        &c_owner,
+        crate::registers::CreateRegisterRequest {
+            branch_id: branch,
+            code: "CAJA-LOTES".into(),
+            name: "Caja Lotes".into(),
+            default_opening: dec(10000),
+            location_id: Some(def_loc),
+        },
+    )
+    .await
+    .unwrap();
+
+    let _session = crate::cash::open(app, &c_owner, branch, reg.id, dec(10000))
+        .await
+        .unwrap();
+
+    let sup = crate::procurement::create_supplier(
+        app,
+        &c_owner,
+        crate::procurement::CreateSupplierRequest {
+            name: "Proveedor Lotes".into(),
+            tax_id: Some("900111222".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(false),
+            self_withholding: Some(false),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            delivery_days: Some(1),
+            category: Some("MERCANCIA".into()),
+            bank_name: None,
+            bank_account_type: None,
+            bank_account_number: None,
+            contact_name: None,
+            phone: None,
+            email: None,
+            address: None,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let prod = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Yogurt con Lote".into(),
+            sku: Some("YOG-LOT-01".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(2000)),
+            base_price: Some(dec(3500)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: true,
+            allow_price_override: true,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let today = chrono::Utc::now().date_naive();
+
+    // 1. [P] Recibir un lote existente con otro vencimiento: 422 LOT_EXPIRY_MISMATCH.
+    let order_id = Uuid::new_v4();
+    let create_order = crate::procurement::create_purchase(
+        app,
+        &c_owner,
+        crate::procurement::CreatePurchaseRequest {
+            id: order_id,
+            branch_id: branch,
+            supplier_id: sup.id,
+            location_id: Some(def_loc),
+            expected_at: None,
+            document_number: Some("OC-LOT-01".into()),
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: None,
+            freight_amount: None,
+            freight_mode: None,
+            payment_terms: None,
+            credit_days: None,
+            iva_to_cost: None,
+            items: vec![
+                crate::procurement::PurchaseItemRequest {
+                    product_id: prod.row.id,
+                    qty: dec(10),
+                    unit_cost: dec(2000),
+                    new_sale_price: None,
+                },
+                crate::procurement::PurchaseItemRequest {
+                    product_id: prod.row.id,
+                    qty: dec(10),
+                    unit_cost: dec(2000),
+                    new_sale_price: None,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+
+    crate::procurement::approve_purchase(app, &c_owner, order_id)
+        .await
+        .unwrap();
+
+    let item_1 = create_order.items[0].id;
+    let item_2 = create_order.items[1].id;
+
+    // Recepción 1 con LOTE-MISMATCH y vencimiento hoy + 10 días
+    crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: item_1,
+                qty: dec(10),
+                lot_code: Some("LOTE-MISMATCH".into()),
+                expires_at: Some(today + chrono::Duration::days(10)),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Recepción 2 con el MISMO lote pero vencimiento diferente (hoy + 20 días): debe fallar con 422
+    let mismatch_err = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: item_2,
+                qty: dec(10),
+                lot_code: Some("LOTE-MISMATCH".into()),
+                expires_at: Some(today + chrono::Duration::days(20)),
+            }],
+        },
+    )
+    .await
+    .unwrap_err();
+
+    match mismatch_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "LOT_EXPIRY_MISMATCH");
+        }
+        other => panic!("esperaba 422 LOT_EXPIRY_MISMATCH pero obtuve {:?}", other),
+    }
+
+    // 2. [P] Una venta toma primero el lote que vence antes (FEFO).
+    // Creamos dos lotes para el producto:
+    // LOTE-LATER (vence en 30 días, qty 5)
+    // LOTE-SOONER (vence en 5 días, qty 5)
+    let order2_id = Uuid::new_v4();
+    let create_order2 = crate::procurement::create_purchase(
+        app,
+        &c_owner,
+        crate::procurement::CreatePurchaseRequest {
+            id: order2_id,
+            branch_id: branch,
+            supplier_id: sup.id,
+            location_id: Some(def_loc),
+            expected_at: None,
+            document_number: Some("OC-LOT-02".into()),
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: None,
+            freight_amount: None,
+            freight_mode: None,
+            payment_terms: None,
+            credit_days: None,
+            iva_to_cost: None,
+            items: vec![crate::procurement::PurchaseItemRequest {
+                product_id: prod.row.id,
+                qty: dec(10),
+                unit_cost: dec(2000),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    crate::procurement::approve_purchase(app, &c_owner, order2_id)
+        .await
+        .unwrap();
+
+    let p2_item = create_order2.items[0].id;
+
+    // Recibir 5 con LOTE-LATER (30 días)
+    crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        order2_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: p2_item,
+                qty: dec(5),
+                lot_code: Some("LOTE-LATER".into()),
+                expires_at: Some(today + chrono::Duration::days(30)),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Recibir 5 con LOTE-SOONER (5 días)
+    crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        order2_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: p2_item,
+                qty: dec(5),
+                lot_code: Some("LOTE-SOONER".into()),
+                expires_at: Some(today + chrono::Duration::days(5)),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Vender 3 unidades: debe consumirse de LOTE-SOONER
+    let sale_req = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(prod.row.id, 3)],
+        &[(crate::sales::PaymentMethod::Efectivo, 10500)],
+        dec(10500),
+    );
+    let s_resp = created(
+        crate::sales::checkout(app, &c_owner, sale_req)
+            .await
+            .unwrap(),
+    );
+
+    // Verificar existencias de los lotes en la base de datos
+    let qty_sooner: Decimal = sqlx::query_scalar(
+        "select qty from lots where location_id = $1 and product_id = $2 and code = 'LOTE-SOONER'",
+    )
+    .bind(def_loc)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    let qty_later: Decimal = sqlx::query_scalar(
+        "select qty from lots where location_id = $1 and product_id = $2 and code = 'LOTE-LATER'",
+    )
+    .bind(def_loc)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    assert_eq!(qty_sooner, dec(2), "LOTE-SOONER debió bajar de 5 a 2");
+    assert_eq!(
+        qty_later,
+        dec(5),
+        "LOTE-LATER debió permanecer intacto en 5"
+    );
+
+    // Verificar en order_item_lots
+    let lot_sooner_id: Uuid = sqlx::query_scalar(
+        "select id from lots where location_id = $1 and product_id = $2 and code = 'LOTE-SOONER'",
+    )
+    .bind(def_loc)
+    .bind(prod.row.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    let oil_qty: Decimal = sqlx::query_scalar(
+        "select oil.qty from order_item_lots oil
+           join order_items oi on oi.id = oil.order_item_id
+          where oi.order_id = $1 and oil.lot_id = $2",
+    )
+    .bind(s_resp.order.id)
+    .bind(lot_sooner_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        oil_qty,
+        dec(3),
+        "order_item_lots debió registrar 3 unidades consumidas de LOTE-SOONER"
+    );
+
+    // 3. [P] Con solo lotes vencidos: 409 LOT_ONLY_EXPIRED.
+    let prod_expired = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Queso Vencido".into(),
+            sku: Some("QSO-VENCIDO".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(5000)),
+            base_price: Some(dec(8000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: true,
+            allow_price_override: true,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Insertar lote ya vencido con cantidad 10 y stock en 10
+    sqlx::query(
+        r#"
+        insert into lots (tenant_id, branch_id, location_id, product_id, code, expires_at, qty)
+        values ($1, $2, $3, $4, 'LOTE-VENCIDO', $5, 10)
+        "#,
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(def_loc)
+    .bind(prod_expired.row.id)
+    .bind(today - chrono::Duration::days(3))
+    .execute(admin)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"
+        insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved, min_qty, avg_cost)
+        values ($1, $2, $3, $4, 10, 0, 0, 5000)
+        on conflict (location_id, product_id) do update set on_hand = 10
+        "#,
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(def_loc)
+    .bind(prod_expired.row.id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Intentar vender 1 unidad de producto con solo lotes vencidos
+    let sale_expired_req = sale(
+        Uuid::new_v4(),
+        branch,
+        &[(prod_expired.row.id, 1)],
+        &[(crate::sales::PaymentMethod::Efectivo, 8000)],
+        dec(8000),
+    );
+    let expired_err = crate::sales::checkout(app, &c_owner, sale_expired_req)
+        .await
+        .unwrap_err();
+
+    match expired_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "LOT_ONLY_EXPIRED");
+        }
+        other => panic!("esperaba 409 LOT_ONLY_EXPIRED pero obtuve {:?}", other),
+    }
+
+    // Comprobar consulta de expiring lots
+    let expiring = inventory::list_expiring_lots(app, &c_owner, Some(branch), Some(30))
+        .await
+        .unwrap();
+    assert!(
+        !expiring.is_empty(),
+        "debe retornar lotes próximos a vencer o vencidos"
+    );
+    assert!(
+        expiring
+            .iter()
+            .any(|l| l.code == "LOTE-VENCIDO" && l.is_expired)
+    );
+    assert!(
+        expiring
+            .iter()
+            .any(|l| l.code == "LOTE-SOONER" && !l.is_expired)
+    );
 
     cleanup(admin, tenant, &[owner]).await;
 }

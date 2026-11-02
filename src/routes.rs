@@ -154,6 +154,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/inventory/transfer", post(transfer))
         .route("/v1/inventory/stock", get(stock_levels))
         .route("/v1/inventory/alerts", get(inventory_alerts))
+        .route("/v1/inventory/expiring", get(inventory_expiring))
         .route("/v1/inventory/min-qty", put(set_min_qty))
         // Bodegas / Ubicaciones (F2.8)
         .route("/v1/locations", get(list_locations).post(create_location))
@@ -772,6 +773,22 @@ async fn inventory_alerts(
 }
 
 #[derive(Deserialize)]
+struct ExpiringQuery {
+    branch_id: Option<Uuid>,
+    days: Option<i64>,
+}
+
+async fn inventory_expiring(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<ExpiringQuery>,
+) -> ApiResult<Json<Vec<inventory::ExpiringLot>>> {
+    let lots =
+        inventory::list_expiring_lots(&state.pool, &user.claims, q.branch_id, q.days).await?;
+    Ok(Json(lots))
+}
+
+#[derive(Deserialize)]
 struct CountBody {
     branch_id: Uuid,
     product_id: Uuid,
@@ -811,6 +828,8 @@ struct TransferBody {
     product_id: Uuid,
     qty: Decimal,
     cause: String,
+    #[serde(default)]
+    lot_id: Option<Uuid>,
 }
 
 /// Traslado de unidades entre sucursales o entre bodegas del mismo negocio.
@@ -830,6 +849,7 @@ async fn transfer(
             product_id: req.product_id,
             qty: req.qty,
             cause: req.cause,
+            lot_id: req.lot_id,
         },
     )
     .await?;

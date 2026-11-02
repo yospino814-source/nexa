@@ -415,6 +415,135 @@ async fn consume_rows(
 
 // ------------------------------------------------------------ venta directa
 
+#[allow(clippy::too_many_arguments)]
+async fn sell_component_fefo_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    location_id: Uuid,
+    order_id: Uuid,
+    order_item_id: Option<Uuid>,
+    product_id: Uuid,
+    need: Decimal,
+) -> Result<(Decimal, bool), ApiError> {
+    let track_lots: bool =
+        sqlx::query_scalar("select coalesce(track_lots, false) from products where id = $1")
+            .bind(product_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .unwrap_or(false);
+
+    if !track_lots {
+        let applied = apply_delta_tx(
+            tx,
+            scope,
+            StockDelta {
+                branch_id,
+                location_id,
+                product_id,
+                delta: -need,
+                movement: "DESCUENTO",
+                unit_cost: None,
+                lot_id: None,
+                ref_type: "order",
+                ref_id: order_id,
+                cause: Some("venta".to_string()),
+            },
+        )
+        .await?;
+        return Ok((applied.total_cost, applied.cost_missing));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct LotItem {
+        id: Uuid,
+        #[allow(dead_code)]
+        code: String,
+        #[allow(dead_code)]
+        expires_at: chrono::NaiveDate,
+        qty: Decimal,
+    }
+
+    let lots: Vec<LotItem> = sqlx::query_as(
+        r#"
+        select id, code, expires_at, qty
+          from lots
+         where location_id = $1 and product_id = $2 and qty > 0
+           and expires_at >= (now() at time zone (select timezone from branches where id = $3))::date
+         order by expires_at asc, code asc
+           for update
+        "#,
+    )
+    .bind(location_id)
+    .bind(product_id)
+    .bind(branch_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let available_valid: Decimal = lots.iter().map(|l| l.qty).sum();
+    if available_valid < need {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "LOT_ONLY_EXPIRED",
+            format!("insufficient non-expired lots for product {}", product_id),
+            Some(serde_json::json!({
+                "product_id": product_id,
+                "available_valid": available_valid,
+            })),
+        ));
+    }
+
+    let mut remaining = need;
+    let mut total_cost = Decimal::ZERO;
+    let mut cost_missing = false;
+
+    for lot in lots {
+        if remaining <= Decimal::ZERO {
+            break;
+        }
+        let take = remaining.min(lot.qty);
+        let applied = apply_delta_tx(
+            tx,
+            scope,
+            StockDelta {
+                branch_id,
+                location_id,
+                product_id,
+                delta: -take,
+                movement: "DESCUENTO",
+                unit_cost: None,
+                lot_id: Some(lot.id),
+                ref_type: "order",
+                ref_id: order_id,
+                cause: Some("venta".to_string()),
+            },
+        )
+        .await?;
+        total_cost += applied.total_cost;
+        cost_missing = cost_missing || applied.cost_missing;
+
+        if let Some(oi_id) = order_item_id {
+            sqlx::query(
+                r#"
+                insert into order_item_lots (tenant_id, order_item_id, lot_id, qty)
+                values ($1, $2, $3, $4)
+                on conflict (order_item_id, lot_id) do update set qty = order_item_lots.qty + excluded.qty
+                "#,
+            )
+            .bind(scope.tenant)
+            .bind(oi_id)
+            .bind(lot.id)
+            .bind(take)
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        remaining -= take;
+    }
+
+    Ok((total_cost, cost_missing))
+}
+
 /// Descuenta stock sin pasar por reserva (venta de mostrador: se cobra en el
 /// acto). Explota recetas, agrega por insumo, bloquea en orden estable y falla
 /// con 409 si algun insumo no alcanza. Registra un DESCUENTO por insumo con
@@ -459,25 +588,19 @@ pub async fn sell_tx(
                 if kind.as_deref() != Some("SERVICIO") {
                     let total_qty = item.qty * item.units_per_package;
                     for (comp, need) in components(tx, pid, total_qty).await? {
-                        let applied = apply_delta_tx(
+                        let (c_total, c_missing) = sell_component_fefo_tx(
                             tx,
                             scope,
-                            StockDelta {
-                                branch_id,
-                                location_id,
-                                product_id: comp,
-                                delta: -need,
-                                movement: "DESCUENTO",
-                                unit_cost: None,
-                                lot_id: None,
-                                ref_type: "order",
-                                ref_id: order_id,
-                                cause: Some("venta".to_string()),
-                            },
+                            branch_id,
+                            location_id,
+                            order_id,
+                            Some(item.id),
+                            comp,
+                            need,
                         )
                         .await?;
-                        line_cost_total += applied.total_cost;
-                        line_cost_missing = line_cost_missing || applied.cost_missing;
+                        line_cost_total += c_total;
+                        line_cost_missing = line_cost_missing || c_missing;
                     }
                 }
             }
@@ -501,25 +624,19 @@ pub async fn sell_tx(
             for opt in opt_inputs {
                 let opt_total_qty = item.qty * opt.input_qty;
                 for (comp, need) in components(tx, opt.input_product_id, opt_total_qty).await? {
-                    let applied = apply_delta_tx(
+                    let (c_total, c_missing) = sell_component_fefo_tx(
                         tx,
                         scope,
-                        StockDelta {
-                            branch_id,
-                            location_id,
-                            product_id: comp,
-                            delta: -need,
-                            movement: "DESCUENTO",
-                            unit_cost: None,
-                            lot_id: None,
-                            ref_type: "order",
-                            ref_id: order_id,
-                            cause: Some("venta".to_string()),
-                        },
+                        branch_id,
+                        location_id,
+                        order_id,
+                        Some(item.id),
+                        comp,
+                        need,
                     )
                     .await?;
-                    line_cost_total += applied.total_cost;
-                    line_cost_missing = line_cost_missing || applied.cost_missing;
+                    line_cost_total += c_total;
+                    line_cost_missing = line_cost_missing || c_missing;
                 }
             }
 
@@ -553,21 +670,15 @@ pub async fn sell_tx(
         }
         needs.sort_by_key(|(p, _)| *p);
         for (product_id, need) in needs {
-            apply_delta_tx(
+            sell_component_fefo_tx(
                 tx,
                 scope,
-                StockDelta {
-                    branch_id,
-                    location_id,
-                    product_id,
-                    delta: -need,
-                    movement: "DESCUENTO",
-                    unit_cost: None,
-                    lot_id: None,
-                    ref_type: "order",
-                    ref_id: order_id,
-                    cause: Some("venta".to_string()),
-                },
+                branch_id,
+                location_id,
+                order_id,
+                None,
+                product_id,
+                need,
             )
             .await?;
         }
@@ -727,6 +838,7 @@ pub async fn replenish_ref_tx(
 /// No exige permiso de inventario: el permiso lo valida quien llama
 /// (`pos:sell` o `pos:refund`). Un producto con receta devuelve sus insumos,
 /// igual que `sell_tx` los descontó. El movimiento es de tipo `DEVOLUCION`.
+#[allow(clippy::too_many_arguments)]
 pub async fn return_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
@@ -735,6 +847,7 @@ pub async fn return_tx(
     qty: Decimal,
     cause: &str,
     reference: (&str, Uuid),
+    lot_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     positive(qty)?;
     let loc_id = crate::locations::default_location_id_tx(tx, branch_id).await?;
@@ -749,7 +862,7 @@ pub async fn return_tx(
                 delta: need,
                 movement: "DEVOLUCION",
                 unit_cost: None,
-                lot_id: None,
+                lot_id,
                 ref_type: reference.0,
                 ref_id: reference.1,
                 cause: Some(cause.to_string()),
@@ -1217,6 +1330,15 @@ pub async fn apply_delta_tx(
     .execute(&mut **tx)
     .await?;
 
+    if let Some(lot_id) = d.lot_id {
+        sqlx::query("update lots set qty = qty + $1 where tenant_id = $2 and id = $3")
+            .bind(d.delta)
+            .bind(scope.tenant)
+            .bind(lot_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+
     // 8. Alertas
     if new_on_hand < Decimal::ZERO {
         sqlx::query(
@@ -1302,6 +1424,61 @@ pub async fn list_alerts(
     Ok(alerts)
 }
 
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExpiringLot {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub branch_id: Uuid,
+    pub location_id: Uuid,
+    pub location_name: String,
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub sku: Option<String>,
+    pub code: String,
+    pub expires_at: chrono::NaiveDate,
+    pub qty: Decimal,
+    pub days_until_expiry: i32,
+    pub is_expired: bool,
+}
+
+pub async fn list_expiring_lots(
+    pool: &PgPool,
+    claims: &Claims,
+    branch_id: Option<Uuid>,
+    days: Option<i64>,
+) -> Result<Vec<ExpiringLot>, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("inventory:read")?;
+    let days_val = days.unwrap_or(30).max(0);
+
+    let rows: Vec<ExpiringLot> = sqlx::query_as(
+        r#"
+        select l.id, l.tenant_id, l.branch_id, l.location_id, loc.name as location_name,
+               l.product_id, p.name as product_name, p.sku,
+               l.code, l.expires_at, l.qty,
+               (l.expires_at - (now() at time zone b.timezone)::date)::int as days_until_expiry,
+               (l.expires_at < (now() at time zone b.timezone)::date) as is_expired
+          from lots l
+          join locations loc on loc.id = l.location_id
+          join products p on p.id = l.product_id
+          join branches b on b.id = l.branch_id
+         where l.tenant_id = $1
+           and ($2::uuid is null or l.branch_id = $2)
+           and l.qty > 0
+           and l.expires_at <= ((now() at time zone b.timezone)::date + ($3 || ' days')::interval)::date
+         order by l.expires_at asc, l.code asc
+        "#,
+    )
+    .bind(scope.tenant)
+    .bind(branch_id)
+    .bind(days_val.to_string())
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(rows)
+}
+
 /// Tipo de movimiento segun la direccion del ajuste.
 fn adjustment_type(delta: Decimal) -> &'static str {
     if delta > Decimal::ZERO {
@@ -1322,6 +1499,8 @@ pub struct TransferArgs {
     pub product_id: Uuid,
     pub qty: Decimal,
     pub cause: String,
+    #[serde(default)]
+    pub lot_id: Option<Uuid>,
 }
 
 pub async fn transfer_locations(
@@ -1409,6 +1588,90 @@ pub async fn transfer_locations(
             .await?;
     }
 
+    let track_lots: bool =
+        sqlx::query_scalar("select coalesce(track_lots, false) from products where id = $1")
+            .bind(args.product_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false);
+
+    if track_lots && args.lot_id.is_none() {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "LOT_REQUIRED",
+            "Este producto exige lote y vencimiento.",
+            None,
+        ));
+    }
+
+    let (from_lot_id, to_lot_id) = if let Some(lid) = args.lot_id {
+        #[derive(sqlx::FromRow)]
+        struct LotInfo {
+            code: String,
+            expires_at: chrono::NaiveDate,
+        }
+        let src_lot: Option<LotInfo> = sqlx::query_as(
+            "select code, expires_at from lots where id = $1 and location_id = $2 and tenant_id = $3",
+        )
+        .bind(lid)
+        .bind(from_loc_id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let src_lot = src_lot.ok_or_else(|| {
+            crate::error::coded(
+                StatusCode::NOT_FOUND,
+                "LOT_NOT_FOUND",
+                "Lote de origen no encontrado",
+                None,
+            )
+        })?;
+
+        let dest_lot: Option<(Uuid, chrono::NaiveDate)> = sqlx::query_as(
+            "select id, expires_at from lots where location_id = $1 and product_id = $2 and code = $3",
+        )
+        .bind(to_loc_id)
+        .bind(args.product_id)
+        .bind(&src_lot.code)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let dlid = match dest_lot {
+            Some((did, dexp)) => {
+                if dexp != src_lot.expires_at {
+                    return Err(crate::error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "LOT_EXPIRY_MISMATCH",
+                        "Ese lote ya existe con otra fecha de vencimiento en destino.",
+                        None,
+                    ));
+                }
+                did
+            }
+            None => {
+                sqlx::query_scalar(
+                    r#"
+                    insert into lots (tenant_id, branch_id, location_id, product_id, code, expires_at, qty)
+                    values ($1, $2, $3, $4, $5, $6, 0)
+                    returning id
+                    "#,
+                )
+                .bind(scope.tenant)
+                .bind(to_info.branch_id)
+                .bind(to_loc_id)
+                .bind(args.product_id)
+                .bind(&src_lot.code)
+                .bind(src_lot.expires_at)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
+        (Some(lid), Some(dlid))
+    } else {
+        (None, None)
+    };
+
     let wide = Scope {
         branch: None,
         ..scope.clone()
@@ -1425,7 +1688,7 @@ pub async fn transfer_locations(
             delta: -args.qty,
             movement: "TRASLADO_SALIDA",
             unit_cost: None,
-            lot_id: None,
+            lot_id: from_lot_id,
             ref_type: "transfer",
             ref_id: reference,
             cause: Some(args.cause.clone()),
@@ -1443,7 +1706,7 @@ pub async fn transfer_locations(
             delta: args.qty,
             movement: "TRASLADO_ENTRADA",
             unit_cost: Some(from_applied.unit_cost),
-            lot_id: None,
+            lot_id: to_lot_id,
             ref_type: "transfer",
             ref_id: reference,
             cause: Some(args.cause),
@@ -1477,6 +1740,7 @@ pub async fn transfer(
             product_id,
             qty,
             cause: cause.to_string(),
+            lot_id: None,
         },
     )
     .await

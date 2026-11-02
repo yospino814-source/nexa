@@ -1692,14 +1692,21 @@ pub async fn void_tx(
         (Some(p), Some(n)) => format!("Anulación {p}-{n:06}"),
         _ => "Anulación de venta".to_string(),
     };
-    let lines: Vec<(Uuid, Decimal, Decimal)> = sqlx::query_as(
-        "select product_id, qty, units_per_package from order_items
+    let lines: Vec<(Uuid, Uuid, Decimal, Decimal)> = sqlx::query_as(
+        "select id, product_id, qty, units_per_package from order_items
           where order_id = $1 and product_id is not null",
     )
     .bind(order_id)
     .fetch_all(&mut **tx)
     .await?;
-    for (product_id, qty, units) in lines {
+    for (item_id, product_id, qty, units) in lines {
+        let lot_id: Option<Uuid> = sqlx::query_scalar(
+            "select lot_id from order_item_lots where order_item_id = $1 order by qty desc limit 1",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
         inventory::return_tx(
             tx,
             scope,
@@ -1708,6 +1715,7 @@ pub async fn void_tx(
             qty * units,
             &label,
             ("VOID", order_id),
+            lot_id,
         )
         .await?;
     }
