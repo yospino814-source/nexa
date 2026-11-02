@@ -177,6 +177,11 @@ pub fn router() -> Router<AppState> {
         .route("/v1/purchases", get(list_purchases).post(create_purchase))
         .route("/v1/purchases/summary", get(purchases_summary))
         .route("/v1/purchases/cost-preview", post(cost_preview_purchase))
+        .route("/v1/purchases/suggestions", get(get_purchase_suggestions))
+        .route(
+            "/v1/purchases/suggestions/create",
+            post(create_purchases_from_suggestions),
+        )
         .route("/v1/purchases/{id}", get(get_purchase).put(update_purchase))
         .route("/v1/purchases/{id}/approve", post(approve_purchase))
         .route("/v1/purchases/{id}/receive", post(receive_purchase))
@@ -1128,6 +1133,30 @@ async fn cost_preview_purchase(
 ) -> ApiResult<Json<procurement::CostPreviewResponse>> {
     let resp = procurement::cost_preview(&state.pool, &user.claims, req).await?;
     Ok(Json(resp))
+}
+
+async fn get_purchase_suggestions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<procurement::SuggestionsQuery>,
+) -> ApiResult<Json<Vec<procurement::PurchaseSuggestionGroup>>> {
+    let branch_id = query
+        .branch_id
+        .or_else(|| user.claims.branch_id())
+        .ok_or_else(|| crate::error::validation("branch_id is required"))?;
+    let suggestions =
+        procurement::get_purchase_suggestions(&state.pool, &user.claims, branch_id).await?;
+    Ok(Json(suggestions))
+}
+
+async fn create_purchases_from_suggestions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<procurement::CreateFromSuggestionsRequest>,
+) -> ApiResult<(StatusCode, Json<Vec<Uuid>>)> {
+    let ids =
+        procurement::create_purchases_from_suggestions(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(ids)))
 }
 
 async fn update_purchase(

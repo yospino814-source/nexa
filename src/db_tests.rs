@@ -796,6 +796,7 @@ async fn database_integration() {
     f2_expenses(&app, &admin).await;
     f2_lots(&app, &admin).await;
     f2_adjustments(&app, &admin).await;
+    f2_suggestions(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -9168,4 +9169,170 @@ async fn f2_adjustments(app: &PgPool, admin: &PgPool) {
     );
 
     cleanup(admin, tenant, &[owner, supervisor]).await;
+}
+
+async fn f2_suggestions(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let def_loc = crate::locations::default_location_id(admin, branch)
+        .await
+        .unwrap();
+
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    // 1. Crear un proveedor
+    let sup = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Distribuidora Central Sugerencias SAS".into(),
+            tax_id: Some("900123456".into()),
+            doc_type: Some("NIT".into()),
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // 2. Crear producto con reorder_qty = 20, purchase_factor = 6, UOM de compra CAJA
+    let prod = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Arroz Extra 500g Sugerencias".into(),
+            sku: Some(format!("SUGG-{}", Uuid::new_v4().simple())),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: Some("CAJA".into()),
+            purchase_factor: dec(6),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(2000)),
+            base_price: Some(dec(3000)),
+            reorder_qty: Some(dec(20)),
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: false,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 3. Vincular producto al proveedor como preferido, con min_order_qty = 2 y last_cost = 12000
+    procurement::set_supplier_products(
+        app,
+        &c_owner,
+        sup.id,
+        vec![procurement::SupplierProductItemInput {
+            product_id: prod.row.id,
+            supplier_code: Some("SUP-ARR-01".into()),
+            min_order_qty: Some(dec(2)),
+            preferred: true,
+        }],
+    )
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "update supplier_products set last_cost = $1 where supplier_id = $2 and product_id = $3",
+    )
+    .bind(dec(12000))
+    .bind(sup.id)
+    .bind(prod.row.id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // 4. Sembrar stock por debajo del mínimo: on_hand = 3, min_qty = 5
+    sqlx::query(
+        r#"
+        insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved, min_qty, avg_cost)
+        values ($1, $2, $3, $4, 3, 0, 5, 2000)
+        on conflict (location_id, product_id) do update set on_hand = 3, min_qty = 5, avg_cost = 2000
+        "#,
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(def_loc)
+    .bind(prod.row.id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // 5. Cajero sin purchases:create intenta consultar sugerencias: 403 Forbidden
+    let cashier_err = procurement::get_purchase_suggestions(app, &c_cashier, branch)
+        .await
+        .unwrap_err();
+    match cashier_err {
+        ApiError::Domain(DomainError::Forbidden) => {}
+        other => panic!(
+            "esperaba 403 Forbidden para cajero consultando sugerencias pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // 6. [P] Dueño consulta sugerencias: un producto bajo el mínimo con un preferido
+    // sugiere reorder_qty convertida a unidad de compra: ceil(20 / 6) = 4 >= min_order_qty 2
+    let suggestions = procurement::get_purchase_suggestions(app, &c_owner, branch)
+        .await
+        .unwrap();
+
+    assert_eq!(suggestions.len(), 1, "Debe haber 1 grupo de proveedor");
+    let group = &suggestions[0];
+    assert_eq!(
+        group.supplier.as_ref().map(|s| s.id),
+        Some(sup.id),
+        "El proveedor debe ser el preferido"
+    );
+    assert_eq!(group.items.len(), 1, "Debe haber 1 item sugerido");
+    let item = &group.items[0];
+    assert_eq!(item.product_id, prod.row.id);
+    assert_eq!(item.on_hand, dec(3));
+    assert_eq!(item.min_qty, dec(5));
+    assert_eq!(
+        item.suggested_qty,
+        dec(4),
+        "suggested_qty en unidad de compra debe ser ceil(20/6) = 4"
+    );
+    assert_eq!(item.last_cost, Some(dec(12000)));
+    assert_eq!(item.purchase_uom.as_deref(), Some("CAJA"));
+
+    // 7. Crear orden de compra desde las sugerencias
+    let created_order_ids = procurement::create_purchases_from_suggestions(
+        app,
+        &c_owner,
+        procurement::CreateFromSuggestionsRequest {
+            branch_id: branch,
+            supplier_ids: vec![sup.id],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(created_order_ids.len(), 1);
+    let order_id = created_order_ids[0];
+
+    // Verificar orden creada en estado PENDIENTE con los datos sugeridos
+    let order_detail = procurement::get_purchase(app, &c_owner, order_id)
+        .await
+        .unwrap();
+    assert_eq!(order_detail.purchase.status, "PENDIENTE");
+    assert_eq!(order_detail.purchase.supplier_id, sup.id);
+    assert_eq!(order_detail.items.len(), 1);
+    assert_eq!(order_detail.items[0].product_id, prod.row.id);
+    assert_eq!(order_detail.items[0].qty, dec(4));
+    assert_eq!(order_detail.items[0].unit_cost, dec(12000));
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

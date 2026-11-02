@@ -2641,6 +2641,291 @@ pub async fn purchase_summary(
     })
 }
 
+// ============================================================
+// Sugerencias de compra (F2.17)
+// ============================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplierHeader {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurchaseSuggestionItem {
+    pub product_id: Uuid,
+    pub name: String,
+    pub on_hand: Decimal,
+    pub min_qty: Decimal,
+    pub suggested_qty: Decimal,
+    pub purchase_uom: Option<String>,
+    pub last_cost: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurchaseSuggestionGroup {
+    pub supplier: Option<SupplierHeader>,
+    pub items: Vec<PurchaseSuggestionItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateFromSuggestionsRequest {
+    pub branch_id: Uuid,
+    pub supplier_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SuggestionsQuery {
+    pub branch_id: Option<Uuid>,
+}
+
+#[derive(sqlx::FromRow)]
+struct SuggestionDbRow {
+    product_id: Uuid,
+    name: String,
+    on_hand: Decimal,
+    min_qty: Decimal,
+    reorder_qty: Option<Decimal>,
+    max_qty: Option<Decimal>,
+    purchase_factor: Decimal,
+    cost_price: Option<Decimal>,
+    purchase_uom: Option<String>,
+    supplier_id: Option<Uuid>,
+    supplier_name: Option<String>,
+    last_cost: Option<Decimal>,
+    min_order_qty: Option<Decimal>,
+}
+
+pub async fn get_purchase_suggestions_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+) -> Result<Vec<PurchaseSuggestionGroup>, ApiError> {
+    scope.require_permission("purchases:create")?;
+    tenancy::ensure_branch_tx(tx, scope, branch_id).await?;
+
+    let rows = sqlx::query_as::<_, SuggestionDbRow>(
+        r#"
+        select p.id as product_id,
+               p.name,
+               st.on_hand,
+               st.min_qty,
+               p.reorder_qty,
+               p.max_qty,
+               p.purchase_factor,
+               p.cost_price,
+               puom.tima_codigo as purchase_uom,
+               s.id as supplier_id,
+               s.name as supplier_name,
+               sp.last_cost,
+               sp.min_order_qty
+          from products p
+          join (
+            select product_id,
+                   coalesce(sum(on_hand), 0) as on_hand,
+                   coalesce(sum(min_qty), 0) as min_qty
+              from stock
+             where tenant_id = $1 and branch_id = $2
+             group by product_id
+            having coalesce(sum(min_qty), 0) > 0
+               and coalesce(sum(on_hand), 0) <= coalesce(sum(min_qty), 0)
+          ) st on st.product_id = p.id
+          left join tbl_tipos_maestra puom on puom.tima_id = p.purchase_uom_id
+          left join supplier_products sp on sp.product_id = p.id and sp.tenant_id = $1 and sp.preferred = true
+          left join suppliers s on s.id = sp.supplier_id and s.tenant_id = $1 and s.active = true and s.archived_at is null
+         where p.tenant_id = $1
+           and p.usage in ('VENTA', 'INSUMO')
+           and p.archived_at is null
+           and p.has_variants = false
+           and not exists (select 1 from products var where var.parent_id = p.id)
+         order by s.name nulls last, p.name asc
+        "#,
+    )
+    .bind(scope.tenant)
+    .bind(branch_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut groups_map: std::collections::BTreeMap<
+        Option<(String, Uuid)>,
+        Vec<PurchaseSuggestionItem>,
+    > = std::collections::BTreeMap::new();
+
+    for row in rows {
+        let sugerida_inv = if let Some(rq) = row.reorder_qty {
+            if rq > Decimal::ZERO {
+                rq
+            } else if let Some(mq) = row.max_qty {
+                (mq - row.on_hand).max(Decimal::ONE)
+            } else {
+                (Decimal::from(2) * row.min_qty - row.on_hand).max(Decimal::ONE)
+            }
+        } else if let Some(mq) = row.max_qty {
+            (mq - row.on_hand).max(Decimal::ONE)
+        } else {
+            (Decimal::from(2) * row.min_qty - row.on_hand).max(Decimal::ONE)
+        };
+
+        let factor = if row.purchase_factor > Decimal::ZERO {
+            row.purchase_factor
+        } else {
+            Decimal::ONE
+        };
+
+        let mut suggested_purchase = (sugerida_inv / factor).ceil();
+        if suggested_purchase < Decimal::ONE {
+            suggested_purchase = Decimal::ONE;
+        }
+
+        if row.supplier_id.is_some()
+            && row
+                .min_order_qty
+                .is_some_and(|m| m > Decimal::ZERO && suggested_purchase < m)
+        {
+            suggested_purchase = row.min_order_qty.unwrap();
+        }
+
+        let last_cost = if let Some(lc) = row.last_cost {
+            if lc > Decimal::ZERO {
+                Some(lc)
+            } else {
+                row.cost_price.map(|cp| money::money(cp * factor))
+            }
+        } else {
+            row.cost_price.map(|cp| money::money(cp * factor))
+        };
+
+        let item = PurchaseSuggestionItem {
+            product_id: row.product_id,
+            name: row.name,
+            on_hand: row.on_hand,
+            min_qty: row.min_qty,
+            suggested_qty: suggested_purchase,
+            purchase_uom: row.purchase_uom,
+            last_cost,
+        };
+
+        let key = match (row.supplier_name, row.supplier_id) {
+            (Some(name), Some(id)) => Some((name, id)),
+            _ => None,
+        };
+
+        groups_map.entry(key).or_default().push(item);
+    }
+
+    let mut result: Vec<PurchaseSuggestionGroup> = Vec::new();
+    let mut null_group_items = None;
+
+    for (k, items) in groups_map {
+        match k {
+            Some((name, id)) => {
+                result.push(PurchaseSuggestionGroup {
+                    supplier: Some(SupplierHeader { id, name }),
+                    items,
+                });
+            }
+            None => {
+                null_group_items = Some(items);
+            }
+        }
+    }
+
+    if let Some(items) = null_group_items {
+        result.push(PurchaseSuggestionGroup {
+            supplier: None,
+            items,
+        });
+    }
+
+    Ok(result)
+}
+
+pub async fn get_purchase_suggestions(
+    pool: &PgPool,
+    claims: &Claims,
+    branch_id: Uuid,
+) -> Result<Vec<PurchaseSuggestionGroup>, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, branch_id).await?;
+    scope.require_permission("purchases:create")?;
+    let res = get_purchase_suggestions_tx(&mut tx, &scope, branch_id).await?;
+    tx.commit().await?;
+    Ok(res)
+}
+
+pub async fn create_purchases_from_suggestions_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    req: CreateFromSuggestionsRequest,
+) -> Result<Vec<Uuid>, ApiError> {
+    scope.require_permission("purchases:create")?;
+    tenancy::ensure_branch_tx(tx, scope, req.branch_id).await?;
+
+    if req.supplier_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let groups = get_purchase_suggestions_tx(tx, scope, req.branch_id).await?;
+    let mut order_ids = Vec::new();
+
+    for sup_id in req.supplier_ids {
+        if let Some(group) = groups
+            .iter()
+            .find(|g| g.supplier.as_ref().is_some_and(|s| s.id == sup_id))
+        {
+            if group.items.is_empty() {
+                continue;
+            }
+
+            let order_id = Uuid::new_v4();
+            let items: Vec<PurchaseItemRequest> = group
+                .items
+                .iter()
+                .map(|it| PurchaseItemRequest {
+                    product_id: it.product_id,
+                    qty: it.suggested_qty,
+                    unit_cost: it.last_cost.unwrap_or(Decimal::ZERO),
+                    new_sale_price: None,
+                })
+                .collect();
+
+            let purchase_req = CreatePurchaseRequest {
+                id: order_id,
+                branch_id: req.branch_id,
+                supplier_id: sup_id,
+                location_id: None,
+                expected_at: None,
+                document_number: None,
+                supplier_invoice_date: None,
+                notes: Some("Sugerencia de compra automática".to_string()),
+                discount_amount: None,
+                freight_amount: None,
+                freight_mode: Some("PRORRATEAR".to_string()),
+                payment_terms: None,
+                credit_days: None,
+                iva_to_cost: None,
+                items,
+            };
+
+            create_purchase_tx(tx, scope, purchase_req).await?;
+            order_ids.push(order_id);
+        }
+    }
+
+    Ok(order_ids)
+}
+
+pub async fn create_purchases_from_suggestions(
+    pool: &PgPool,
+    claims: &Claims,
+    req: CreateFromSuggestionsRequest,
+) -> Result<Vec<Uuid>, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    scope.require_permission("purchases:create")?;
+    let ids = create_purchases_from_suggestions_tx(&mut tx, &scope, req).await?;
+    tx.commit().await?;
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
