@@ -10,10 +10,16 @@ import type {
   CostPreviewLine,
   CostPreviewRequest,
   CostPreviewResponse,
+  CreateExpenseCategoryInput,
+  CreateExpenseInput,
   CreatePurchaseInput,
   CreatePayablePaymentInput,
   CreateSupplierInput,
   Decimal,
+  Expense,
+  ExpenseCategory,
+  ExpenseSummary,
+  ExpensesFilter,
   Payable,
   PayableDetail,
   PayablePayment,
@@ -25,11 +31,13 @@ import type {
   PurchaseStatus,
   PurchaseSummary,
   ReceivePurchaseRequest,
+  RejectExpenseInput,
   Supplier,
   SupplierDetailResponse,
   SupplierProductDetail,
   SupplierProductItemInput,
   TaxCode,
+  UpdateExpenseCategoryInput,
   UpdatePurchaseInput,
   UpdateSupplierInput,
   Uuid,
@@ -1019,4 +1027,379 @@ export async function mockPayableWriteOff(
     ...structuredClone(p),
     payments: structuredClone(payments),
   };
+}
+
+// ------------------------------------------------------------ gastos (F2.14)
+
+export const mockExpenseCategories: ExpenseCategory[] = [
+  { id: "cat-1", name: "Arriendo", color: "#64748B", active: true },
+  { id: "cat-2", name: "Servicios públicos", color: "#0EA5E9", active: true },
+  { id: "cat-3", name: "Nómina", color: "#10B981", active: true },
+  { id: "cat-4", name: "Fletes", color: "#F59E0B", active: true },
+  { id: "cat-5", name: "Mantenimiento", color: "#8B5CF6", active: true },
+  { id: "cat-6", name: "Otros", color: "#94A3B8", active: true },
+];
+
+export const mockExpenses: Expense[] = [
+  {
+    id: "exp-001",
+    tenant_id: "tenant-default",
+    branch_id: MOCK_BRANCH_ID,
+    prefix: "GAS",
+    number: 1,
+    document_number: "GAS-1",
+    category_id: "cat-1",
+    category_name: "Arriendo",
+    category_color: "#64748B",
+    supplier_id: "20000000-0000-4000-8000-000000000001",
+    supplier_name: "Inmobiliaria El Poblado S.A.",
+    description: "Arriendo local principal noviembre",
+    amount: "3500000.00",
+    tax_amount: "0.00",
+    total: "3500000.00",
+    expense_date: "2026-11-01",
+    status: "APROBADO",
+    created_by: "user-default",
+    created_by_name: "Admin Demo",
+    decided_by: "user-default",
+    decided_by_name: "Admin Demo",
+    decided_at: "2026-11-01T10:00:00Z",
+    reject_reason: null,
+    created_at: "2026-11-01T09:30:00Z",
+    payable_id: "pay-exp-001",
+    payable_amount_paid: "0.00",
+    payable_status: "ABIERTA",
+  },
+  {
+    id: "exp-002",
+    tenant_id: "tenant-default",
+    branch_id: MOCK_BRANCH_ID,
+    prefix: "GAS",
+    number: 2,
+    document_number: "GAS-2",
+    category_id: "cat-2",
+    category_name: "Servicios públicos",
+    category_color: "#0EA5E9",
+    supplier_id: null,
+    supplier_name: null,
+    description: "Factura energía EPM periodo octubre-noviembre",
+    amount: "480000.00",
+    tax_amount: "0.00",
+    total: "480000.00",
+    expense_date: "2026-11-02",
+    status: "PENDIENTE",
+    created_by: "user-default",
+    created_by_name: "Admin Demo",
+    decided_by: null,
+    decided_by_name: null,
+    decided_at: null,
+    reject_reason: null,
+    created_at: "2026-11-02T08:15:00Z",
+    payable_id: null,
+    payable_amount_paid: null,
+    payable_status: null,
+  },
+  {
+    id: "exp-003",
+    tenant_id: "tenant-default",
+    branch_id: MOCK_BRANCH_ID,
+    prefix: "GAS",
+    number: 3,
+    document_number: "GAS-3",
+    category_id: "cat-5",
+    category_name: "Mantenimiento",
+    category_color: "#8B5CF6",
+    supplier_id: null,
+    supplier_name: null,
+    description: "Reparación aire acondicionado zona POS",
+    amount: "150000.00",
+    tax_amount: "28500.00",
+    total: "178500.00",
+    expense_date: "2026-10-28",
+    status: "PAGADO",
+    created_by: "user-default",
+    created_by_name: "Admin Demo",
+    decided_by: "user-default",
+    decided_by_name: "Admin Demo",
+    decided_at: "2026-10-28T14:00:00Z",
+    reject_reason: null,
+    created_at: "2026-10-28T11:00:00Z",
+    payable_id: "pay-exp-003",
+    payable_amount_paid: "178500.00",
+    payable_status: "PAGADA",
+  },
+  {
+    id: "exp-004",
+    tenant_id: "tenant-default",
+    branch_id: MOCK_BRANCH_ID,
+    prefix: "GAS",
+    number: 4,
+    document_number: "GAS-4",
+    category_id: "cat-6",
+    category_name: "Otros",
+    category_color: "#94A3B8",
+    supplier_id: null,
+    supplier_name: null,
+    description: "Elementos de aseo y cafetería",
+    amount: "95000.00",
+    tax_amount: "18050.00",
+    total: "113050.00",
+    expense_date: "2026-10-25",
+    status: "RECHAZADO",
+    created_by: "user-default",
+    created_by_name: "Admin Demo",
+    decided_by: "user-default",
+    decided_by_name: "Admin Demo",
+    decided_at: "2026-10-25T16:00:00Z",
+    reject_reason: "Factura no cuenta con soporte válido de compra",
+    created_at: "2026-10-25T15:20:00Z",
+    payable_id: null,
+    payable_amount_paid: null,
+    payable_status: null,
+  },
+];
+
+let nextExpenseNumber = 5;
+
+export async function mockExpenseCategoriesList(
+  includeInactive = false,
+): Promise<ExpenseCategory[]> {
+  const filtered = includeInactive
+    ? mockExpenseCategories
+    : mockExpenseCategories.filter((c) => c.active);
+  return structuredClone(filtered);
+}
+
+export async function mockExpenseCategoryCreate(
+  input: CreateExpenseCategoryInput,
+): Promise<ExpenseCategory> {
+  const newCat: ExpenseCategory = {
+    id: `cat-${Date.now()}`,
+    name: input.name.trim(),
+    color: input.color || "#64748B",
+    active: true,
+  };
+  mockExpenseCategories.push(newCat);
+  return structuredClone(newCat);
+}
+
+export async function mockExpenseCategoryUpdate(
+  id: Uuid,
+  input: UpdateExpenseCategoryInput,
+): Promise<ExpenseCategory> {
+  const cat = mockExpenseCategories.find((c) => c.id === id);
+  if (!cat) throw new ApiError(404, "Categoría no encontrada");
+  cat.name = input.name.trim();
+  cat.color = input.color;
+  cat.active = input.active;
+  return structuredClone(cat);
+}
+
+export async function mockExpensesList(
+  filter?: ExpensesFilter,
+): Promise<Expense[]> {
+  let list = [...mockExpenses];
+  if (filter?.branch_id) {
+    list = list.filter((e) => e.branch_id === filter.branch_id);
+  }
+  if (filter?.category_id) {
+    list = list.filter((e) => e.category_id === filter.category_id);
+  }
+  if (filter?.supplier_id) {
+    list = list.filter((e) => e.supplier_id === filter.supplier_id);
+  }
+  if (filter?.status) {
+    list = list.filter((e) => e.status === filter.status);
+  }
+  if (filter?.from) {
+    list = list.filter((e) => e.expense_date >= filter.from!);
+  }
+  if (filter?.to) {
+    list = list.filter((e) => e.expense_date <= filter.to!);
+  }
+  list.sort((a, b) => (b.expense_date > a.expense_date ? 1 : -1));
+  return structuredClone(list);
+}
+
+export async function mockExpenseGet(id: Uuid): Promise<Expense> {
+  const exp = mockExpenses.find((e) => e.id === id);
+  if (!exp) throw new ApiError(404, "Gasto no encontrado");
+  return structuredClone(exp);
+}
+
+export async function mockExpensesSummary(
+  branchId?: Uuid,
+  month?: string,
+): Promise<ExpenseSummary> {
+  let list = [...mockExpenses];
+  if (branchId) {
+    list = list.filter((e) => e.branch_id === branchId);
+  }
+  if (month) {
+    list = list.filter((e) => e.expense_date.startsWith(month));
+  }
+
+  let total_approved = 0;
+  let total_pending = 0;
+  let total_paid = 0;
+  let count_pending = 0;
+  let count_approved = 0;
+
+  for (const e of list) {
+    const tot = Number(e.total);
+    if (e.status === "APROBADO") {
+      total_approved += tot;
+      count_approved += 1;
+    } else if (e.status === "PENDIENTE") {
+      total_pending += tot;
+      count_pending += 1;
+    } else if (e.status === "PAGADO") {
+      total_paid += tot;
+      total_approved += tot;
+      count_approved += 1;
+    }
+  }
+
+  return {
+    total_approved_month: dec(total_approved),
+    total_pending_month: dec(total_pending),
+    total_paid_month: dec(total_paid),
+    count_pending,
+    count_approved,
+  };
+}
+
+export async function mockExpenseCreate(
+  input: CreateExpenseInput,
+): Promise<Expense> {
+  const cat = mockExpenseCategories.find((c) => c.id === input.category_id);
+  if (!cat || !cat.active) {
+    throw new ApiError(422, "Categoría no válida");
+  }
+
+  const supp = input.supplier_id
+    ? mockSuppliers.find((s) => s.id === input.supplier_id)
+    : null;
+
+  const num = nextExpenseNumber++;
+  const amt = Number(input.amount);
+  const tax = Number(input.tax_amount || 0);
+  const total = amt + tax;
+
+  const newExp: Expense = {
+    id: input.id,
+    tenant_id: "tenant-default",
+    branch_id: input.branch_id,
+    prefix: "GAS",
+    number: num,
+    document_number: `GAS-${num}`,
+    category_id: input.category_id,
+    category_name: cat.name,
+    category_color: cat.color,
+    supplier_id: input.supplier_id || null,
+    supplier_name: supp?.name || null,
+    description: input.description.trim(),
+    amount: dec(amt),
+    tax_amount: dec(tax),
+    total: dec(total),
+    expense_date: input.expense_date,
+    status: "PENDIENTE",
+    created_by: "user-default",
+    created_by_name: "Admin Demo",
+    decided_by: null,
+    decided_by_name: null,
+    decided_at: null,
+    reject_reason: null,
+    created_at: new Date().toISOString(),
+    payable_id: null,
+    payable_amount_paid: null,
+    payable_status: null,
+  };
+
+  mockExpenses.unshift(newExp);
+  return structuredClone(newExp);
+}
+
+export async function mockExpenseApprove(id: Uuid): Promise<Expense> {
+  const exp = mockExpenses.find((e) => e.id === id);
+  if (!exp) throw new ApiError(404, "Gasto no encontrado");
+  if (exp.status !== "PENDIENTE") {
+    throw new ApiError(
+      409,
+      "El gasto no admite esa acción en su estado actual",
+      "EXPENSE_INVALID_STATE",
+    );
+  }
+
+  exp.status = "APROBADO";
+  exp.decided_by = "user-default";
+  exp.decided_by_name = "Admin Demo";
+  exp.decided_at = new Date().toISOString();
+
+  const payableId = `pay-exp-${exp.id.slice(0, 8)}`;
+  exp.payable_id = payableId;
+  const newPayable: Payable = {
+    id: payableId,
+    tenant_id: exp.tenant_id,
+    branch_id: exp.branch_id,
+    supplier_id: exp.supplier_id,
+    supplier_name: exp.supplier_name,
+    source_type: "GASTO",
+    source_id: exp.id,
+    document_number: exp.document_number,
+    amount_total: exp.total,
+    amount_paid: "0.00",
+    balance: exp.total,
+    status: "ABIERTA",
+    due_date: exp.expense_date,
+    overdue: false,
+    days_overdue: 0,
+    written_off_reason: null,
+    created_at: new Date().toISOString(),
+  };
+  mockPayables.unshift(newPayable);
+
+  return structuredClone(exp);
+}
+
+export async function mockExpenseReject(
+  id: Uuid,
+  input: RejectExpenseInput,
+): Promise<Expense> {
+  const exp = mockExpenses.find((e) => e.id === id);
+  if (!exp) throw new ApiError(404, "Gasto no encontrado");
+  if (exp.status !== "PENDIENTE") {
+    throw new ApiError(
+      409,
+      "El gasto no admite esa acción en su estado actual",
+      "EXPENSE_INVALID_STATE",
+    );
+  }
+
+  exp.status = "RECHAZADO";
+  exp.decided_by = "user-default";
+  exp.decided_by_name = "Admin Demo";
+  exp.decided_at = new Date().toISOString();
+  exp.reject_reason = input.reason.trim();
+
+  return structuredClone(exp);
+}
+
+export async function mockExpenseCancel(id: Uuid): Promise<Expense> {
+  const exp = mockExpenses.find((e) => e.id === id);
+  if (!exp) throw new ApiError(404, "Gasto no encontrado");
+  if (exp.status !== "PENDIENTE") {
+    throw new ApiError(
+      409,
+      "El gasto no admite esa acción en su estado actual",
+      "EXPENSE_INVALID_STATE",
+    );
+  }
+
+  exp.status = "CANCELADO";
+  exp.decided_by = "user-default";
+  exp.decided_by_name = "Admin Demo";
+  exp.decided_at = new Date().toISOString();
+
+  return structuredClone(exp);
 }

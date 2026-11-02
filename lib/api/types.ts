@@ -1457,3 +1457,92 @@ export type CreatePayablePaymentInput = {
 export type WriteOffPayableInput = {
   reason: string;
 };
+
+// ---------------------------------------------------------------- GASTOS (F2.14)
+
+export type ExpenseCategory = {
+  id: Uuid;
+  name: string;
+  color: string;
+  active: boolean;
+};
+
+export type CreateExpenseCategoryInput = {
+  name: string;
+  color?: string;
+};
+
+export type UpdateExpenseCategoryInput = {
+  name: string;
+  color: string;
+  active: boolean;
+};
+
+export type ExpenseStatus = "PENDIENTE" | "APROBADO" | "RECHAZADO" | "CANCELADO" | "PAGADO";
+
+export type Expense = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  prefix: string;
+  number: number;
+  document_number: string;
+  category_id: Uuid;
+  category_name: string;
+  category_color: string;
+  supplier_id: Uuid | null;
+  supplier_name: string | null;
+  description: string;
+  amount: Decimal;
+  tax_amount: Decimal;
+  total: Decimal;
+  expense_date: string;
+  status: ExpenseStatus;
+  created_by: Uuid;
+  created_by_name: string | null;
+  decided_by: Uuid | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  reject_reason: string | null;
+  created_at: string;
+  payable_id: Uuid | null;
+  payable_amount_paid: Decimal | null;
+  payable_status: string | null;
+};
+
+export type ExpensesFilter = {
+  branch_id?: Uuid;
+  category_id?: Uuid;
+  supplier_id?: Uuid;
+  status?: ExpenseStatus;
+  from?: string;
+  to?: string;
+};
+
+export type ExpenseSummaryFilter = {
+  branch_id?: Uuid;
+  month?: string;
+};
+
+export type ExpenseSummary = {
+  total_approved_month: Decimal;
+  total_pending_month: Decimal;
+  total_paid_month: Decimal;
+  count_pending: number;
+  count_approved: number;
+};
+
+export type CreateExpenseInput = {
+  id: Uuid;
+  branch_id: Uuid;
+  category_id: Uuid;
+  supplier_id?: Uuid | null;
+  description: string;
+  amount: Decimal;
+  tax_amount?: Decimal;
+  expense_date: string;
+};
+
+export type RejectExpenseInput = {
+  reason: string;
+};

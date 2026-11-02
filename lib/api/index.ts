@@ -30,6 +30,16 @@ import {
   mockPayableGet,
   mockPayablePayment,
   mockPayableWriteOff,
+  mockExpenseCategoriesList,
+  mockExpenseCategoryCreate,
+  mockExpenseCategoryUpdate,
+  mockExpensesList,
+  mockExpenseGet,
+  mockExpensesSummary,
+  mockExpenseCreate,
+  mockExpenseApprove,
+  mockExpenseReject,
+  mockExpenseCancel,
   mockSupplierArchive,
   mockSupplierCreate,
   mockSupplierGet,
@@ -108,6 +118,15 @@ import type {
   PayablesFilter,
   CreatePayablePaymentInput,
   WriteOffPayableInput,
+  CreateExpenseCategoryInput,
+  CreateExpenseInput,
+  Expense,
+  ExpenseCategory,
+  ExpenseSummary,
+  ExpenseSummaryFilter,
+  ExpensesFilter,
+  RejectExpenseInput,
+  UpdateExpenseCategoryInput,
   Permission,
   Purchase,
   PurchaseFilter,
@@ -2318,6 +2337,129 @@ export const api = {
     },
   },
 
+  expenseCategories: {
+    /** GET /v1/expense-categories?include_inactive= */
+    async list(includeInactive?: boolean): Promise<ExpenseCategory[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseCategoriesList(includeInactive);
+      }
+      const qs = includeInactive ? "?include_inactive=true" : "";
+      return request(`/v1/expense-categories${qs}`);
+    },
+
+    /** POST /v1/expense-categories */
+    async create(input: CreateExpenseCategoryInput): Promise<ExpenseCategory> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseCategoryCreate(input);
+      }
+      return request("/v1/expense-categories", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** PUT /v1/expense-categories/{id} */
+    async update(id: Uuid, input: UpdateExpenseCategoryInput): Promise<ExpenseCategory> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseCategoryUpdate(id, input);
+      }
+      return request(`/v1/expense-categories/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+  },
+
+  expenses: {
+    /** GET /v1/expenses */
+    async list(filter?: ExpensesFilter): Promise<Expense[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpensesList(filter);
+      }
+      const params = new URLSearchParams();
+      if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+      if (filter?.category_id) params.set("category_id", filter.category_id);
+      if (filter?.supplier_id) params.set("supplier_id", filter.supplier_id);
+      if (filter?.status) params.set("status", filter.status);
+      if (filter?.from) params.set("from", filter.from);
+      if (filter?.to) params.set("to", filter.to);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/expenses${qs}`);
+    },
+
+    /** GET /v1/expenses/summary */
+    async summary(filter?: ExpenseSummaryFilter): Promise<ExpenseSummary> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpensesSummary(filter?.branch_id, filter?.month);
+      }
+      const params = new URLSearchParams();
+      if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+      if (filter?.month) params.set("month", filter.month);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/expenses/summary${qs}`);
+    },
+
+    /** GET /v1/expenses/{id} */
+    async get(id: Uuid): Promise<Expense> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseGet(id);
+      }
+      return request(`/v1/expenses/${id}`);
+    },
+
+    /** POST /v1/expenses */
+    async create(input: CreateExpenseInput): Promise<Expense> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseCreate(input);
+      }
+      return request("/v1/expenses", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** POST /v1/expenses/{id}/approve */
+    async approve(id: Uuid): Promise<Expense> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseApprove(id);
+      }
+      return request(`/v1/expenses/${id}/approve`, {
+        method: "POST",
+      });
+    },
+
+    /** POST /v1/expenses/{id}/reject */
+    async reject(id: Uuid, input: RejectExpenseInput): Promise<Expense> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseReject(id, input);
+      }
+      return request(`/v1/expenses/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** POST /v1/expenses/{id}/cancel */
+    async cancel(id: Uuid): Promise<Expense> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockExpenseCancel(id);
+      }
+      return request(`/v1/expenses/${id}/cancel`, {
+        method: "POST",
+      });
+    },
+  },
+
 
   tiers: {
     async list(): Promise<PriceTier[]> {
@@ -2866,6 +3008,38 @@ export const ERROR_MESSAGES: Record<string, string> = {
   REFUND_NOT_PENDING: "La devolución ya fue decidida.",
   VOID_NOT_ALLOWED: "No se puede anular: la venta no es de hoy, el turno cerró, tiene devoluciones o ya fue facturada.",
   VOID_REASON_REQUIRED: "Escribí el motivo de la anulación.",
+  PRODUCT_INVALID: "Revisá los datos del producto.",
+  PRODUCT_NOT_SELLABLE: "Este producto es un insumo o de uso interno: no se vende.",
+  PRODUCT_IS_VARIANT_PARENT: "Elegí una variante del producto.",
+  PRODUCT_UOM_LOCKED: "No se puede cambiar la unidad: el producto ya tiene movimientos.",
+  VARIANTS_AND_PRESENTATIONS: "Un producto no puede tener variantes y presentaciones a la vez.",
+  SKU_TAKEN: "Ese SKU ya está en uso.",
+  BARCODE_SCIENTIFIC: "El código de barras está en notación científica. Revisá el archivo.",
+  OPTION_INVALID: "Revisá las opciones elegidas.",
+  OPTION_SELECTION_INVALID: "Falta elegir opciones obligatorias.",
+  PRODUCT_HAS_RESERVATIONS: "El producto tiene reservas activas.",
+  ARCHIVE_NEEDS_CONFIRM: "El producto tiene stock. Confirmá la baja.",
+  IMPORT_HAS_ERRORS: "Corregí los errores del archivo antes de importar.",
+  IMPORT_EXPIRED: "La importación venció. Subí el archivo otra vez.",
+  LOCATION_INVALID: "Revisá los datos de la bodega.",
+  LOCATION_HAS_STOCK: "La bodega tiene stock. Trasladalo antes de desactivarla.",
+  STOCK_DELTA_ZERO: "La cantidad no puede ser cero.",
+  STOCK_INSUFFICIENT: "No hay stock suficiente.",
+  NIT_DV_INVALID: "El dígito de verificación no corresponde al NIT.",
+  SUPPLIER_HAS_OPEN_DOCS: "El proveedor tiene órdenes o deudas abiertas.",
+  PURCHASE_INVALID: "Revisá la orden de compra.",
+  PURCHASE_INVALID_STATE: "La orden no admite esa acción en su estado actual.",
+  RECEIVE_EXCEEDS_PENDING: "No podés recibir más de lo pendiente.",
+  LOT_REQUIRED: "Este producto exige lote y vencimiento.",
+  LOT_EXPIRY_MISMATCH: "Ese lote ya existe con otra fecha de vencimiento.",
+  LOT_ONLY_EXPIRED: "Solo quedan lotes vencidos de este producto.",
+  PAYABLE_CLOSED: "La cuenta ya está pagada o castigada.",
+  PAYMENT_EXCEEDS_BALANCE: "El pago supera el saldo.",
+  PAYMENT_REFERENCE_REQUIRED: "Escribí la referencia del pago.",
+  PAYMENT_NEEDS_OPEN_SESSION: "Abrí un turno de caja para pagar en efectivo.",
+  EXPENSE_INVALID_STATE: "El gasto no admite esa acción en su estado actual.",
+  ADJUST_INVALID: "Revisá el motivo y la cantidad del ajuste.",
+  ADJUST_NOT_PENDING: "El ajuste ya fue decidido.",
 };
 
 export const COUPON_ERROR_MESSAGES: Record<string, string> = {
