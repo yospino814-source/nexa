@@ -12,6 +12,7 @@ import type {
   CostPreviewResponse,
   CreateExpenseCategoryInput,
   CreateExpenseInput,
+  CreateFromSuggestionsInput,
   CreatePurchaseInput,
   CreatePayablePaymentInput,
   CreateSupplierInput,
@@ -29,6 +30,7 @@ import type {
   PurchaseFilter,
   PurchaseItem,
   PurchaseStatus,
+  PurchaseSuggestionGroup,
   PurchaseSummary,
   ReceivePurchaseRequest,
   RejectExpenseInput,
@@ -1402,4 +1404,111 @@ export async function mockExpenseCancel(id: Uuid): Promise<Expense> {
   exp.decided_at = new Date().toISOString();
 
   return structuredClone(exp);
+}
+
+// ------------------------------------------------------------ sugerencias de compra (F2.17)
+
+export async function mockPurchaseSuggestions(
+  branchId?: Uuid,
+): Promise<PurchaseSuggestionGroup[]> {
+  void branchId;
+  const sup1 = mockSuppliers[0];
+  const sup2 = mockSuppliers[1];
+
+  return [
+    {
+      supplier: sup1 ? { id: sup1.id, name: sup1.name } : null,
+      items: [
+        {
+          product_id: "prod-001",
+          name: "Café Especial 500g",
+          on_hand: "4.0000",
+          min_qty: "10.0000",
+          suggested_qty: "12.0000",
+          purchase_uom: "CAJA",
+          last_cost: "24000.00",
+        },
+        {
+          product_id: "prod-002",
+          name: "Azúcar Orgánica 1kg",
+          on_hand: "2.0000",
+          min_qty: "8.0000",
+          suggested_qty: "10.0000",
+          purchase_uom: "BULTO",
+          last_cost: "18500.00",
+        },
+      ],
+    },
+    {
+      supplier: sup2 ? { id: sup2.id, name: sup2.name } : null,
+      items: [
+        {
+          product_id: "prod-003",
+          name: "Leche Entera 1L",
+          on_hand: "5.0000",
+          min_qty: "15.0000",
+          suggested_qty: "20.0000",
+          purchase_uom: "CANASTILLA",
+          last_cost: "4200.00",
+        },
+      ],
+    },
+  ];
+}
+
+export async function mockCreateFromSuggestions(
+  input: CreateFromSuggestionsInput,
+): Promise<Uuid[]> {
+  const suggestions = await mockPurchaseSuggestions(input.branch_id);
+  const createdIds: Uuid[] = [];
+
+  for (const supId of input.supplier_ids) {
+    const group = suggestions.find((g) => g.supplier?.id === supId);
+    if (!group || group.items.length === 0) continue;
+
+    const newId = `purch-sugg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newPurchase: Purchase = {
+      id: newId,
+      branch_id: input.branch_id,
+      supplier_id: supId,
+      supplier_name: group.supplier?.name ?? "Proveedor",
+      status: "PENDIENTE",
+      document_number: `OC-${Math.floor(1000 + Math.random() * 9000)}`,
+      supplier_invoice_date: null,
+      subtotal: "0.00",
+      tax_amount: "0.00",
+      total_amount: "0.00",
+      items_count: group.items.length,
+      received_at: null,
+      created_at: new Date().toISOString(),
+      notes: "Sugerencia de compra automática",
+      items: group.items.map((it, idx) => ({
+        id: `pitem-${Date.now()}-${idx}`,
+        product_id: it.product_id,
+        product_name: it.name,
+        sku: null,
+        qty: it.suggested_qty,
+        qty_received: "0.0000",
+        unit_cost: it.last_cost ?? "0.00",
+        line_total: (Number(it.suggested_qty) * Number(it.last_cost ?? 0)).toFixed(2),
+        discount_alloc: "0.00",
+        freight_alloc: "0.00",
+        tax_code: null,
+        tax_rate: null,
+        tax_amount: "0.00",
+        landed_unit_cost: it.last_cost ?? "0.0000",
+        new_sale_price: null,
+        purchase_unit: it.purchase_uom,
+      })),
+    };
+
+    const subtotal = newPurchase.items!.reduce((acc, it) => acc + Number(it.line_total), 0);
+    newPurchase.subtotal = subtotal.toFixed(2);
+    newPurchase.total_amount = subtotal.toFixed(2);
+
+    mockPurchases.unshift(newPurchase);
+    createdIds.push(newId);
+  }
+
+  return createdIds;
 }

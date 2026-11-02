@@ -20,6 +20,7 @@ import {
   mockRejectAdjustment,
 } from "./mock-inventory";
 import {
+  mockCreateFromSuggestions,
   mockPurchaseApprove,
   mockPurchaseCancel,
   mockPurchaseCreate,
@@ -27,6 +28,7 @@ import {
   mockPurchaseReceive,
   mockPurchasesCostPreview,
   mockPurchasesList,
+  mockPurchaseSuggestions,
   mockPurchaseSummary,
   mockPurchaseUpdate,
   mockPayablesList,
@@ -134,6 +136,8 @@ import type {
   Permission,
   Purchase,
   PurchaseFilter,
+  PurchaseSuggestionGroup,
+  CreateFromSuggestionsInput,
   PurchaseSummary,
   Role,
   RolePermissionsResponse,
@@ -2346,6 +2350,27 @@ export const api = {
       if (month) params.set("month", month);
       const qs = params.toString() ? `?${params.toString()}` : "";
       return request(`/v1/purchases/summary${qs}`);
+    },
+
+    /** GET /v1/purchases/suggestions?branch_id= (F2.17) */
+    async suggestions(branchId: Uuid): Promise<PurchaseSuggestionGroup[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseSuggestions(branchId);
+      }
+      return request(`/v1/purchases/suggestions?branch_id=${branchId}`);
+    },
+
+    /** POST /v1/purchases/suggestions/create (F2.17) */
+    async createFromSuggestions(input: CreateFromSuggestionsInput): Promise<Uuid[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockCreateFromSuggestions(input);
+      }
+      return request("/v1/purchases/suggestions/create", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
   },
 

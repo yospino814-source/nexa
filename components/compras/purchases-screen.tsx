@@ -9,6 +9,7 @@ import {
   PackageCheck,
   Plus,
   Search,
+  Sparkles,
   Truck,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 
 import { PurchaseDetailDialog } from "./purchase-detail-dialog";
 import { PurchaseForm } from "./purchase-form";
+import { PurchaseSuggestionsDialog } from "./purchase-suggestions-dialog";
 
 const ADMIN_ROLES = ["DUENO", "ADMIN_CAJA"];
 
@@ -89,6 +91,7 @@ export function PurchasesScreen() {
   const [isFormOpen, setIsFormOpen] = useState(
     () => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dialog") === "new"),
   );
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const purchases = useMemo(() => purchasesData ?? [], [purchasesData]);
@@ -187,6 +190,15 @@ export function PurchasesScreen() {
             <Building2 className="size-4 text-slate-500" />
             Proveedores
           </Link>
+
+          <button
+            type="button"
+            onClick={() => setIsSuggestionsOpen(true)}
+            className="flex h-11 items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-800 hover:bg-teal-100 transition-colors shadow-xs"
+          >
+            <Sparkles className="size-4 text-teal-700" />
+            Sugerencias
+          </button>
 
           <button
             onClick={() => setIsFormOpen(true)}
@@ -376,6 +388,19 @@ export function PurchasesScreen() {
         branchName={branch.name}
         onClose={() => setIsFormOpen(false)}
         onSaved={showToast}
+      />
+
+      {/* Diálogo de Sugerencias de Compra (F2.17) */}
+      <PurchaseSuggestionsDialog
+        open={isSuggestionsOpen}
+        onOpenChange={setIsSuggestionsOpen}
+        onOrdersCreated={(count) => {
+          showToast(
+            count === 1
+              ? "Se generó 1 orden de compra en borrador"
+              : `Se generaron ${count} órdenes de compra en borrador`,
+          );
+        }}
       />
     </div>
   );

@@ -899,6 +899,29 @@ export type PurchaseSummary = {
   active_suppliers: number;
 };
 
+/** src/procurement.rs::PurchaseSuggestionItem (F2.17) */
+export type PurchaseSuggestionItem = {
+  product_id: Uuid;
+  name: string;
+  on_hand: Decimal;
+  min_qty: Decimal;
+  suggested_qty: Decimal;
+  purchase_uom: string | null;
+  last_cost: Decimal | null;
+};
+
+/** src/procurement.rs::PurchaseSuggestionGroup (F2.17) */
+export type PurchaseSuggestionGroup = {
+  supplier: { id: Uuid; name: string } | null;
+  items: PurchaseSuggestionItem[];
+};
+
+/** src/procurement.rs::CreateFromSuggestionsRequest (F2.17) */
+export type CreateFromSuggestionsInput = {
+  branch_id: Uuid;
+  supplier_ids: Uuid[];
+};
+
 // ---------------------------------------------------------------- PLATAFORMA (Fase 0)
 
 export type Permission = {
