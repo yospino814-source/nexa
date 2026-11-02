@@ -150,6 +150,15 @@ pub fn router() -> Router<AppState> {
         .route("/v1/inventory/movements", get(movements))
         .route("/v1/inventory/replenish", post(replenish))
         .route("/v1/inventory/adjust", post(adjust))
+        .route("/v1/inventory/adjustments", get(list_adjustments))
+        .route(
+            "/v1/inventory/adjustments/{id}/approve",
+            post(approve_adjustment),
+        )
+        .route(
+            "/v1/inventory/adjustments/{id}/reject",
+            post(reject_adjustment),
+        )
         .route("/v1/inventory/count", post(count))
         .route("/v1/inventory/transfer", post(transfer))
         .route("/v1/inventory/stock", get(stock_levels))
@@ -947,18 +956,52 @@ async fn replenish(
 async fn adjust(
     State(state): State<AppState>,
     user: AuthUser,
-    Body(req): Body<StockChange>,
-) -> ApiResult<StatusCode> {
-    inventory::adjust(
-        &state.pool,
-        &user.claims,
-        req.branch_id,
-        req.product_id,
-        req.qty,
-        &req.cause,
-    )
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Body(req): Body<inventory::CreateAdjustmentRequest>,
+) -> ApiResult<Json<inventory::InventoryAdjustment>> {
+    let (scope, mut tx) =
+        tenancy::begin_in_branch(&state.pool, &user.claims, req.branch_id).await?;
+    let adj = inventory::create_adjustment_tx(&mut tx, &scope, req).await?;
+    tx.commit().await?;
+    Ok(Json(adj))
+}
+
+#[derive(Deserialize, Default)]
+struct AdjustmentsQuery {
+    branch_id: Option<Uuid>,
+    status: Option<String>,
+}
+
+async fn list_adjustments(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<AdjustmentsQuery>,
+) -> ApiResult<Json<Vec<inventory::InventoryAdjustment>>> {
+    let adjs =
+        inventory::list_adjustments(&state.pool, &user.claims, q.branch_id, q.status).await?;
+    Ok(Json(adjs))
+}
+
+async fn approve_adjustment(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<inventory::InventoryAdjustment>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let adj = inventory::approve_adjustment_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(adj))
+}
+
+async fn reject_adjustment(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<inventory::RejectAdjustmentRequest>,
+) -> ApiResult<Json<inventory::InventoryAdjustment>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let adj = inventory::reject_adjustment_tx(&mut tx, &scope, id, &req.reason).await?;
+    tx.commit().await?;
+    Ok(Json(adj))
 }
 
 // ---------------------------------------------------------------- proveedores

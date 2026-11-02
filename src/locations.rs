@@ -302,3 +302,10 @@ pub async fn default_location_id_tx(tx: &mut Tx<'_>, branch_id: Uuid) -> Result<
         )
     })
 }
+
+pub async fn default_location_id(pool: &PgPool, branch_id: Uuid) -> Result<Uuid, ApiError> {
+    let mut tx = pool.begin().await?;
+    let id = default_location_id_tx(&mut tx, branch_id).await?;
+    tx.commit().await?;
+    Ok(id)
+}

@@ -42,6 +42,54 @@ pub struct Movement {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CreateAdjustmentRequest {
+    pub id: Uuid,
+    pub branch_id: Uuid,
+    #[serde(default)]
+    pub location_id: Option<Uuid>,
+    pub product_id: Uuid,
+    #[serde(default)]
+    pub lot_id: Option<Uuid>,
+    pub qty_delta: Decimal,
+    pub reason_code: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub unit_cost: Option<Decimal>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RejectAdjustmentRequest {
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct InventoryAdjustment {
+    pub id: Uuid,
+    pub branch_id: Uuid,
+    pub location_id: Uuid,
+    pub product_id: Uuid,
+    pub product_name: Option<String>,
+    pub sku: Option<String>,
+    pub location_name: Option<String>,
+    pub lot_id: Option<Uuid>,
+    pub lot_code: Option<String>,
+    pub qty_delta: Decimal,
+    pub reason_code: String,
+    pub notes: Option<String>,
+    pub unit_cost: Decimal,
+    pub value: Decimal,
+    pub status: String,
+    pub requested_by: Uuid,
+    pub requester_name: Option<String>,
+    pub decided_by: Option<Uuid>,
+    pub decider_name: Option<String>,
+    pub decided_at: Option<DateTime<Utc>>,
+    pub reject_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Existencia de un producto en una sucursal, para la pantalla de inventario.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct StockLevel {
@@ -874,6 +922,7 @@ pub async fn return_tx(
 }
 
 /// Ajusta inventario (delta con signo) y registra el movimiento.
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn adjust(
     pool: &PgPool,
     claims: &Claims,
@@ -888,6 +937,7 @@ pub async fn adjust(
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn adjust_tx(
     tx: &mut Tx<'_>,
     scope: &Scope,
@@ -896,17 +946,7 @@ pub async fn adjust_tx(
     delta: Decimal,
     cause: &str,
 ) -> Result<(), ApiError> {
-    scope.require(Action::ManageInventory)?;
-    tenancy::ensure_branch_tx(tx, scope, branch_id).await?;
-    if delta == Decimal::ZERO {
-        return Err(ApiError::Domain(DomainError::Validation(
-            "delta must be non-zero".into(),
-        )));
-    }
-    check_not_variant_parent(tx, product_id).await?;
-
     let loc_id = default_location_id_tx(tx, branch_id).await?;
-
     let existing_on_hand: Decimal = sqlx::query_scalar(
         "select coalesce(on_hand, 0) from stock where location_id = $1 and product_id = $2",
     )
@@ -926,38 +966,642 @@ pub async fn adjust_tx(
         )));
     }
 
-    let kind = adjustment_type(delta);
-    let movement_ref = Uuid::new_v4();
+    let reason_code = if delta > Decimal::ZERO {
+        "CORRECCION"
+    } else {
+        "PERDIDA"
+    };
+    create_adjustment_tx(
+        tx,
+        scope,
+        CreateAdjustmentRequest {
+            id: Uuid::new_v4(),
+            branch_id,
+            location_id: Some(loc_id),
+            product_id,
+            lot_id: None,
+            qty_delta: delta,
+            reason_code: reason_code.to_string(),
+            notes: Some(cause.to_string()),
+            unit_cost: None,
+        },
+    )
+    .await?;
+    Ok(())
+}
 
-    let applied = apply_delta_tx(
+/// Obtiene un ajuste por ID con información enriquecida para el cliente.
+pub async fn get_adjustment_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    id: Uuid,
+) -> Result<InventoryAdjustment, ApiError> {
+    let row = sqlx::query_as::<_, InventoryAdjustment>(
+        r#"
+        select
+            a.id,
+            a.branch_id,
+            a.location_id,
+            a.product_id,
+            p.name as product_name,
+            p.sku,
+            loc.name as location_name,
+            a.lot_id,
+            l.code as lot_code,
+            a.qty_delta,
+            a.reason_code,
+            a.notes,
+            a.unit_cost,
+            a.value,
+            a.status,
+            a.requested_by,
+            ru.full_name as requester_name,
+            a.decided_by,
+            du.full_name as decider_name,
+            a.decided_at,
+            a.reject_reason,
+            a.created_at
+        from inventory_adjustments a
+        join products p on p.id = a.product_id
+        join locations loc on loc.id = a.location_id
+        left join lots l on l.id = a.lot_id
+        left join users ru on ru.id = a.requested_by
+        left join users du on du.id = a.decided_by
+        where a.tenant_id = $1 and a.id = $2
+        "#,
+    )
+    .bind(scope.tenant)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    Ok(row)
+}
+
+/// Lista ajustes de inventario con filtros por sucursal y estado.
+pub async fn list_adjustments(
+    pool: &PgPool,
+    claims: &Claims,
+    branch_id: Option<Uuid>,
+    status: Option<String>,
+) -> Result<Vec<InventoryAdjustment>, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require(Action::Read)?;
+    let rows = sqlx::query_as::<_, InventoryAdjustment>(
+        r#"
+        select
+            a.id,
+            a.branch_id,
+            a.location_id,
+            a.product_id,
+            p.name as product_name,
+            p.sku,
+            loc.name as location_name,
+            a.lot_id,
+            l.code as lot_code,
+            a.qty_delta,
+            a.reason_code,
+            a.notes,
+            a.unit_cost,
+            a.value,
+            a.status,
+            a.requested_by,
+            ru.full_name as requester_name,
+            a.decided_by,
+            du.full_name as decider_name,
+            a.decided_at,
+            a.reject_reason,
+            a.created_at
+        from inventory_adjustments a
+        join products p on p.id = a.product_id
+        join locations loc on loc.id = a.location_id
+        left join lots l on l.id = a.lot_id
+        left join users ru on ru.id = a.requested_by
+        left join users du on du.id = a.decided_by
+        where a.tenant_id = $1
+          and ($2::uuid is null or a.branch_id = $2)
+          and ($3::text is null or a.status = $3)
+        order by a.created_at desc
+        "#,
+    )
+    .bind(scope.tenant)
+    .bind(branch_id)
+    .bind(status)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(rows)
+}
+
+/// Crea o aplica un ajuste según el umbral de aprobación.
+pub async fn create_adjustment_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    req: CreateAdjustmentRequest,
+) -> Result<InventoryAdjustment, ApiError> {
+    scope.require(Action::ManageInventory)?;
+    tenancy::ensure_branch_tx(tx, scope, req.branch_id).await?;
+
+    // Idempotencia por id y client_request
+    let req_val = serde_json::to_value(&req).unwrap_or_default();
+    let existing: Option<(serde_json::Value,)> = sqlx::query_as(
+        "select client_request from inventory_adjustments where tenant_id = $1 and id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(req.id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((stored_req,)) = existing {
+        if stored_req == req_val {
+            return get_adjustment_tx(tx, scope, req.id).await;
+        } else {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                "Esta operación ya se registró con otros datos.",
+                None,
+            ));
+        }
+    }
+
+    if req.notes.as_ref().is_some_and(|n| n.chars().count() > 300) {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ADJUST_INVALID",
+            "Las notas no pueden superar los 300 caracteres.",
+            None,
+        ));
+    }
+
+    let location_id = match req.location_id {
+        Some(lid) => lid,
+        None => default_location_id_tx(tx, req.branch_id).await?,
+    };
+
+    check_not_variant_parent(tx, req.product_id).await?;
+
+    // Validar motivo
+    let valid_reasons = [
+        "DANO",
+        "PERDIDA",
+        "ROBO",
+        "VENCIMIENTO",
+        "CONTEO",
+        "CORRECCION",
+        "CARGA_INICIAL",
+    ];
+    if !valid_reasons.contains(&req.reason_code.as_str()) {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ADJUST_INVALID",
+            "Motivo de ajuste no válido.",
+            None,
+        ));
+    }
+
+    if req.qty_delta == Decimal::ZERO {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ADJUST_INVALID",
+            "La cantidad a ajustar no puede ser cero.",
+            None,
+        ));
+    }
+
+    // Coherencia del signo
+    match req.reason_code.as_str() {
+        "DANO" | "PERDIDA" | "ROBO" | "VENCIMIENTO" => {
+            if req.qty_delta >= Decimal::ZERO {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "ADJUST_INVALID",
+                    "Este motivo exige una cantidad negativa (salida).",
+                    None,
+                ));
+            }
+        }
+        "CARGA_INICIAL" => {
+            if req.qty_delta <= Decimal::ZERO {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "ADJUST_INVALID",
+                    "CARGA_INICIAL exige una cantidad positiva.",
+                    None,
+                ));
+            }
+            let current_on_hand: Decimal = sqlx::query_scalar(
+                "select coalesce(on_hand, 0) from stock where location_id = $1 and product_id = $2",
+            )
+            .bind(location_id)
+            .bind(req.product_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .unwrap_or(Decimal::ZERO);
+
+            if current_on_hand != Decimal::ZERO {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "ADJUST_INVALID",
+                    "CARGA_INICIAL solo se permite con existencia actual en cero.",
+                    None,
+                ));
+            }
+
+            let prev_movs: i64 = sqlx::query_scalar(
+                "select count(*) from inventory_movements where location_id = $1 and product_id = $2",
+            )
+            .bind(location_id)
+            .bind(req.product_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            if prev_movs > 0 {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "ADJUST_INVALID",
+                    "CARGA_INICIAL no se permite si el producto ya tiene movimientos previos en esta bodega.",
+                    None,
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    // Validar track_lots
+    let (track_lots, cost_price, is_composed): (bool, Option<Decimal>, bool) = sqlx::query_as(
+        "select coalesce(track_lots, false), cost_price, is_composed from products where tenant_id = $1 and id = $2",
+    )
+    .bind(scope.tenant)
+    .bind(req.product_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    if is_composed {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ADJUST_INVALID",
+            "No se puede ajustar directamente un producto compuesto/receta.",
+            None,
+        ));
+    }
+
+    if track_lots {
+        let lot_id = match req.lot_id {
+            Some(lid) => lid,
+            None => {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "LOT_REQUIRED",
+                    "Este producto exige lote y vencimiento.",
+                    None,
+                ));
+            }
+        };
+        let lot_exists: Option<Uuid> = sqlx::query_scalar(
+            "select id from lots where id = $1 and tenant_id = $2 and location_id = $3 and product_id = $4",
+        )
+        .bind(lot_id)
+        .bind(scope.tenant)
+        .bind(location_id)
+        .bind(req.product_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if lot_exists.is_none() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "ADJUST_INVALID",
+                "El lote indicado no existe en esta bodega para este producto.",
+                None,
+            ));
+        }
+    }
+
+    // Costo y valor
+    let stock_avg_cost: Option<Decimal> =
+        sqlx::query_scalar("select avg_cost from stock where location_id = $1 and product_id = $2")
+            .bind(location_id)
+            .bind(req.product_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    let avg_cost = stock_avg_cost.unwrap_or_else(|| cost_price.unwrap_or(Decimal::ZERO));
+
+    let eff_cost = if req.qty_delta > Decimal::ZERO {
+        req.unit_cost.unwrap_or(avg_cost)
+    } else {
+        avg_cost
+    };
+
+    let value = (req.qty_delta.abs() * eff_cost).round_dp(2);
+
+    let settings = crate::settings::load_tx(tx, req.branch_id).await?;
+    let threshold = settings.inventory.adjust_approval_threshold;
+
+    let needs_approval = value > threshold && !scope.has_permission("inventory:adjust_approve");
+
+    if needs_approval {
+        sqlx::query(
+            r#"
+            insert into inventory_adjustments (
+                id, tenant_id, branch_id, location_id, product_id, lot_id,
+                qty_delta, reason_code, notes, unit_cost, value, status,
+                requested_by, decided_by, decided_at, reject_reason, client_request, created_at
+            ) values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11, 'PENDIENTE',
+                $12, null, null, null, $13, now()
+            )
+            "#,
+        )
+        .bind(req.id)
+        .bind(scope.tenant)
+        .bind(req.branch_id)
+        .bind(location_id)
+        .bind(req.product_id)
+        .bind(req.lot_id)
+        .bind(req.qty_delta)
+        .bind(&req.reason_code)
+        .bind(&req.notes)
+        .bind(eff_cost)
+        .bind(value)
+        .bind(scope.user)
+        .bind(&req_val)
+        .execute(&mut **tx)
+        .await?;
+
+        crate::audit::record_tx(
+            tx,
+            scope,
+            "AJUSTE_SOLICITADO",
+            "inventory_adjustments",
+            req.id,
+            None,
+            Some(serde_json::json!({
+                "branch_id": req.branch_id,
+                "product_id": req.product_id,
+                "qty_delta": req.qty_delta,
+                "reason_code": req.reason_code,
+                "value": value,
+                "threshold": threshold,
+            })),
+            None,
+        )
+        .await?;
+    } else {
+        let mov = adjustment_type(req.qty_delta);
+
+        apply_delta_tx(
+            tx,
+            scope,
+            StockDelta {
+                branch_id: req.branch_id,
+                location_id,
+                product_id: req.product_id,
+                delta: req.qty_delta,
+                movement: mov,
+                unit_cost: Some(eff_cost),
+                lot_id: req.lot_id,
+                ref_type: "ADJUST",
+                ref_id: req.id,
+                cause: req.notes.clone().or_else(|| Some(req.reason_code.clone())),
+            },
+        )
+        .await?;
+
+        sqlx::query(
+            r#"
+            insert into inventory_adjustments (
+                id, tenant_id, branch_id, location_id, product_id, lot_id,
+                qty_delta, reason_code, notes, unit_cost, value, status,
+                requested_by, decided_by, decided_at, reject_reason, client_request, created_at
+            ) values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11, 'APLICADO',
+                $12, $12, now(), null, $13, now()
+            )
+            "#,
+        )
+        .bind(req.id)
+        .bind(scope.tenant)
+        .bind(req.branch_id)
+        .bind(location_id)
+        .bind(req.product_id)
+        .bind(req.lot_id)
+        .bind(req.qty_delta)
+        .bind(&req.reason_code)
+        .bind(&req.notes)
+        .bind(eff_cost)
+        .bind(value)
+        .bind(scope.user)
+        .bind(&req_val)
+        .execute(&mut **tx)
+        .await?;
+
+        crate::audit::record_tx(
+            tx,
+            scope,
+            "AJUSTE_APLICADO",
+            "inventory_adjustments",
+            req.id,
+            None,
+            Some(serde_json::json!({
+                "branch_id": req.branch_id,
+                "product_id": req.product_id,
+                "qty_delta": req.qty_delta,
+                "reason_code": req.reason_code,
+                "value": value,
+            })),
+            None,
+        )
+        .await?;
+    }
+
+    get_adjustment_tx(tx, scope, req.id).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub async fn create_adjustment(
+    pool: &PgPool,
+    claims: &Claims,
+    req: CreateAdjustmentRequest,
+) -> Result<InventoryAdjustment, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    let adj = create_adjustment_tx(&mut tx, &scope, req).await?;
+    tx.commit().await?;
+    Ok(adj)
+}
+
+pub async fn approve_adjustment_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    id: Uuid,
+) -> Result<InventoryAdjustment, ApiError> {
+    scope.require_permission("inventory:adjust_approve")?;
+
+    #[derive(sqlx::FromRow)]
+    struct AdjForApprove {
+        branch_id: Uuid,
+        location_id: Uuid,
+        product_id: Uuid,
+        lot_id: Option<Uuid>,
+        qty_delta: Decimal,
+        reason_code: String,
+        notes: Option<String>,
+        unit_cost: Decimal,
+        status: String,
+    }
+
+    let adj: AdjForApprove = sqlx::query_as(
+        r#"
+        select branch_id, location_id, product_id, lot_id, qty_delta, reason_code, notes, unit_cost, status
+          from inventory_adjustments
+         where tenant_id = $1 and id = $2
+           for update
+        "#,
+    )
+    .bind(scope.tenant)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    if adj.status != "PENDIENTE" {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "ADJUST_NOT_PENDING",
+            "El ajuste ya fue decidido.",
+            None,
+        ));
+    }
+
+    let mov = adjustment_type(adj.qty_delta);
+
+    apply_delta_tx(
         tx,
         scope,
         StockDelta {
-            branch_id,
-            location_id: loc_id,
-            product_id,
-            delta,
-            movement: kind,
-            unit_cost: None,
-            lot_id: None,
-            ref_type: "adjustment",
-            ref_id: movement_ref,
-            cause: Some(cause.to_string()),
+            branch_id: adj.branch_id,
+            location_id: adj.location_id,
+            product_id: adj.product_id,
+            delta: adj.qty_delta,
+            movement: mov,
+            unit_cost: Some(adj.unit_cost),
+            lot_id: adj.lot_id,
+            ref_type: "ADJUST",
+            ref_id: id,
+            cause: adj.notes.clone().or_else(|| Some(adj.reason_code.clone())),
         },
     )
+    .await?;
+
+    sqlx::query(
+        "update inventory_adjustments set status = 'APLICADO', decided_by = $1, decided_at = now() where tenant_id = $2 and id = $3",
+    )
+    .bind(scope.user)
+    .bind(scope.tenant)
+    .bind(id)
+    .execute(&mut **tx)
     .await?;
 
     crate::audit::record_tx(
         tx,
         scope,
-        "AJUSTE_INVENTARIO",
-        "stock",
-        product_id,
-        Some(serde_json::json!({ "on_hand": existing_on_hand })),
-        Some(serde_json::json!({ "delta": delta, "new_on_hand": applied.balance_after, "cause": cause })),
+        "AJUSTE_APLICADO",
+        "inventory_adjustments",
+        id,
+        None,
+        Some(serde_json::json!({ "decided_by": scope.user })),
         None,
     )
-    .await
+    .await?;
+
+    get_adjustment_tx(tx, scope, id).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub async fn approve_adjustment(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+) -> Result<InventoryAdjustment, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    let adj = approve_adjustment_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(adj)
+}
+
+pub async fn reject_adjustment_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    id: Uuid,
+    reason: &str,
+) -> Result<InventoryAdjustment, ApiError> {
+    scope.require_permission("inventory:adjust_approve")?;
+
+    let reason_trim = reason.trim();
+    if reason_trim.is_empty() {
+        return Err(error::validation("reject reason cannot be empty"));
+    }
+
+    let status: Option<String> = sqlx::query_scalar(
+        "select status from inventory_adjustments where tenant_id = $1 and id = $2 for update",
+    )
+    .bind(scope.tenant)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let status = status.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    if status != "PENDIENTE" {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "ADJUST_NOT_PENDING",
+            "El ajuste ya fue decidido.",
+            None,
+        ));
+    }
+
+    sqlx::query(
+        "update inventory_adjustments set status = 'RECHAZADO', decided_by = $1, decided_at = now(), reject_reason = $2 where tenant_id = $3 and id = $4",
+    )
+    .bind(scope.user)
+    .bind(reason_trim)
+    .bind(scope.tenant)
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
+
+    crate::audit::record_tx(
+        tx,
+        scope,
+        "AJUSTE_RECHAZADO",
+        "inventory_adjustments",
+        id,
+        None,
+        Some(serde_json::json!({ "decided_by": scope.user, "reject_reason": reason_trim })),
+        None,
+    )
+    .await?;
+
+    get_adjustment_tx(tx, scope, id).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub async fn reject_adjustment(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+    reason: &str,
+) -> Result<InventoryAdjustment, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    let adj = reject_adjustment_tx(&mut tx, &scope, id, reason).await?;
+    tx.commit().await?;
+    Ok(adj)
 }
 
 /// Conteo fisico: fija la existencia en `counted` y registra la diferencia
@@ -989,22 +1633,19 @@ pub async fn count(
 
     let delta = counted - on_hand;
     if delta != Decimal::ZERO {
-        let kind = adjustment_type(delta);
-        let count_ref = Uuid::new_v4();
-        apply_delta_tx(
+        create_adjustment_tx(
             &mut tx,
             &scope,
-            StockDelta {
+            CreateAdjustmentRequest {
+                id: Uuid::new_v4(),
                 branch_id,
-                location_id: loc_id,
+                location_id: Some(loc_id),
                 product_id,
-                delta,
-                movement: kind,
-                unit_cost: None,
                 lot_id: None,
-                ref_type: "count",
-                ref_id: count_ref,
-                cause: Some(cause.to_string()),
+                qty_delta: delta,
+                reason_code: "CONTEO".to_string(),
+                notes: Some(cause.to_string()),
+                unit_cost: None,
             },
         )
         .await?;

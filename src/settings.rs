@@ -92,6 +92,10 @@ impl Default for CashSettings {
     }
 }
 
+fn default_adjust_threshold() -> Decimal {
+    Decimal::from(200000)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InventorySettings {
     #[serde(default = "default_false")]
@@ -100,6 +104,8 @@ pub struct InventorySettings {
     pub low_stock_default: i32,
     #[serde(default = "default_costing")]
     pub costing: String,
+    #[serde(default = "default_adjust_threshold")]
+    pub adjust_approval_threshold: Decimal,
 }
 
 impl Default for InventorySettings {
@@ -108,6 +114,7 @@ impl Default for InventorySettings {
             allow_negative_stock: false,
             low_stock_default: 5,
             costing: "PROMEDIO".to_string(),
+            adjust_approval_threshold: Decimal::from(200000),
         }
     }
 }
@@ -214,6 +221,11 @@ pub async fn update_settings(
     }
     if req.settings.inventory.costing != "PROMEDIO" && req.settings.inventory.costing != "PEPS" {
         return Err(validation("inventory.costing must be PROMEDIO or PEPS"));
+    }
+    if req.settings.inventory.adjust_approval_threshold < Decimal::ZERO {
+        return Err(validation(
+            "inventory.adjust_approval_threshold must be >= 0",
+        ));
     }
     if req.settings.tips.suggested_pct < Decimal::ZERO
         || req.settings.tips.suggested_pct > Decimal::new(100, 0)

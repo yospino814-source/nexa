@@ -795,6 +795,7 @@ async fn database_integration() {
     f2_payables(&app, &admin).await;
     f2_expenses(&app, &admin).await;
     f2_lots(&app, &admin).await;
+    f2_adjustments(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -8956,4 +8957,215 @@ async fn f2_lots(app: &PgPool, admin: &PgPool) {
     );
 
     cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_adjustments(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let def_loc = crate::locations::default_location_id(admin, branch)
+        .await
+        .unwrap();
+
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let supervisor = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), supervisor, "SUPERVISOR").await;
+    let c_super = claims(supervisor, Some(tenant), Some(branch));
+
+    // Producto de prueba con costo unitario 100,000
+    let prod = products::create_product(
+        app,
+        &c_owner,
+        products::ProductInput {
+            name: "Cámara Pro".into(),
+            sku: Some("CAM-PRO-1".into()),
+            barcode: None,
+            kind: "FISICO".into(),
+            usage: "VENTA".into(),
+            unit_measure_code: "UND".into(),
+            purchase_uom_code: None,
+            purchase_factor: dec(1),
+            tax_code: "EXENTO".into(),
+            cost_price: Some(dec(100_000)),
+            base_price: Some(dec(150_000)),
+            reorder_qty: None,
+            max_qty: None,
+            track_lots: false,
+            allow_price_override: true,
+            has_variants: false,
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Establecer stock inicial en 5 unidades a 100,000
+    sqlx::query(
+        r#"
+        insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved, min_qty, avg_cost)
+        values ($1, $2, $3, $4, 5, 0, 0, 100000)
+        on conflict (location_id, product_id) do update set on_hand = 5, avg_cost = 100000
+        "#,
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(def_loc)
+    .bind(prod.row.id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // 1. [P] Un ajuste por encima del umbral (200,000) pedido por un usuario sin permiso de aprobación (SUPERVISOR)
+    // queda PENDIENTE y el stock no cambia; al aprobarlo, cambia.
+    // -3 unidades a 100,000 = valor 300,000 > umbral (200,000).
+    let adj_id = Uuid::new_v4();
+    let adj_req = inventory::CreateAdjustmentRequest {
+        id: adj_id,
+        branch_id: branch,
+        location_id: Some(def_loc),
+        product_id: prod.row.id,
+        lot_id: None,
+        qty_delta: dec(-3),
+        reason_code: "PERDIDA".into(),
+        notes: Some("Pérdida en almacén".into()),
+        unit_cost: None,
+    };
+
+    let adj_res = inventory::create_adjustment(app, &c_super, adj_req)
+        .await
+        .unwrap();
+    assert_eq!(
+        adj_res.status, "PENDIENTE",
+        "Ajuste > umbral por supervisor debe quedar PENDIENTE"
+    );
+    assert_eq!(adj_res.value, dec(300_000));
+
+    // Verificar que el stock NO ha cambiado (sigue en 5)
+    let stock_on_hand: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(def_loc)
+            .bind(prod.row.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock_on_hand,
+        dec(5),
+        "El stock no debe cambiar mientras esté PENDIENTE"
+    );
+
+    // Supervisor intenta aprobarlo y debe recibir 403 Forbidden
+    let super_approve_err = inventory::approve_adjustment(app, &c_super, adj_id)
+        .await
+        .unwrap_err();
+    match super_approve_err {
+        ApiError::Domain(DomainError::Forbidden) => {}
+        other => panic!(
+            "esperaba 403 Forbidden para supervisor aprobando pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // Owner (con permiso inventory:adjust_approve) lo aprueba
+    let approved_adj = inventory::approve_adjustment(app, &c_owner, adj_id)
+        .await
+        .unwrap();
+    assert_eq!(approved_adj.status, "APLICADO");
+    assert_eq!(approved_adj.decided_by, Some(owner));
+
+    // Ahora el stock debe haber cambiado a 2 (5 - 3)
+    let stock_on_hand_after: Decimal =
+        sqlx::query_scalar("select on_hand from stock where location_id = $1 and product_id = $2")
+            .bind(def_loc)
+            .bind(prod.row.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock_on_hand_after,
+        dec(2),
+        "El stock debió actualizarse a 2 tras aprobarse el ajuste"
+    );
+
+    // 2. [P] CARGA_INICIAL con stock existente: 422 ADJUST_INVALID.
+    let initial_req = inventory::CreateAdjustmentRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        location_id: Some(def_loc),
+        product_id: prod.row.id,
+        lot_id: None,
+        qty_delta: dec(10),
+        reason_code: "CARGA_INICIAL".into(),
+        notes: Some("Intento inválido de carga inicial".into()),
+        unit_cost: Some(dec(100_000)),
+    };
+    let initial_err = inventory::create_adjustment(app, &c_owner, initial_req)
+        .await
+        .unwrap_err();
+    match initial_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "ADJUST_INVALID");
+        }
+        other => panic!(
+            "esperaba 422 ADJUST_INVALID para CARGA_INICIAL con stock pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // 3. [P] ROBO con una cantidad positiva: 422 ADJUST_INVALID.
+    let robo_req = inventory::CreateAdjustmentRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        location_id: Some(def_loc),
+        product_id: prod.row.id,
+        lot_id: None,
+        qty_delta: dec(5),
+        reason_code: "ROBO".into(),
+        notes: Some("Robo positivo inválido".into()),
+        unit_cost: None,
+    };
+    let robo_err = inventory::create_adjustment(app, &c_owner, robo_req)
+        .await
+        .unwrap_err();
+    match robo_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "ADJUST_INVALID");
+        }
+        other => panic!(
+            "esperaba 422 ADJUST_INVALID para ROBO con cantidad positiva pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // 4. Rechazar un ajuste pendiente
+    let reject_adj_id = Uuid::new_v4();
+    let reject_req = inventory::CreateAdjustmentRequest {
+        id: reject_adj_id,
+        branch_id: branch,
+        location_id: Some(def_loc),
+        product_id: prod.row.id,
+        lot_id: None,
+        qty_delta: dec(-4),
+        reason_code: "PERDIDA".into(),
+        notes: Some("Ajuste a rechazar".into()),
+        unit_cost: None,
+    };
+    inventory::create_adjustment(app, &c_super, reject_req)
+        .await
+        .unwrap();
+    let rejected =
+        inventory::reject_adjustment(app, &c_owner, reject_adj_id, "Rechazado por inconsistencia")
+            .await
+            .unwrap();
+    assert_eq!(rejected.status, "RECHAZADO");
+    assert_eq!(
+        rejected.reject_reason.as_deref(),
+        Some("Rechazado por inconsistencia")
+    );
+
+    cleanup(admin, tenant, &[owner, supervisor]).await;
 }
