@@ -1388,3 +1388,72 @@ export type CommitResponse = {
   committed_rows: number;
   done: boolean;
 };
+
+// ------------------------------------------------------------------- cuentas por pagar (F2.13)
+
+export type PayableStatus = "ABIERTA" | "PARCIAL" | "PAGADA" | "CASTIGADA";
+export type PayableSourceType = "COMPRA" | "GASTO";
+export type PayablePaymentMethod = "EFECTIVO" | "TRANSFERENCIA" | "CHEQUE";
+
+export type Payable = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  supplier_id: Uuid | null;
+  supplier_name: string | null;
+  source_type: PayableSourceType;
+  source_id: Uuid;
+  document_number: string | null;
+  amount_total: Decimal;
+  amount_paid: Decimal;
+  balance: Decimal;
+  status: PayableStatus;
+  due_date: string;
+  overdue: boolean;
+  days_overdue: number;
+  written_off_reason: string | null;
+  created_at: string;
+};
+
+export type PayablePayment = {
+  id: Uuid;
+  payable_id: Uuid;
+  amount: Decimal;
+  method: PayablePaymentMethod;
+  reference: string | null;
+  cash_session_id: Uuid | null;
+  paid_at: string;
+  created_by: Uuid;
+  created_by_name: string | null;
+};
+
+export type PayableDetail = Payable & {
+  payments: PayablePayment[];
+};
+
+export type PayablesAging = {
+  al_dia: Decimal;
+  d1_30: Decimal;
+  d31_60: Decimal;
+  d61_90: Decimal;
+  d91_120: Decimal;
+  d120_mas: Decimal;
+};
+
+export type PayablesFilter = {
+  branch_id?: Uuid;
+  status?: PayableStatus;
+  supplier_id?: Uuid;
+  overdue?: boolean;
+};
+
+export type CreatePayablePaymentInput = {
+  id: Uuid;
+  amount: Decimal;
+  method: PayablePaymentMethod;
+  reference?: string | null;
+};
+
+export type WriteOffPayableInput = {
+  reason: string;
+};

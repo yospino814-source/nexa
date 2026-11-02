@@ -11,8 +11,14 @@ import type {
   CostPreviewRequest,
   CostPreviewResponse,
   CreatePurchaseInput,
+  CreatePayablePaymentInput,
   CreateSupplierInput,
   Decimal,
+  Payable,
+  PayableDetail,
+  PayablePayment,
+  PayablesAging,
+  PayablesFilter,
   Purchase,
   PurchaseFilter,
   PurchaseItem,
@@ -27,6 +33,7 @@ import type {
   UpdatePurchaseInput,
   UpdateSupplierInput,
   Uuid,
+  WriteOffPayableInput,
 } from "./types";
 
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -788,5 +795,228 @@ export async function mockPurchaseSummary(branchId?: Uuid, month?: string): Prom
     to_receive_month: dec(toReceiveNum),
     to_pay_balance: dec(toReceiveNum + totalNum * 0.4),
     active_suppliers: activeCount,
+  };
+}
+
+// ------------------------------------------------------------ cuentas por pagar (F2.13)
+
+const now = new Date();
+const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000).toISOString().slice(0, 10);
+const daysAhead = (d: number) => new Date(now.getTime() + d * 86400000).toISOString().slice(0, 10);
+
+const mockPaymentsStore: Record<Uuid, PayablePayment[]> = {
+  "payable-001": [
+    {
+      id: "paym-001",
+      payable_id: "payable-001",
+      amount: "500000.00",
+      method: "TRANSFERENCIA",
+      reference: "TR-987654",
+      cash_session_id: null,
+      paid_at: new Date(now.getTime() - 2 * 86400000).toISOString(),
+      created_by: "user-admin",
+      created_by_name: "Administrador General",
+    },
+  ],
+};
+
+const mockPayables: Payable[] = [
+  {
+    id: "payable-001",
+    tenant_id: "tenant-001",
+    branch_id: "branch-001",
+    supplier_id: "sup-001",
+    supplier_name: "Distribuidora Los Andes S.A.S.",
+    source_type: "COMPRA",
+    source_id: "pur-001",
+    document_number: "FAC-90812",
+    amount_total: "1500000.00",
+    amount_paid: "500000.00",
+    balance: "1000000.00",
+    status: "PARCIAL",
+    due_date: daysAhead(15),
+    overdue: false,
+    days_overdue: 0,
+    written_off_reason: null,
+    created_at: daysAgo(5),
+  },
+  {
+    id: "payable-002",
+    tenant_id: "tenant-001",
+    branch_id: "branch-001",
+    supplier_id: "sup-002",
+    supplier_name: "Lácteos del Campo",
+    source_type: "COMPRA",
+    source_id: "pur-002",
+    document_number: "FAC-4412",
+    amount_total: "620000.00",
+    amount_paid: "0.00",
+    balance: "620000.00",
+    status: "ABIERTA",
+    due_date: daysAgo(5),
+    overdue: true,
+    days_overdue: 5,
+    written_off_reason: null,
+    created_at: daysAgo(20),
+  },
+  {
+    id: "payable-003",
+    tenant_id: "tenant-001",
+    branch_id: "branch-001",
+    supplier_id: "sup-003",
+    supplier_name: "Empaques y Plásticos Bogotá",
+    source_type: "COMPRA",
+    source_id: "pur-003",
+    document_number: "FAC-1102",
+    amount_total: "340000.00",
+    amount_paid: "0.00",
+    balance: "340000.00",
+    status: "ABIERTA",
+    due_date: daysAgo(42),
+    overdue: true,
+    days_overdue: 42,
+    written_off_reason: null,
+    created_at: daysAgo(60),
+  },
+];
+
+export async function mockPayablesList(filter?: PayablesFilter): Promise<Payable[]> {
+  let list = structuredClone(mockPayables);
+  if (filter?.branch_id) {
+    list = list.filter((p) => p.branch_id === filter.branch_id);
+  }
+  if (filter?.status) {
+    list = list.filter((p) => p.status === filter.status);
+  }
+  if (filter?.supplier_id) {
+    list = list.filter((p) => p.supplier_id === filter.supplier_id);
+  }
+  if (filter?.overdue !== undefined) {
+    list = list.filter((p) => p.overdue === filter.overdue);
+  }
+  return list;
+}
+
+export async function mockPayablesAging(branchId?: Uuid): Promise<PayablesAging> {
+  const openPayables = mockPayables.filter((p) => {
+    if (branchId && p.branch_id !== branchId) return false;
+    return p.status === "ABIERTA" || p.status === "PARCIAL";
+  });
+
+  let al_dia = 0;
+  let d1_30 = 0;
+  let d31_60 = 0;
+  let d61_90 = 0;
+  let d91_120 = 0;
+  let d120_mas = 0;
+
+  for (const p of openPayables) {
+    const bal = Number(p.balance);
+    if (!p.overdue || p.days_overdue <= 0) {
+      al_dia += bal;
+    } else if (p.days_overdue <= 30) {
+      d1_30 += bal;
+    } else if (p.days_overdue <= 60) {
+      d31_60 += bal;
+    } else if (p.days_overdue <= 90) {
+      d61_90 += bal;
+    } else if (p.days_overdue <= 120) {
+      d91_120 += bal;
+    } else {
+      d120_mas += bal;
+    }
+  }
+
+  return {
+    al_dia: dec(al_dia),
+    d1_30: dec(d1_30),
+    d31_60: dec(d31_60),
+    d61_90: dec(d61_90),
+    d91_120: dec(d91_120),
+    d120_mas: dec(d120_mas),
+  };
+}
+
+export async function mockPayableGet(id: Uuid): Promise<PayableDetail> {
+  const p = mockPayables.find((x) => x.id === id);
+  if (!p) {
+    throw new ApiError(404, "Cuenta por pagar no encontrada");
+  }
+  const payments = mockPaymentsStore[id] || [];
+  return {
+    ...structuredClone(p),
+    payments: structuredClone(payments),
+  };
+}
+
+export async function mockPayablePayment(
+  id: Uuid,
+  input: CreatePayablePaymentInput,
+): Promise<PayableDetail> {
+  const p = mockPayables.find((x) => x.id === id);
+  if (!p) {
+    throw new ApiError(404, "Cuenta por pagar no encontrada");
+  }
+  if (p.status === "PAGADA" || p.status === "CASTIGADA") {
+    throw new ApiError(409, "La cuenta por pagar está cerrada", "PAYABLE_CLOSED");
+  }
+
+  const amt = Number(input.amount);
+  const bal = Number(p.balance);
+  if (amt <= 0) {
+    throw new ApiError(422, "El monto debe ser mayor a 0", "PAYMENT_AMOUNT_INVALID");
+  }
+  if (amt > bal) {
+    throw new ApiError(422, "El monto supera el saldo", "PAYMENT_EXCEEDS_BALANCE");
+  }
+
+  const newPaid = Number(p.amount_paid) + amt;
+  p.amount_paid = dec(newPaid);
+  const newBal = Number(p.amount_total) - newPaid;
+  p.balance = dec(newBal);
+  p.status = newBal <= 0 ? "PAGADA" : "PARCIAL";
+
+  const newPayment: PayablePayment = {
+    id: input.id,
+    payable_id: id,
+    amount: dec(amt),
+    method: input.method,
+    reference: input.reference || null,
+    cash_session_id: input.method === "EFECTIVO" ? "session-current" : null,
+    paid_at: new Date().toISOString(),
+    created_by: "user-current",
+    created_by_name: "Usuario Actual",
+  };
+
+  if (!mockPaymentsStore[id]) {
+    mockPaymentsStore[id] = [];
+  }
+  mockPaymentsStore[id].unshift(newPayment);
+
+  return {
+    ...structuredClone(p),
+    payments: structuredClone(mockPaymentsStore[id]),
+  };
+}
+
+export async function mockPayableWriteOff(
+  id: Uuid,
+  input: WriteOffPayableInput,
+): Promise<PayableDetail> {
+  const p = mockPayables.find((x) => x.id === id);
+  if (!p) {
+    throw new ApiError(404, "Cuenta por pagar no encontrada");
+  }
+  if (p.status === "PAGADA" || p.status === "CASTIGADA") {
+    throw new ApiError(409, "La cuenta por pagar ya está cerrada", "PAYABLE_CLOSED");
+  }
+
+  p.status = "CASTIGADA";
+  p.written_off_reason = input.reason;
+
+  const payments = mockPaymentsStore[id] || [];
+  return {
+    ...structuredClone(p),
+    payments: structuredClone(payments),
   };
 }

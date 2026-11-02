@@ -25,6 +25,11 @@ import {
   mockPurchasesList,
   mockPurchaseSummary,
   mockPurchaseUpdate,
+  mockPayablesList,
+  mockPayablesAging,
+  mockPayableGet,
+  mockPayablePayment,
+  mockPayableWriteOff,
   mockSupplierArchive,
   mockSupplierCreate,
   mockSupplierGet,
@@ -97,6 +102,12 @@ import type {
   Movement,
   OrderItem,
   Payment,
+  Payable,
+  PayableDetail,
+  PayablesAging,
+  PayablesFilter,
+  CreatePayablePaymentInput,
+  WriteOffPayableInput,
   Permission,
   Purchase,
   PurchaseFilter,
@@ -2244,6 +2255,66 @@ export const api = {
       if (month) params.set("month", month);
       const qs = params.toString() ? `?${params.toString()}` : "";
       return request(`/v1/purchases/summary${qs}`);
+    },
+  },
+
+  payables: {
+    /** GET /v1/payables?branch_id=&status=&supplier_id=&overdue= */
+    async list(filter?: PayablesFilter): Promise<Payable[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPayablesList(filter);
+      }
+      const params = new URLSearchParams();
+      if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+      if (filter?.status) params.set("status", filter.status);
+      if (filter?.supplier_id) params.set("supplier_id", filter.supplier_id);
+      if (filter?.overdue !== undefined) params.set("overdue", String(filter.overdue));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/payables${qs}`);
+    },
+
+    /** GET /v1/payables/aging?branch_id= */
+    async aging(branchId?: Uuid): Promise<PayablesAging> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPayablesAging(branchId);
+      }
+      const qs = branchId ? `?branch_id=${branchId}` : "";
+      return request(`/v1/payables/aging${qs}`);
+    },
+
+    /** GET /v1/payables/{id} */
+    async get(id: Uuid): Promise<PayableDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPayableGet(id);
+      }
+      return request(`/v1/payables/${id}`);
+    },
+
+    /** POST /v1/payables/{id}/payments */
+    async createPayment(id: Uuid, input: CreatePayablePaymentInput): Promise<PayableDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPayablePayment(id, input);
+      }
+      return request(`/v1/payables/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** POST /v1/payables/{id}/write-off */
+    async writeOff(id: Uuid, input: WriteOffPayableInput): Promise<PayableDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPayableWriteOff(id, input);
+      }
+      return request(`/v1/payables/${id}/write-off`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
   },
 
