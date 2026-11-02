@@ -791,6 +791,7 @@ async fn database_integration() {
     f2_pipeline(&app, &admin).await;
     f2_costing(&app, &admin).await;
     f2_suppliers(&app, &admin).await;
+    f2_purchases(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1566,13 +1567,13 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
         branch_id: branch,
         supplier_id: sup.id,
         document_number: Some("FAC-001".into()),
-        supplier_invoice_date: None,
-        notes: None,
         items: vec![procurement::PurchaseItemRequest {
             product_id: prod_iva,
             qty: dec(10),
             unit_cost: dec(2000),
+            new_sale_price: None,
         }],
+        ..Default::default()
     };
     assert!(is_forbidden(
         &procurement::create_purchase(app, &c_cashier, req_cajero).await
@@ -1584,13 +1585,13 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
         branch_id: branch,
         supplier_id: sup.id,
         document_number: Some("FAC-002".into()),
-        supplier_invoice_date: None,
-        notes: None,
         items: vec![procurement::PurchaseItemRequest {
             product_id: prod_compuesto,
             qty: dec(1),
             unit_cost: dec(5000),
+            new_sale_price: None,
         }],
+        ..Default::default()
     };
     assert!(matches!(
         procurement::create_purchase(app, &c_owner, req_compuesto).await,
@@ -1603,20 +1604,22 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
         branch_id: branch,
         supplier_id: sup.id,
         document_number: Some("FAC-100".into()),
-        supplier_invoice_date: None,
         notes: Some("Compra semanal".into()),
         items: vec![
             procurement::PurchaseItemRequest {
                 product_id: prod_iva,
                 qty: dec(10),
                 unit_cost: dec(2000),
+                new_sale_price: None,
             },
             procurement::PurchaseItemRequest {
                 product_id: prod_exento,
                 qty: dec(5),
                 unit_cost: dec(4000),
+                new_sale_price: None,
             },
         ],
+        ..Default::default()
     };
     let created = procurement::create_purchase(app, &c_owner, req_valida.clone())
         .await
@@ -1710,13 +1713,13 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
         branch_id: branch,
         supplier_id: sup.id,
         document_number: Some("FAC-CANCEL".into()),
-        supplier_invoice_date: None,
-        notes: None,
         items: vec![procurement::PurchaseItemRequest {
             product_id: prod_iva,
             qty: dec(1),
             unit_cost: dec(2000),
+            new_sale_price: None,
         }],
+        ..Default::default()
     };
     procurement::create_purchase(app, &c_owner, req_cancel)
         .await
@@ -7467,4 +7470,398 @@ async fn f2_suppliers(app: &PgPool, admin: &PgPool) {
     assert!(det2.products[0].preferred);
 
     cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_purchases(app: &PgPool, admin: &PgPool) {
+    use std::str::FromStr;
+    let tenant = seed_tenant(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let branch = seed_branch(admin, tenant).await;
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+
+    let (_scope, mut tx) = tenancy::begin(app, &c_owner).await.unwrap();
+    let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let sup = crate::procurement::create_supplier(
+        app,
+        &c_owner,
+        crate::procurement::CreateSupplierRequest {
+            name: "Proveedor F2 Compras".into(),
+            tax_id: Some("900123456".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CREDITO".into()),
+            credit_days: Some(30),
+            delivery_days: Some(3),
+            category: Some("MERCANCIA".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let p_iva = seed_product(admin, tenant, "Prod IVA19", "UND", Some("IVA19"), false).await;
+    let p_inc = seed_product(admin, tenant, "Prod INC8", "UND", Some("INC8"), false).await;
+    let p_gift = seed_product(admin, tenant, "Prod Obsequio", "UND", None, false).await;
+
+    // 1. [P] Con iva_responsible = true, el IVA no entra al costo; con false, sí. El INC entra siempre.
+    sqlx::query("update tenants set iva_responsible = true where id = $1")
+        .bind(tenant)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let p_order_id = Uuid::new_v4();
+    let req = crate::procurement::CreatePurchaseRequest {
+        id: p_order_id,
+        branch_id: branch,
+        supplier_id: sup.id,
+        location_id: Some(def_loc),
+        expected_at: None,
+        document_number: Some("FAC-F2-01".into()),
+        supplier_invoice_date: None,
+        notes: None,
+        discount_amount: Some(dec(150)),
+        freight_amount: Some(dec(60)),
+        freight_mode: Some("PRORRATEAR".into()),
+        payment_terms: None,
+        credit_days: None,
+        iva_to_cost: None,
+        items: vec![
+            crate::procurement::PurchaseItemRequest {
+                product_id: p_iva,
+                qty: dec(10),
+                unit_cost: dec(100),
+                new_sale_price: Some(dec(150)),
+            },
+            crate::procurement::PurchaseItemRequest {
+                product_id: p_inc,
+                qty: dec(5),
+                unit_cost: dec(200),
+                new_sale_price: Some(dec(300)),
+            },
+            crate::procurement::PurchaseItemRequest {
+                product_id: p_gift,
+                qty: dec(2),
+                unit_cost: Decimal::ZERO,
+                new_sale_price: None,
+            },
+        ],
+    };
+
+    let created = crate::procurement::create_purchase(app, &c_owner, req)
+        .await
+        .unwrap();
+    assert_eq!(created.purchase.status, "PENDIENTE");
+    assert_eq!(created.purchase.payment_terms, "CREDITO");
+    assert_eq!(created.purchase.credit_days, 30);
+    assert!(!created.purchase.iva_to_cost);
+
+    // [P] El reparto del descuento y flete suma exacto y las líneas de obsequio no reciben descuento
+    let it_iva = created
+        .items
+        .iter()
+        .find(|i| i.product_id == p_iva)
+        .unwrap();
+    let it_inc = created
+        .items
+        .iter()
+        .find(|i| i.product_id == p_inc)
+        .unwrap();
+    let it_gift = created
+        .items
+        .iter()
+        .find(|i| i.product_id == p_gift)
+        .unwrap();
+
+    assert_eq!(it_gift.discount_alloc, Decimal::ZERO);
+    assert_eq!(
+        it_iva.discount_alloc + it_inc.discount_alloc + it_gift.discount_alloc,
+        dec(150)
+    );
+    assert_eq!(
+        it_iva.freight_alloc + it_inc.freight_alloc + it_gift.freight_alloc,
+        dec(60)
+    );
+
+    // IVA19 no entra al costo cuando iva_to_cost es false
+    assert_eq!(
+        it_iva.landed_unit_cost,
+        Some(Decimal::from_str("95.5000").unwrap())
+    );
+    // INC8 entra siempre al costo
+    assert_eq!(
+        it_inc.landed_unit_cost,
+        Some(Decimal::from_str("205.8000").unwrap())
+    );
+
+    // 2. Transición de estado y recepción
+    // Intentar recibir estando PENDIENTE vía receive_purchase_with_req da 409 PURCHASE_INVALID_STATE
+    let err_rec = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        p_order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: it_iva.id,
+                qty: dec(4),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await;
+    match err_rec {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "PURCHASE_INVALID_STATE");
+        }
+        other => panic!(
+            "esperaba 409 PURCHASE_INVALID_STATE pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // Aprobar orden
+    let approved = crate::procurement::approve_purchase(app, &c_owner, p_order_id)
+        .await
+        .unwrap();
+    assert_eq!(approved.purchase.status, "APROBADA");
+
+    // 3. [P] Recibir más de lo pendiente: 422 RECEIVE_EXCEEDS_PENDING
+    let err_exceed = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        p_order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![crate::procurement::ReceiveItemInput {
+                purchase_item_id: it_iva.id,
+                qty: dec(11),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await;
+    match err_exceed {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "RECEIVE_EXCEEDS_PENDING");
+        }
+        other => panic!(
+            "esperaba 422 RECEIVE_EXCEEDS_PENDING pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // 4. [P] Una recepción parcial y luego la total: el estado pasa por PARCIAL y llega a RECIBIDA
+    let rec1_id = Uuid::new_v4();
+    let partial = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        p_order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: rec1_id,
+            items: vec![
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_iva.id,
+                    qty: dec(4),
+                    lot_code: None,
+                    expires_at: None,
+                },
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_inc.id,
+                    qty: dec(2),
+                    lot_code: None,
+                    expires_at: None,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(partial.purchase.status, "PARCIAL");
+
+    // Idempotencia: enviar misma recepción devuelve el detalle sin duplicar
+    let idem = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        p_order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: rec1_id,
+            items: vec![
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_iva.id,
+                    qty: dec(4),
+                    lot_code: None,
+                    expires_at: None,
+                },
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_inc.id,
+                    qty: dec(2),
+                    lot_code: None,
+                    expires_at: None,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(idem.purchase.status, "PARCIAL");
+
+    let stock_iva = crate::inventory::available(app, &c_owner, branch, p_iva)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_iva.normalize(), dec(4));
+
+    // Segunda recepción con el remanente (6 de p_iva, 3 de p_inc, 2 de p_gift)
+    let rec2_id = Uuid::new_v4();
+    let total_rec = crate::procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        p_order_id,
+        crate::procurement::ReceivePurchaseRequest {
+            id: rec2_id,
+            items: vec![
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_iva.id,
+                    qty: dec(6),
+                    lot_code: None,
+                    expires_at: None,
+                },
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_inc.id,
+                    qty: dec(3),
+                    lot_code: None,
+                    expires_at: None,
+                },
+                crate::procurement::ReceiveItemInput {
+                    purchase_item_id: it_gift.id,
+                    qty: dec(2),
+                    lot_code: None,
+                    expires_at: None,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(total_rec.purchase.status, "RECIBIDA");
+
+    let stock_iva_full = crate::inventory::available(app, &c_owner, branch, p_iva)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_iva_full.normalize(), dec(10));
+    let stock_inc_full = crate::inventory::available(app, &c_owner, branch, p_inc)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_inc_full.normalize(), dec(5));
+    let stock_gift_full = crate::inventory::available(app, &c_owner, branch, p_gift)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stock_gift_full.normalize(), dec(2));
+
+    let price_iva: Option<Decimal> = sqlx::query_scalar(
+        "select price from branch_products where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(p_iva)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(price_iva.map(|p| p.normalize()), Some(dec(150)));
+
+    // 5. Test con iva_responsible = false en otro tenant: el IVA sí entra al costo
+    let tenant_no_iva = seed_tenant(admin).await;
+    let owner_no_iva = seed_user(admin).await;
+    seed_membership(admin, tenant_no_iva, None, owner_no_iva, "DUENO").await;
+    let branch_no_iva = seed_branch(admin, tenant_no_iva).await;
+    let c_no_iva = claims(owner_no_iva, Some(tenant_no_iva), Some(branch_no_iva));
+
+    sqlx::query("update tenants set iva_responsible = false where id = $1")
+        .bind(tenant_no_iva)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let sup_no_iva = crate::procurement::create_supplier(
+        app,
+        &c_no_iva,
+        crate::procurement::CreateSupplierRequest {
+            name: "Sup No IVA".into(),
+            tax_id: Some("800197268".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let p_iva_2 = seed_product(
+        admin,
+        tenant_no_iva,
+        "Prod IVA 2",
+        "UND",
+        Some("IVA19"),
+        false,
+    )
+    .await;
+    let p_order_2 = Uuid::new_v4();
+    let created_no_iva = crate::procurement::create_purchase(
+        app,
+        &c_no_iva,
+        crate::procurement::CreatePurchaseRequest {
+            id: p_order_2,
+            branch_id: branch_no_iva,
+            supplier_id: sup_no_iva.id,
+            location_id: None,
+            expected_at: None,
+            document_number: Some("FAC-NO-IVA".into()),
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: Some(Decimal::ZERO),
+            freight_amount: Some(Decimal::ZERO),
+            freight_mode: Some("PRORRATEAR".into()),
+            payment_terms: None,
+            credit_days: None,
+            iva_to_cost: None,
+            items: vec![crate::procurement::PurchaseItemRequest {
+                product_id: p_iva_2,
+                qty: dec(10),
+                unit_cost: dec(100),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(created_no_iva.purchase.iva_to_cost);
+    assert_eq!(
+        created_no_iva.items[0].landed_unit_cost,
+        Some(Decimal::from_str("119.0000").unwrap())
+    );
+
+    cleanup(admin, tenant, &[owner]).await;
+    cleanup(admin, tenant_no_iva, &[owner_no_iva]).await;
 }

@@ -13,6 +13,7 @@ pub mod money;
 pub mod options;
 mod orders;
 pub mod outbox;
+pub mod payables;
 pub mod permissions;
 pub mod pricing;
 mod procurement;

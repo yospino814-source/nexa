@@ -13,6 +13,7 @@
 //! - Solo desde `PENDIENTE` (desde `RECIBIDA` da 409).
 //! - Pasa a `ANULADA`.
 
+use axum::http::StatusCode;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ use uuid::Uuid;
 use crate::auth::Claims;
 use crate::error::{ApiError, DomainError, state, validation};
 use crate::tenancy::{self, Action, Scope};
-use crate::{catalog, inventory};
+use crate::{audit, catalog, inventory, money, payables, pricing, sequences};
 
 type Tx<'a> = Transaction<'a, Postgres>;
 
@@ -828,26 +829,138 @@ pub async fn set_supplier_products_tx(
 // ============================================================
 // Compras
 // ============================================================
+// COMPRAS V2 (F2.12)
+// ============================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PurchaseItemRequest {
     pub product_id: Uuid,
     pub qty: Decimal,
     pub unit_cost: Decimal,
+    #[serde(default)]
+    pub new_sale_price: Option<Decimal>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreatePurchaseRequest {
     pub id: Uuid,
     pub branch_id: Uuid,
     pub supplier_id: Uuid,
+    #[serde(default)]
+    pub location_id: Option<Uuid>,
+    #[serde(default)]
+    pub expected_at: Option<NaiveDate>,
     #[serde(default)]
     pub document_number: Option<String>,
     #[serde(default)]
     pub supplier_invoice_date: Option<NaiveDate>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub discount_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_mode: Option<String>,
+    #[serde(default)]
+    pub payment_terms: Option<String>,
+    #[serde(default)]
+    pub credit_days: Option<i32>,
+    #[serde(default)]
+    pub iva_to_cost: Option<bool>,
     pub items: Vec<PurchaseItemRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdatePurchaseRequest {
+    pub branch_id: Uuid,
+    pub supplier_id: Uuid,
+    #[serde(default)]
+    pub location_id: Option<Uuid>,
+    #[serde(default)]
+    pub expected_at: Option<NaiveDate>,
+    #[serde(default)]
+    pub document_number: Option<String>,
+    #[serde(default)]
+    pub supplier_invoice_date: Option<NaiveDate>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub discount_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_mode: Option<String>,
+    #[serde(default)]
+    pub payment_terms: Option<String>,
+    #[serde(default)]
+    pub credit_days: Option<i32>,
+    #[serde(default)]
+    pub iva_to_cost: Option<bool>,
+    pub items: Vec<PurchaseItemRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceiveItemInput {
+    pub purchase_item_id: Uuid,
+    pub qty: Decimal,
+    #[serde(default)]
+    pub lot_code: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<NaiveDate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceivePurchaseRequest {
+    pub id: Uuid,
+    pub items: Vec<ReceiveItemInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostPreviewRequest {
+    pub branch_id: Uuid,
+    pub supplier_id: Uuid,
+    #[serde(default)]
+    pub discount_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_amount: Option<Decimal>,
+    #[serde(default)]
+    pub freight_mode: Option<String>,
+    #[serde(default)]
+    pub iva_to_cost: Option<bool>,
+    pub items: Vec<PurchaseItemRequest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CostLineResponse {
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub qty: Decimal,
+    pub unit_cost: Decimal,
+    pub gross: Decimal,
+    pub discount_alloc: Decimal,
+    pub net: Decimal,
+    pub freight_alloc: Decimal,
+    pub tax_amount: Decimal,
+    pub landed_unit_cost: Decimal,
+    pub current_sale_price: Option<Decimal>,
+    pub new_sale_price: Option<Decimal>,
+    pub current_margin: Option<Decimal>,
+    pub new_margin: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CostPreviewResponse {
+    pub subtotal: Decimal,
+    pub discount_amount: Decimal,
+    pub freight_amount: Decimal,
+    pub freight_mode: String,
+    pub tax_amount: Decimal,
+    pub total_amount: Decimal,
+    pub iva_to_cost: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    pub lines: Vec<CostLineResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -856,14 +969,24 @@ pub struct PurchaseRow {
     pub branch_id: Uuid,
     pub supplier_id: Uuid,
     pub supplier_name: String,
+    pub location_id: Uuid,
+    pub expected_at: Option<NaiveDate>,
     pub document_number: Option<String>,
     pub supplier_invoice_date: Option<NaiveDate>,
     pub status: String,
     pub subtotal: Decimal,
+    pub discount_amount: Decimal,
+    pub freight_amount: Decimal,
+    pub freight_mode: String,
+    pub payment_terms: String,
+    pub credit_days: i32,
+    pub iva_to_cost: bool,
     pub tax_amount: Decimal,
     pub total_amount: Decimal,
     pub items_count: i64,
     pub received_at: Option<DateTime<Utc>>,
+    pub approved_by: Option<Uuid>,
+    pub approved_at: Option<DateTime<Utc>>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -874,11 +997,20 @@ pub struct PurchaseItemDetail {
     pub product_id: Uuid,
     pub product_name: String,
     pub sku: Option<String>,
+    pub barcode: Option<String>,
+    pub purchase_unit: Option<String>,
+    pub purchase_factor: Decimal,
     pub qty: Decimal,
+    pub qty_received: Decimal,
     pub unit_cost: Decimal,
     pub line_total: Decimal,
+    pub discount_alloc: Decimal,
+    pub freight_alloc: Decimal,
     pub tax_code: Option<String>,
     pub tax_rate: Option<Decimal>,
+    pub tax_amount: Decimal,
+    pub landed_unit_cost: Option<Decimal>,
+    pub new_sale_price: Option<Decimal>,
     pub notes: Option<String>,
 }
 
@@ -887,6 +1019,8 @@ pub struct PurchaseDetail {
     #[serde(flatten)]
     pub purchase: PurchaseRow,
     pub items: Vec<PurchaseItemDetail>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -905,13 +1039,135 @@ pub struct PurchaseFilter {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CostLineInput {
+    pub product_id: Uuid,
+    pub qty: Decimal,
+    pub unit_cost: Decimal,
+    pub tax_rate: Decimal,
+    pub is_inc: bool,
+    pub purchase_factor: Decimal,
+    pub new_sale_price: Option<Decimal>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CostLine {
+    pub product_id: Uuid,
+    pub qty: Decimal,
+    pub unit_cost: Decimal,
+    pub gross: Decimal,
+    pub discount_alloc: Decimal,
+    pub net: Decimal,
+    pub freight_alloc: Decimal,
+    pub tax_amount: Decimal,
+    pub landed_unit_cost: Decimal,
+    pub new_sale_price: Option<Decimal>,
+}
+
+/// Función pura de costeo de la orden (F2.12).
+pub fn cost_lines(
+    lines: &[CostLineInput],
+    discount: Decimal,
+    freight: Decimal,
+    freight_mode: &str,
+    iva_to_cost: bool,
+) -> Vec<CostLine> {
+    if lines.is_empty() {
+        return Vec::new();
+    }
+
+    // 1. gross_i = money(qty_i * unit_cost_i)
+    let gross_vec: Vec<Decimal> = lines
+        .iter()
+        .map(|l| money::money(l.qty * l.unit_cost))
+        .collect();
+
+    // 2. Descuento global: repartido con pricing::allocate(discount, pesos = gross_i).
+    // Las líneas con unit_cost = 0 (obsequios) tienen peso 0.
+    let disc_weights: Vec<Decimal> = lines
+        .iter()
+        .zip(gross_vec.iter())
+        .map(|(l, &g)| {
+            if l.unit_cost <= Decimal::ZERO {
+                Decimal::ZERO
+            } else {
+                g
+            }
+        })
+        .collect();
+    let disc_allocs = pricing::allocate(discount, &disc_weights);
+    let net_vec: Vec<Decimal> = gross_vec
+        .iter()
+        .zip(disc_allocs.iter())
+        .map(|(&g, &d)| (g - d).max(Decimal::ZERO))
+        .collect();
+
+    // 3. Flete:
+    // con PRORRATEAR: allocate(freight, pesos = net_i); si Σ net_i == 0, los pesos son qty_i.
+    // con GASTO: freight_i = 0.
+    let freight_allocs = if freight_mode == "PRORRATEAR" {
+        let net_sum: Decimal = net_vec.iter().copied().sum();
+        let freight_weights: Vec<Decimal> = if net_sum > Decimal::ZERO {
+            net_vec.clone()
+        } else {
+            lines.iter().map(|l| l.qty).collect()
+        };
+        pricing::allocate(freight, &freight_weights)
+    } else {
+        vec![Decimal::ZERO; lines.len()]
+    };
+
+    // 4. Impuesto: tax_i = money(net_i * rate_i).
+    // 5. Al costo: cost_base_i = net_i + freight_i + (tax_i si inc_i o iva_to_cost; si no, 0).
+    // 6. landed_unit_cost_i = cost_base_i / (qty_i * purchase_factor_i), redondeado a 4 decimales.
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let gross = gross_vec[i];
+            let disc = disc_allocs[i];
+            let net = net_vec[i];
+            let f_alloc = freight_allocs[i];
+            let tax = money::money(net * l.tax_rate);
+            let tax_to_cost = if l.is_inc || iva_to_cost {
+                tax
+            } else {
+                Decimal::ZERO
+            };
+            let cost_base = net + f_alloc + tax_to_cost;
+            let total_inv_units = l.qty * l.purchase_factor;
+            let landed_unit_cost = if total_inv_units > Decimal::ZERO {
+                (cost_base / total_inv_units).round_dp(4)
+            } else {
+                Decimal::ZERO
+            };
+
+            CostLine {
+                product_id: l.product_id,
+                qty: l.qty,
+                unit_cost: l.unit_cost,
+                gross,
+                discount_alloc: disc,
+                net,
+                freight_alloc: f_alloc,
+                tax_amount: tax,
+                landed_unit_cost,
+                new_sale_price: l.new_sale_price,
+            }
+        })
+        .collect()
+}
+
 const PURCHASE_SELECT: &str = r#"
 select pr.id, pr.branch_id, pr.supplier_id, s.name as supplier_name,
+       pr.location_id, pr.expected_at,
        pr.document_number, pr.supplier_invoice_date,
        tm.tima_codigo as status,
-       pr.subtotal, pr.tax_amount, pr.total_amount,
+       pr.subtotal, pr.discount_amount, pr.freight_amount, pr.freight_mode,
+       pr.payment_terms, pr.credit_days, pr.iva_to_cost,
+       pr.tax_amount, pr.total_amount,
        count(pri.id) as items_count,
-       pr.received_at, pr.notes, pr.created_at
+       pr.received_at, pr.approved_by, pr.approved_at, pr.notes, pr.created_at
   from purchase_receipts pr
   join suppliers s on s.id = pr.supplier_id
   join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
@@ -935,14 +1191,20 @@ pub async fn get_purchase_detail_tx(
 
     let items = sqlx::query_as::<_, PurchaseItemDetail>(
         r#"
-        select pri.id, pri.product_id, p.name as product_name, p.sku,
-               pri.qty, pri.unit_cost, pri.line_total,
+        select pri.id, pri.product_id, p.name as product_name, p.sku, p.barcode,
+               puom.tima_codigo as purchase_unit, p.purchase_factor,
+               pri.qty, pri.qty_received, pri.unit_cost, pri.line_total,
+               pri.discount_alloc, pri.freight_alloc,
                tx.tima_codigo as tax_code,
                null::numeric as tax_rate,
+               pri.tax_amount,
+               pri.landed_unit_cost,
+               pri.new_sale_price,
                pri.notes
           from purchase_receipt_items pri
           join products p on p.id = pri.product_id
           left join tbl_tipos_maestra tx on tx.tima_id = pri.tax_type_id
+          left join tbl_tipos_maestra puom on puom.tima_id = p.purchase_uom_id
          where pri.purchase_receipt_id = $1
          order by p.name
         "#,
@@ -959,7 +1221,11 @@ pub async fn get_purchase_detail_tx(
         })
         .collect();
 
-    Ok(PurchaseDetail { purchase, items })
+    Ok(PurchaseDetail {
+        purchase,
+        items,
+        warnings: vec![],
+    })
 }
 
 pub async fn get_purchase(
@@ -972,6 +1238,220 @@ pub async fn get_purchase(
     let detail = get_purchase_detail_tx(&mut tx, &scope, id).await?;
     tx.commit().await?;
     Ok(detail)
+}
+
+#[derive(sqlx::FromRow)]
+#[allow(dead_code)]
+struct ValidatedProduct {
+    id: Uuid,
+    name: String,
+    usage: String,
+    is_composed: bool,
+    purchase_factor: Decimal,
+    track_lots: bool,
+    tax_code: Option<String>,
+    tax_type_id: Option<i32>,
+    variants_count: i64,
+}
+
+async fn validate_products_for_purchase(
+    tx: &mut Tx<'_>,
+    tenant_id: Uuid,
+    product_ids: &[Uuid],
+) -> Result<Vec<ValidatedProduct>, ApiError> {
+    let prods = sqlx::query_as::<_, ValidatedProduct>(
+        r#"
+        select p.id, p.name, p.usage, p.is_composed, p.purchase_factor, p.track_lots,
+               tx.tima_codigo as tax_code, p.tax_type_id,
+               (select count(*) from products var where var.parent_id = p.id) as variants_count
+          from products p
+          left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
+         where p.id = any($1) and p.tenant_id = $2
+        "#,
+    )
+    .bind(product_ids)
+    .bind(tenant_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if prods.len() != product_ids.len() {
+        return Err(validation(
+            "PURCHASE_INVALID: Uno o más productos no existen en el tenant.",
+        ));
+    }
+
+    for p in &prods {
+        if p.usage != "VENTA" && p.usage != "INSUMO" {
+            return Err(validation(format!(
+                "PURCHASE_INVALID: El producto {} tiene uso {}, solo se permite VENTA o INSUMO.",
+                p.name, p.usage
+            )));
+        }
+        if p.variants_count > 0 {
+            return Err(validation(format!(
+                "PURCHASE_INVALID: El producto {} es un producto padre con variantes.",
+                p.name
+            )));
+        }
+        if p.is_composed {
+            return Err(validation(format!(
+                "PURCHASE_INVALID: El producto {} es compuesto y no se puede comprar directamente.",
+                p.name
+            )));
+        }
+    }
+
+    Ok(prods)
+}
+
+pub async fn cost_preview(
+    pool: &PgPool,
+    claims: &Claims,
+    req: CostPreviewRequest,
+) -> Result<CostPreviewResponse, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    scope.require(Action::ManageInventory)?;
+    let resp = cost_preview_tx(&mut tx, &scope, req).await?;
+    tx.commit().await?;
+    Ok(resp)
+}
+
+pub async fn cost_preview_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    req: CostPreviewRequest,
+) -> Result<CostPreviewResponse, ApiError> {
+    if req.items.is_empty() {
+        return Err(validation("items cannot be empty"));
+    }
+    for item in &req.items {
+        if item.qty <= Decimal::ZERO {
+            return Err(validation("qty must be > 0"));
+        }
+        if item.unit_cost < Decimal::ZERO {
+            return Err(validation("unit_cost must be >= 0"));
+        }
+    }
+
+    let product_ids: Vec<Uuid> = req.items.iter().map(|i| i.product_id).collect();
+    let prods = validate_products_for_purchase(tx, scope.tenant, &product_ids).await?;
+
+    let (iva_to_cost, warnings) = match req.iva_to_cost {
+        Some(v) => (v, vec![]),
+        None => {
+            let resp: Option<Option<bool>> =
+                sqlx::query_scalar("select iva_responsible from tenants where id = $1")
+                    .bind(scope.tenant)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            match resp.flatten() {
+                Some(true) => (false, vec![]),
+                Some(false) => (true, vec![]),
+                None => (true, vec!["IVA_REGIME_UNKNOWN".to_string()]),
+            }
+        }
+    };
+
+    let discount = req
+        .discount_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight = req
+        .freight_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight_mode = req
+        .freight_mode
+        .as_ref()
+        .map(|m| m.trim().to_uppercase())
+        .filter(|m| m == "GASTO" || m == "PRORRATEAR")
+        .unwrap_or_else(|| "PRORRATEAR".to_string());
+
+    let cost_inputs: Vec<CostLineInput> = req
+        .items
+        .iter()
+        .map(|it| {
+            let p = prods.iter().find(|p| p.id == it.product_id).unwrap();
+            let tax_rate = catalog::tax_rate_for(p.tax_code.as_deref()).unwrap_or(Decimal::ZERO);
+            let is_inc = p.tax_code.as_deref() == Some("INC8");
+            CostLineInput {
+                product_id: it.product_id,
+                qty: it.qty,
+                unit_cost: it.unit_cost,
+                tax_rate,
+                is_inc,
+                purchase_factor: p.purchase_factor,
+                new_sale_price: it.new_sale_price,
+            }
+        })
+        .collect();
+
+    let calculated = cost_lines(&cost_inputs, discount, freight, &freight_mode, iva_to_cost);
+
+    #[derive(sqlx::FromRow)]
+    struct BranchPrice {
+        product_id: Uuid,
+        price: Decimal,
+    }
+    let prices = sqlx::query_as::<_, BranchPrice>(
+        "select product_id, price from branch_products where tenant_id = $1 and branch_id = $2 and product_id = any($3)",
+    )
+    .bind(scope.tenant)
+    .bind(req.branch_id)
+    .bind(&product_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let lines: Vec<CostLineResponse> = calculated
+        .into_iter()
+        .map(|cl| {
+            let p = prods.iter().find(|p| p.id == cl.product_id).unwrap();
+            let current_price = prices
+                .iter()
+                .find(|pr| pr.product_id == cl.product_id)
+                .map(|pr| pr.price);
+            let current_margin = current_price
+                .filter(|&cp| cp > Decimal::ZERO)
+                .map(|cp| ((cp - cl.landed_unit_cost) / cp * Decimal::from(100)).round_dp(2));
+            let new_margin = cl
+                .new_sale_price
+                .filter(|&np| np > Decimal::ZERO)
+                .map(|np| ((np - cl.landed_unit_cost) / np * Decimal::from(100)).round_dp(2));
+
+            CostLineResponse {
+                product_id: cl.product_id,
+                product_name: p.name.clone(),
+                qty: cl.qty,
+                unit_cost: cl.unit_cost,
+                gross: cl.gross,
+                discount_alloc: cl.discount_alloc,
+                net: cl.net,
+                freight_alloc: cl.freight_alloc,
+                tax_amount: cl.tax_amount,
+                landed_unit_cost: cl.landed_unit_cost,
+                current_sale_price: current_price,
+                new_sale_price: cl.new_sale_price,
+                current_margin,
+                new_margin,
+            }
+        })
+        .collect();
+
+    let subtotal: Decimal = lines.iter().map(|l| l.net).sum();
+    let tax_amount: Decimal = lines.iter().map(|l| l.tax_amount).sum();
+    let total_amount = subtotal + tax_amount + freight;
+
+    Ok(CostPreviewResponse {
+        subtotal,
+        discount_amount: discount,
+        freight_amount: freight,
+        freight_mode,
+        tax_amount,
+        total_amount,
+        iva_to_cost,
+        warnings,
+        lines,
+    })
 }
 
 pub async fn create_purchase(
@@ -1006,74 +1486,102 @@ pub async fn create_purchase_tx(
         }
     }
 
-    let supplier_exists: bool = sqlx::query_scalar(
-        "select exists(select 1 from suppliers where id = $1 and tenant_id = $2)",
+    #[derive(sqlx::FromRow)]
+    struct SupplierTerms {
+        payment_terms: String,
+        credit_days: i32,
+    }
+    let sup: Option<SupplierTerms> = sqlx::query_as(
+        "select payment_terms, credit_days from suppliers where id = $1 and tenant_id = $2",
     )
     .bind(req.supplier_id)
     .bind(scope.tenant)
-    .fetch_one(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await?;
-    if !supplier_exists {
-        return Err(ApiError::Domain(DomainError::NotFound));
-    }
+    let sup = sup.ok_or(ApiError::Domain(DomainError::NotFound))?;
 
     let product_ids: Vec<Uuid> = req.items.iter().map(|i| i.product_id).collect();
-    #[derive(sqlx::FromRow)]
-    struct ProdInfo {
-        id: Uuid,
-        is_composed: bool,
-        tax_code: Option<String>,
-        tax_type_id: Option<i32>,
-    }
-    let prods = sqlx::query_as::<_, ProdInfo>(
-        "select p.id, p.is_composed, tx.tima_codigo as tax_code, p.tax_type_id
-           from products p
-           left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
-          where p.id = any($1) and p.tenant_id = $2",
-    )
-    .bind(&product_ids)
-    .bind(scope.tenant)
-    .fetch_all(&mut **tx)
-    .await?;
+    let prods = validate_products_for_purchase(tx, scope.tenant, &product_ids).await?;
 
-    if prods.len() != product_ids.len() {
-        return Err(validation(
-            "one or more products do not exist in this tenant",
-        ));
-    }
-    for p in &prods {
-        if p.is_composed {
-            return Err(validation(format!(
-                "composed product {} cannot be purchased directly",
-                p.id
-            )));
+    let location_id = match req.location_id {
+        Some(lid) => lid,
+        None => crate::locations::default_location_id_tx(tx, req.branch_id).await?,
+    };
+
+    let payment_terms = req
+        .payment_terms
+        .as_ref()
+        .map(|t| t.trim().to_uppercase())
+        .filter(|t| t == "CONTADO" || t == "CREDITO")
+        .unwrap_or(sup.payment_terms);
+
+    let credit_days = req.credit_days.unwrap_or(sup.credit_days).max(0);
+
+    let (iva_to_cost, warnings) = match req.iva_to_cost {
+        Some(v) => (v, vec![]),
+        None => {
+            let resp: Option<Option<bool>> =
+                sqlx::query_scalar("select iva_responsible from tenants where id = $1")
+                    .bind(scope.tenant)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            match resp.flatten() {
+                Some(true) => (false, vec![]),
+                Some(false) => (true, vec![]),
+                None => (true, vec!["IVA_REGIME_UNKNOWN".to_string()]),
+            }
         }
-    }
+    };
 
-    let loc_id = crate::locations::default_location_id_tx(tx, req.branch_id).await?;
+    let discount = req
+        .discount_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight = req
+        .freight_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight_mode = req
+        .freight_mode
+        .as_ref()
+        .map(|m| m.trim().to_uppercase())
+        .filter(|m| m == "GASTO" || m == "PRORRATEAR")
+        .unwrap_or_else(|| "PRORRATEAR".to_string());
+
     let body = serde_json::to_value(&req).map_err(anyhow::Error::from)?;
     let claimed: Option<Uuid> = sqlx::query_scalar(
-        "insert into purchase_receipts (
+        r#"
+        insert into purchase_receipts (
            id, tenant_id, branch_id, location_id, supplier_id, status_id,
-           document_number, supplier_invoice_date, notes, client_request,
+           expected_at, document_number, supplier_invoice_date, notes, client_request,
+           discount_amount, freight_amount, freight_mode, payment_terms, credit_days, iva_to_cost,
            subtotal, tax_amount, total_amount, created_by
-         ) values (
+        ) values (
            $1, $2, $3, $4, $5, public.tipo_id('PUR', 'PENDIENTE'),
-           $6, $7, $8, $9,
-           0, 0, 0, $10
-         )
-         on conflict (id) do nothing
-         returning id",
+           $6, $7, $8, $9, $10,
+           $11, $12, $13, $14, $15, $16,
+           0, 0, 0, $17
+        )
+        on conflict (id) do nothing
+        returning id
+        "#,
     )
     .bind(req.id)
     .bind(scope.tenant)
     .bind(req.branch_id)
-    .bind(loc_id)
+    .bind(location_id)
     .bind(req.supplier_id)
+    .bind(req.expected_at)
     .bind(clean_opt(req.document_number.clone()))
     .bind(req.supplier_invoice_date)
     .bind(clean_opt(req.notes.clone()))
     .bind(&body)
+    .bind(discount)
+    .bind(freight)
+    .bind(&freight_mode)
+    .bind(&payment_terms)
+    .bind(credit_days)
+    .bind(iva_to_cost)
     .bind(scope.user)
     .fetch_optional(&mut **tx)
     .await?;
@@ -1088,44 +1596,74 @@ pub async fn create_purchase_tx(
             Some(Some(previous)) if previous == body => {
                 get_purchase_detail_tx(tx, scope, req.id).await
             }
-            _ => Err(state("purchase id already used with a different request")),
+            _ => Err(crate::error::coded(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                "purchase id already used with a different request",
+                None,
+            )),
         };
     }
 
-    let mut subtotal = Decimal::ZERO;
-    let mut tax_amount = Decimal::ZERO;
+    let cost_inputs: Vec<CostLineInput> = req
+        .items
+        .iter()
+        .map(|it| {
+            let p = prods.iter().find(|p| p.id == it.product_id).unwrap();
+            let tax_rate = catalog::tax_rate_for(p.tax_code.as_deref()).unwrap_or(Decimal::ZERO);
+            let is_inc = p.tax_code.as_deref() == Some("INC8");
+            CostLineInput {
+                product_id: it.product_id,
+                qty: it.qty,
+                unit_cost: it.unit_cost,
+                tax_rate,
+                is_inc,
+                purchase_factor: p.purchase_factor,
+                new_sale_price: it.new_sale_price,
+            }
+        })
+        .collect();
 
-    for item in &req.items {
-        let p_info = prods.iter().find(|p| p.id == item.product_id).unwrap();
-        let line_subtotal = item.qty * item.unit_cost;
-        let tax_rate = catalog::tax_rate_for(p_info.tax_code.as_deref()).unwrap_or(Decimal::ZERO);
-        let line_tax = line_subtotal * tax_rate;
-        subtotal += line_subtotal;
-        tax_amount += line_tax;
+    let calculated = cost_lines(&cost_inputs, discount, freight, &freight_mode, iva_to_cost);
 
+    for cl in &calculated {
+        let p_info = prods.iter().find(|p| p.id == cl.product_id).unwrap();
         sqlx::query(
-            "insert into purchase_receipt_items
-               (tenant_id, branch_id, purchase_receipt_id, product_id, qty, unit_cost, tax_type_id)
-             values ($1, $2, $3, $4, $5, $6, $7)",
+            r#"
+            insert into purchase_receipt_items
+               (tenant_id, branch_id, purchase_receipt_id, product_id, qty, unit_cost,
+                discount_alloc, freight_alloc, tax_amount, landed_unit_cost, new_sale_price, tax_type_id)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
         )
         .bind(scope.tenant)
         .bind(req.branch_id)
         .bind(req.id)
-        .bind(item.product_id)
-        .bind(item.qty)
-        .bind(item.unit_cost)
+        .bind(cl.product_id)
+        .bind(cl.qty)
+        .bind(cl.unit_cost)
+        .bind(cl.discount_alloc)
+        .bind(cl.freight_alloc)
+        .bind(cl.tax_amount)
+        .bind(cl.landed_unit_cost)
+        .bind(cl.new_sale_price)
         .bind(p_info.tax_type_id)
         .execute(&mut **tx)
         .await?;
     }
 
-    let total_amount = subtotal + tax_amount;
+    let subtotal: Decimal = calculated.iter().map(|l| l.net).sum();
+    let tax_amount: Decimal = calculated.iter().map(|l| l.tax_amount).sum();
+    let total_amount = subtotal + tax_amount + freight;
+
     sqlx::query(
-        "update purchase_receipts
-            set subtotal = $2,
-                tax_amount = $3,
-                total_amount = $4
-          where id = $1",
+        r#"
+        update purchase_receipts
+           set subtotal = $2,
+               tax_amount = $3,
+               total_amount = $4
+         where id = $1
+        "#,
     )
     .bind(req.id)
     .bind(subtotal)
@@ -1134,7 +1672,305 @@ pub async fn create_purchase_tx(
     .execute(&mut **tx)
     .await?;
 
-    get_purchase_detail_tx(tx, scope, req.id).await
+    let mut detail = get_purchase_detail_tx(tx, scope, req.id).await?;
+    detail.warnings = warnings;
+    Ok(detail)
+}
+
+pub async fn update_purchase(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+    req: UpdatePurchaseRequest,
+) -> Result<PurchaseDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    scope.require(Action::ManageInventory)?;
+    let detail = update_purchase_tx(&mut tx, &scope, id, req).await?;
+    tx.commit().await?;
+    Ok(detail)
+}
+
+pub async fn update_purchase_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    id: Uuid,
+    req: UpdatePurchaseRequest,
+) -> Result<PurchaseDetail, ApiError> {
+    scope.require(Action::ManageInventory)?;
+
+    let current: Option<(Uuid, String)> = sqlx::query_as(
+        "select pr.id, tm.tima_codigo as status
+           from purchase_receipts pr
+           join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
+          where pr.id = $1 and pr.tenant_id = $2
+            for update of pr",
+    )
+    .bind(id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let (_id, status) = current.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    if status != "PENDIENTE" {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "PURCHASE_INVALID_STATE",
+            format!("Solo se pueden editar compras en estado PENDIENTE (actual: {status})."),
+            Some(serde_json::json!({ "status": status })),
+        ));
+    }
+
+    if req.items.is_empty() {
+        return Err(validation("purchase has no items"));
+    }
+    for item in &req.items {
+        if item.qty <= Decimal::ZERO {
+            return Err(validation("qty must be > 0"));
+        }
+        if item.unit_cost < Decimal::ZERO {
+            return Err(validation("unit_cost must be >= 0"));
+        }
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct SupplierTerms {
+        payment_terms: String,
+        credit_days: i32,
+    }
+    let sup: Option<SupplierTerms> = sqlx::query_as(
+        "select payment_terms, credit_days from suppliers where id = $1 and tenant_id = $2",
+    )
+    .bind(req.supplier_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let sup = sup.ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    let product_ids: Vec<Uuid> = req.items.iter().map(|i| i.product_id).collect();
+    let prods = validate_products_for_purchase(tx, scope.tenant, &product_ids).await?;
+
+    let location_id = match req.location_id {
+        Some(lid) => lid,
+        None => crate::locations::default_location_id_tx(tx, req.branch_id).await?,
+    };
+
+    let payment_terms = req
+        .payment_terms
+        .as_ref()
+        .map(|t| t.trim().to_uppercase())
+        .filter(|t| t == "CONTADO" || t == "CREDITO")
+        .unwrap_or(sup.payment_terms);
+
+    let credit_days = req.credit_days.unwrap_or(sup.credit_days).max(0);
+
+    let (iva_to_cost, warnings) = match req.iva_to_cost {
+        Some(v) => (v, vec![]),
+        None => {
+            let resp: Option<Option<bool>> =
+                sqlx::query_scalar("select iva_responsible from tenants where id = $1")
+                    .bind(scope.tenant)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            match resp.flatten() {
+                Some(true) => (false, vec![]),
+                Some(false) => (true, vec![]),
+                None => (true, vec!["IVA_REGIME_UNKNOWN".to_string()]),
+            }
+        }
+    };
+
+    let discount = req
+        .discount_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight = req
+        .freight_amount
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO);
+    let freight_mode = req
+        .freight_mode
+        .as_ref()
+        .map(|m| m.trim().to_uppercase())
+        .filter(|m| m == "GASTO" || m == "PRORRATEAR")
+        .unwrap_or_else(|| "PRORRATEAR".to_string());
+
+    // Eliminar líneas viejas
+    sqlx::query(
+        "delete from purchase_receipt_items where purchase_receipt_id = $1 and tenant_id = $2",
+    )
+    .bind(id)
+    .bind(scope.tenant)
+    .execute(&mut **tx)
+    .await?;
+
+    let cost_inputs: Vec<CostLineInput> = req
+        .items
+        .iter()
+        .map(|it| {
+            let p = prods.iter().find(|p| p.id == it.product_id).unwrap();
+            let tax_rate = catalog::tax_rate_for(p.tax_code.as_deref()).unwrap_or(Decimal::ZERO);
+            let is_inc = p.tax_code.as_deref() == Some("INC8");
+            CostLineInput {
+                product_id: it.product_id,
+                qty: it.qty,
+                unit_cost: it.unit_cost,
+                tax_rate,
+                is_inc,
+                purchase_factor: p.purchase_factor,
+                new_sale_price: it.new_sale_price,
+            }
+        })
+        .collect();
+
+    let calculated = cost_lines(&cost_inputs, discount, freight, &freight_mode, iva_to_cost);
+
+    for cl in &calculated {
+        let p_info = prods.iter().find(|p| p.id == cl.product_id).unwrap();
+        sqlx::query(
+            r#"
+            insert into purchase_receipt_items
+               (tenant_id, branch_id, purchase_receipt_id, product_id, qty, unit_cost,
+                discount_alloc, freight_alloc, tax_amount, landed_unit_cost, new_sale_price, tax_type_id)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+        )
+        .bind(scope.tenant)
+        .bind(req.branch_id)
+        .bind(id)
+        .bind(cl.product_id)
+        .bind(cl.qty)
+        .bind(cl.unit_cost)
+        .bind(cl.discount_alloc)
+        .bind(cl.freight_alloc)
+        .bind(cl.tax_amount)
+        .bind(cl.landed_unit_cost)
+        .bind(cl.new_sale_price)
+        .bind(p_info.tax_type_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    let subtotal: Decimal = calculated.iter().map(|l| l.net).sum();
+    let tax_amount: Decimal = calculated.iter().map(|l| l.tax_amount).sum();
+    let total_amount = subtotal + tax_amount + freight;
+
+    sqlx::query(
+        r#"
+        update purchase_receipts
+           set branch_id = $2,
+               supplier_id = $3,
+               location_id = $4,
+               expected_at = $5,
+               document_number = $6,
+               supplier_invoice_date = $7,
+               notes = $8,
+               discount_amount = $9,
+               freight_amount = $10,
+               freight_mode = $11,
+               payment_terms = $12,
+               credit_days = $13,
+               iva_to_cost = $14,
+               subtotal = $15,
+               tax_amount = $16,
+               total_amount = $17,
+               updated_at = now()
+         where id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(req.branch_id)
+    .bind(req.supplier_id)
+    .bind(location_id)
+    .bind(req.expected_at)
+    .bind(clean_opt(req.document_number))
+    .bind(req.supplier_invoice_date)
+    .bind(clean_opt(req.notes))
+    .bind(discount)
+    .bind(freight)
+    .bind(&freight_mode)
+    .bind(&payment_terms)
+    .bind(credit_days)
+    .bind(iva_to_cost)
+    .bind(subtotal)
+    .bind(tax_amount)
+    .bind(total_amount)
+    .execute(&mut **tx)
+    .await?;
+
+    let mut detail = get_purchase_detail_tx(tx, scope, id).await?;
+    detail.warnings = warnings;
+    Ok(detail)
+}
+
+pub async fn approve_purchase(
+    pool: &PgPool,
+    claims: &Claims,
+    id: Uuid,
+) -> Result<PurchaseDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require(Action::ManageInventory)?;
+    let detail = approve_purchase_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(detail)
+}
+
+pub async fn approve_purchase_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    id: Uuid,
+) -> Result<PurchaseDetail, ApiError> {
+    scope.require(Action::ManageInventory)?;
+
+    let current: Option<(Uuid, String)> = sqlx::query_as(
+        "select pr.id, tm.tima_codigo as status
+           from purchase_receipts pr
+           join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
+          where pr.id = $1 and pr.tenant_id = $2
+            for update of pr",
+    )
+    .bind(id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let (_id, status) = current.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    if status != "PENDIENTE" {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "PURCHASE_INVALID_STATE",
+            format!("No se puede aprobar una orden en estado {status}."),
+            Some(serde_json::json!({ "status": status })),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        update purchase_receipts
+           set status_id = public.tipo_id('PUR', 'APROBADA'),
+               approved_by = $2,
+               approved_at = now(),
+               updated_at = now()
+         where id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(scope.user)
+    .execute(&mut **tx)
+    .await?;
+
+    audit::record_tx(
+        tx,
+        scope,
+        "COMPRA_APROBADA",
+        "purchase_receipts",
+        id,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    get_purchase_detail_tx(tx, scope, id).await
 }
 
 pub async fn receive_purchase(
@@ -1144,31 +1980,15 @@ pub async fn receive_purchase(
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require(Action::ManageInventory)?;
-    let result = receive_purchase_tx(&mut tx, &scope, purchase_id).await?;
-    tx.commit().await?;
-    Ok(result)
-}
 
-pub async fn receive_purchase_tx(
-    tx: &mut Tx<'_>,
-    scope: &Scope,
-    purchase_id: Uuid,
-) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
-
-    let row: Option<(Uuid, Uuid, String, Option<String>)> = sqlx::query_as(
-        "select pr.id, pr.branch_id, tm.tima_codigo as status, pr.document_number
-           from purchase_receipts pr
-           join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
-          where pr.id = $1 and pr.tenant_id = $2
-            for update of pr",
+    let status: String = sqlx::query_scalar(
+        "select tm.tima_codigo from purchase_receipts pr join tbl_tipos_maestra tm on tm.tima_id = pr.status_id where pr.id = $1 and pr.tenant_id = $2"
     )
     .bind(purchase_id)
     .bind(scope.tenant)
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    let (_id, branch_id, status, doc_num) = row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::Domain(DomainError::NotFound))?;
 
     if status == "RECIBIDA" {
         return Err(state("purchase is already received"));
@@ -1176,66 +1996,471 @@ pub async fn receive_purchase_tx(
     if status == "ANULADA" {
         return Err(state("cannot receive a cancelled purchase"));
     }
-    if status != "PENDIENTE" {
-        return Err(state(format!("invalid status {status} for receive")));
+
+    // Compatibilidad Fase 1: si está PENDIENTE, auto-aprobar
+    if status == "PENDIENTE" {
+        approve_purchase_tx(&mut tx, &scope, purchase_id).await?;
     }
 
     #[derive(sqlx::FromRow)]
-    struct ItemToReceive {
-        product_id: Uuid,
-        qty: Decimal,
-        unit_cost: Decimal,
+    struct PendingLine {
+        id: Uuid,
+        pending: Decimal,
     }
-    let items = sqlx::query_as::<_, ItemToReceive>(
-        "select product_id, qty, unit_cost
-           from purchase_receipt_items
-          where purchase_receipt_id = $1
-          order by product_id
-            for update",
+    let pendings = sqlx::query_as::<_, PendingLine>(
+        "select id, (qty - qty_received) as pending from purchase_receipt_items where purchase_receipt_id = $1 and qty > qty_received"
     )
     .bind(purchase_id)
-    .fetch_all(&mut **tx)
+    .fetch_all(&mut *tx)
     .await?;
 
-    let cause = match doc_num.as_deref() {
-        Some(doc) if !doc.trim().is_empty() => format!("Compra {}", doc.trim()),
-        _ => "Compra".to_string(),
+    let req = ReceivePurchaseRequest {
+        id: Uuid::new_v4(),
+        items: pendings
+            .into_iter()
+            .map(|p| ReceiveItemInput {
+                purchase_item_id: p.id,
+                qty: p.pending,
+                lot_code: None,
+                expires_at: None,
+            })
+            .collect(),
     };
 
-    for item in items {
-        inventory::replenish_ref_tx(
+    let res = receive_purchase_tx(&mut tx, &scope, purchase_id, req).await?;
+    tx.commit().await?;
+    Ok(res)
+}
+
+pub async fn receive_purchase_with_req(
+    pool: &PgPool,
+    claims: &Claims,
+    purchase_id: Uuid,
+    req: ReceivePurchaseRequest,
+) -> Result<PurchaseDetail, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require(Action::ManageInventory)?;
+    let res = receive_purchase_tx(&mut tx, &scope, purchase_id, req).await?;
+    tx.commit().await?;
+    Ok(res)
+}
+
+pub async fn receive_purchase_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    purchase_id: Uuid,
+    req: ReceivePurchaseRequest,
+) -> Result<PurchaseDetail, ApiError> {
+    scope.require(Action::ManageInventory)?;
+
+    // 1. Idempotencia por purchase_receptions.id
+    let client_req = serde_json::to_value(&req).map_err(anyhow::Error::from)?;
+    let existing_reception: Option<serde_json::Value> = sqlx::query_scalar(
+        "select client_request from purchase_receptions where id = $1 and tenant_id = $2",
+    )
+    .bind(req.id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some(stored) = existing_reception {
+        if stored != client_req {
+            return Err(crate::error::coded(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                "Idempotency key already used with different payload.",
+                None,
+            ));
+        }
+        return get_purchase_detail_tx(tx, scope, purchase_id).await;
+    }
+
+    // 2. Lock purchase
+    #[derive(sqlx::FromRow)]
+    struct PurchaseLock {
+        branch_id: Uuid,
+        location_id: Uuid,
+        supplier_id: Uuid,
+        status: String,
+        document_number: Option<String>,
+        freight_mode: String,
+        freight_amount: Decimal,
+        received_at: Option<DateTime<Utc>>,
+    }
+
+    let pr = sqlx::query_as::<_, PurchaseLock>(
+        r#"
+        select pr.branch_id, pr.location_id, pr.supplier_id, tm.tima_codigo as status,
+               pr.document_number, pr.freight_mode, pr.freight_amount, pr.received_at
+          from purchase_receipts pr
+          join tbl_tipos_maestra tm on tm.tima_id = pr.status_id
+         where pr.id = $1 and pr.tenant_id = $2
+           for update of pr
+        "#,
+    )
+    .bind(purchase_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::Domain(DomainError::NotFound))?;
+
+    if pr.status != "APROBADA" && pr.status != "PARCIAL" {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "PURCHASE_INVALID_STATE",
+            format!(
+                "Solo se pueden recibir órdenes en estado APROBADA o PARCIAL (actual: {}).",
+                pr.status
+            ),
+            Some(serde_json::json!({ "status": pr.status })),
+        ));
+    }
+
+    if req.items.is_empty() {
+        return Err(validation("Debe indicar al menos un ítem a recibir"));
+    }
+
+    sqlx::query(
+        r#"
+        insert into purchase_receptions (id, tenant_id, branch_id, purchase_id, received_by, received_at, client_request)
+        values ($1, $2, $3, $4, $5, now(), $6)
+        "#,
+    )
+    .bind(req.id)
+    .bind(scope.tenant)
+    .bind(pr.branch_id)
+    .bind(purchase_id)
+    .bind(scope.user)
+    .bind(&client_req)
+    .execute(&mut **tx)
+    .await?;
+
+    let is_first_reception = pr.received_at.is_none();
+    let cause = match pr.document_number.as_deref() {
+        Some(d) if !d.trim().is_empty() => format!("Compra {}", d.trim()),
+        _ => format!("Compra {}", &purchase_id.to_string()[..8]),
+    };
+
+    for item in req.items {
+        if item.qty <= Decimal::ZERO {
+            return Err(validation("qty must be > 0"));
+        }
+
+        #[derive(sqlx::FromRow)]
+        #[allow(dead_code)]
+        struct LineItem {
+            id: Uuid,
+            product_id: Uuid,
+            qty: Decimal,
+            qty_received: Decimal,
+            unit_cost: Decimal,
+            landed_unit_cost: Option<Decimal>,
+            new_sale_price: Option<Decimal>,
+            purchase_factor: Decimal,
+            track_lots: bool,
+        }
+
+        let pri = sqlx::query_as::<_, LineItem>(
+            r#"
+            select pri.id, pri.product_id, pri.qty, pri.qty_received, pri.unit_cost, pri.landed_unit_cost, pri.new_sale_price,
+                   p.purchase_factor, p.track_lots
+              from purchase_receipt_items pri
+              join products p on p.id = pri.product_id
+             where pri.id = $1 and pri.purchase_receipt_id = $2 and pri.tenant_id = $3
+               for update of pri
+            "#,
+        )
+        .bind(item.purchase_item_id)
+        .bind(purchase_id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| validation("purchase_item_id not found in this purchase"))?;
+
+        let pending = pri.qty - pri.qty_received;
+        if item.qty > pending {
+            return Err(crate::error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "RECEIVE_EXCEEDS_PENDING",
+                format!(
+                    "La cantidad a recibir ({}) supera lo pendiente ({})",
+                    item.qty, pending
+                ),
+                Some(serde_json::json!({
+                    "purchase_item_id": item.purchase_item_id,
+                    "pending": pending
+                })),
+            ));
+        }
+
+        // 4. Lotes
+        let mut lot_id = None;
+        if pri.track_lots {
+            let code = item
+                .lot_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|c| !c.is_empty());
+            let exp = item.expires_at;
+            match (code, exp) {
+                (Some(c), Some(e)) if (1..=30).contains(&c.len()) => {
+                    let lid: Uuid = sqlx::query_scalar(
+                        r#"
+                        insert into lots (tenant_id, branch_id, location_id, product_id, code, expires_at, qty)
+                        values ($1, $2, $3, $4, $5, $6, 0)
+                        on conflict (location_id, product_id, code) do update
+                        set expires_at = excluded.expires_at
+                        returning id
+                        "#,
+                    )
+                    .bind(scope.tenant)
+                    .bind(pr.branch_id)
+                    .bind(pr.location_id)
+                    .bind(pri.product_id)
+                    .bind(c)
+                    .bind(e)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    lot_id = Some(lid);
+                }
+                _ => {
+                    return Err(crate::error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "LOT_REQUIRED",
+                        "El producto requiere código de lote (1-30 caracteres) y fecha de vencimiento.",
+                        None,
+                    ));
+                }
+            }
+        }
+
+        // 5. Stock: apply_delta_tx
+        let landed_cost = pri.landed_unit_cost.unwrap_or(Decimal::ZERO);
+        let stock_delta = item.qty * pri.purchase_factor;
+        inventory::apply_delta_tx(
             tx,
             scope,
-            branch_id,
-            item.product_id,
-            item.qty,
-            &cause,
-            Some(("COMPRA", purchase_id)),
-            Some(item.unit_cost),
+            inventory::StockDelta {
+                branch_id: pr.branch_id,
+                location_id: pr.location_id,
+                product_id: pri.product_id,
+                delta: stock_delta,
+                movement: "REPOSICION",
+                unit_cost: Some(landed_cost),
+                lot_id,
+                ref_type: "COMPRA",
+                ref_id: purchase_id,
+                cause: Some(cause.clone()),
+            },
         )
         .await?;
 
+        // 6. Update qty_received and supplier_products.last_cost
         sqlx::query(
-            "update products
-                set cost_price = $1
-              where id = $2 and tenant_id = $3",
+            "update purchase_receipt_items set qty_received = qty_received + $1 where id = $2",
         )
-        .bind(item.unit_cost)
-        .bind(item.product_id)
+        .bind(item.qty)
+        .bind(item.purchase_item_id)
+        .execute(&mut **tx)
+        .await?;
+
+        let supplier_unit_cost = landed_cost * pri.purchase_factor;
+        sqlx::query(
+            r#"
+            insert into supplier_products (tenant_id, supplier_id, product_id, last_cost)
+            values ($1, $2, $3, $4)
+            on conflict (supplier_id, product_id) do update
+            set last_cost = excluded.last_cost
+            "#,
+        )
         .bind(scope.tenant)
+        .bind(pr.supplier_id)
+        .bind(pri.product_id)
+        .bind(supplier_unit_cost)
+        .execute(&mut **tx)
+        .await?;
+
+        // Actualizar cost_price en products con unit_cost (compatibilidad F1 y respaldo)
+        sqlx::query("update products set cost_price = $1 where id = $2 and tenant_id = $3")
+            .bind(pri.unit_cost)
+            .bind(pri.product_id)
+            .bind(scope.tenant)
+            .execute(&mut **tx)
+            .await?;
+
+        // Insert purchase_reception_items
+        sqlx::query(
+            r#"
+            insert into purchase_reception_items (tenant_id, reception_id, purchase_item_id, qty, lot_id)
+            values ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(scope.tenant)
+        .bind(req.id)
+        .bind(item.purchase_item_id)
+        .bind(item.qty)
+        .bind(lot_id)
+        .execute(&mut **tx)
+        .await?;
+
+        // 7. new_sale_price
+        if let Some(nsp) = pri.new_sale_price {
+            sqlx::query(
+                r#"
+                insert into branch_products (tenant_id, branch_id, product_id, price)
+                values ($1, $2, $3, $4)
+                on conflict (branch_id, product_id) do update
+                set price = excluded.price
+                "#,
+            )
+            .bind(scope.tenant)
+            .bind(pr.branch_id)
+            .bind(pri.product_id)
+            .bind(nsp)
+            .execute(&mut **tx)
+            .await?;
+
+            audit::record_tx(
+                tx,
+                scope,
+                "PRECIO_EDITADO",
+                "branch_products",
+                pri.product_id,
+                None,
+                Some(serde_json::json!({
+                    "branch_id": pr.branch_id,
+                    "price": nsp
+                })),
+                None,
+            )
+            .await?;
+        }
+    }
+
+    // 8. Estado final de la orden
+    let pending_count: i64 = sqlx::query_scalar(
+        "select count(*) from purchase_receipt_items where purchase_receipt_id = $1 and qty_received < qty",
+    )
+    .bind(purchase_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let final_status = if pending_count == 0 {
+        "RECIBIDA"
+    } else {
+        "PARCIAL"
+    };
+    sqlx::query(
+        r#"
+        update purchase_receipts
+           set status_id = public.tipo_id('PUR', $1),
+               received_at = coalesce(received_at, now()),
+               updated_at = now()
+         where id = $2
+        "#,
+    )
+    .bind(final_status)
+    .bind(purchase_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // 9. Cuenta por pagar (F2.13)
+    payables::upsert_from_purchase_tx(tx, scope, purchase_id).await?;
+
+    // 10. Gasto por flete si freight_mode = GASTO en la primera recepcion
+    if pr.freight_mode == "GASTO" && pr.freight_amount > Decimal::ZERO && is_first_reception {
+        let cat_id: Uuid = match sqlx::query_scalar(
+            "select id from expense_categories where tenant_id = $1 and lower(name) = 'fletes'",
+        )
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?
+        {
+            Some(cid) => cid,
+            None => {
+                let cid = Uuid::new_v4();
+                sqlx::query(
+                    "insert into expense_categories (id, tenant_id, name, active) values ($1, $2, 'Fletes', true)",
+                )
+                .bind(cid)
+                .bind(scope.tenant)
+                .execute(&mut **tx)
+                .await?;
+                cid
+            }
+        };
+
+        let (prefix, num) = sequences::next_tx(tx, scope, pr.branch_id, "GASTO")
+            .await
+            .unwrap_or_else(|_| ("GAS".into(), 1));
+        let exp_id = Uuid::new_v4();
+        let desc = format!(
+            "Flete compra {}",
+            pr.document_number.as_deref().unwrap_or("")
+        );
+        let today = chrono::Utc::now().date_naive();
+        sqlx::query(
+            r#"
+            insert into expenses (
+                id, tenant_id, branch_id, prefix, number, category_id, supplier_id,
+                description, amount, tax_amount, expense_date, status, created_by, decided_by, decided_at, client_request
+            ) values (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, 0, $10, 'APROBADO', $11, $11, now(), '{}'::jsonb
+            )
+            "#,
+        )
+        .bind(exp_id)
+        .bind(scope.tenant)
+        .bind(pr.branch_id)
+        .bind(&prefix)
+        .bind(num)
+        .bind(cat_id)
+        .bind(pr.supplier_id)
+        .bind(desc.trim())
+        .bind(pr.freight_amount)
+        .bind(today)
+        .bind(scope.user)
+        .execute(&mut **tx)
+        .await?;
+
+        let pay_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            insert into payables (
+                id, tenant_id, branch_id, supplier_id, source_type, source_id,
+                amount_total, amount_paid, status, due_date
+            ) values (
+                $1, $2, $3, $4, 'GASTO', $5,
+                $6, 0, 'ABIERTA', $7
+            )
+            "#,
+        )
+        .bind(pay_id)
+        .bind(scope.tenant)
+        .bind(pr.branch_id)
+        .bind(pr.supplier_id)
+        .bind(exp_id)
+        .bind(pr.freight_amount)
+        .bind(today)
         .execute(&mut **tx)
         .await?;
     }
 
-    sqlx::query(
-        "update purchase_receipts
-            set status_id = public.tipo_id('PUR', 'RECIBIDA'),
-                received_at = now(),
-                updated_at = now()
-          where id = $1",
+    // 11. Auditoria
+    audit::record_tx(
+        tx,
+        scope,
+        "COMPRA_RECIBIDA",
+        "purchase_receipts",
+        purchase_id,
+        None,
+        Some(serde_json::json!({
+            "reception_id": req.id,
+            "status": final_status
+        })),
+        None,
     )
-    .bind(purchase_id)
-    .execute(&mut **tx)
     .await?;
 
     get_purchase_detail_tx(tx, scope, purchase_id).await
@@ -1280,8 +2505,13 @@ pub async fn cancel_purchase_tx(
     if status == "ANULADA" {
         return Err(state("purchase is already cancelled"));
     }
-    if status != "PENDIENTE" {
-        return Err(state(format!("invalid status {status} for cancel")));
+    if status != "PENDIENTE" && status != "APROBADA" {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "PURCHASE_INVALID_STATE",
+            format!("No se puede anular una orden en estado {status}."),
+            Some(serde_json::json!({ "status": status })),
+        ));
     }
 
     sqlx::query(
@@ -1292,6 +2522,18 @@ pub async fn cancel_purchase_tx(
     )
     .bind(purchase_id)
     .execute(&mut **tx)
+    .await?;
+
+    audit::record_tx(
+        tx,
+        scope,
+        "COMPRA_ANULADA",
+        "purchase_receipts",
+        purchase_id,
+        None,
+        None,
+        None,
+    )
     .await?;
 
     get_purchase_detail_tx(tx, scope, purchase_id).await
@@ -1384,5 +2626,68 @@ mod tests {
         assert_eq!(nit_dv("900123456"), 8);
         assert_eq!(nit_dv("800197268"), 4);
         assert_eq!(nit_dv("860001022"), 7);
+    }
+
+    #[test]
+    fn cost_lines_allocation_and_gift_test() {
+        use std::str::FromStr;
+        let lines = vec![
+            CostLineInput {
+                product_id: Uuid::new_v4(),
+                qty: Decimal::from(10),
+                unit_cost: Decimal::from(100),
+                tax_rate: Decimal::from_str("0.19").unwrap(),
+                is_inc: false,
+                purchase_factor: Decimal::ONE,
+                new_sale_price: None,
+            },
+            CostLineInput {
+                product_id: Uuid::new_v4(),
+                qty: Decimal::from(5),
+                unit_cost: Decimal::from(200),
+                tax_rate: Decimal::from_str("0.08").unwrap(),
+                is_inc: true,
+                purchase_factor: Decimal::ONE,
+                new_sale_price: None,
+            },
+            CostLineInput {
+                product_id: Uuid::new_v4(),
+                qty: Decimal::from(2),
+                unit_cost: Decimal::ZERO,
+                tax_rate: Decimal::ZERO,
+                is_inc: false,
+                purchase_factor: Decimal::ONE,
+                new_sale_price: None,
+            },
+        ];
+
+        let discount = Decimal::from(150);
+        let freight = Decimal::from(60);
+
+        let res = cost_lines(&lines, discount, freight, "PRORRATEAR", false);
+        assert_eq!(res.len(), 3);
+        assert_eq!(res[2].discount_alloc, Decimal::ZERO);
+        assert_eq!(res[2].net, Decimal::ZERO);
+
+        let sum_disc: Decimal = res.iter().map(|l| l.discount_alloc).sum();
+        assert_eq!(sum_disc, discount);
+
+        let sum_freight: Decimal = res.iter().map(|l| l.freight_alloc).sum();
+        assert_eq!(sum_freight, freight);
+
+        assert_eq!(
+            res[0].landed_unit_cost,
+            Decimal::from_str("95.5000").unwrap()
+        );
+        assert_eq!(
+            res[1].landed_unit_cost,
+            Decimal::from_str("205.8000").unwrap()
+        );
+
+        let res_iva_cost = cost_lines(&lines, discount, freight, "PRORRATEAR", true);
+        assert_eq!(
+            res_iva_cost[0].landed_unit_cost,
+            Decimal::from_str("113.0750").unwrap()
+        );
     }
 }

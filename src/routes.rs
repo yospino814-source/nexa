@@ -165,7 +165,9 @@ pub fn router() -> Router<AppState> {
         // Compras
         .route("/v1/purchases", get(list_purchases).post(create_purchase))
         .route("/v1/purchases/summary", get(purchases_summary))
-        .route("/v1/purchases/{id}", get(get_purchase))
+        .route("/v1/purchases/cost-preview", post(cost_preview_purchase))
+        .route("/v1/purchases/{id}", get(get_purchase).put(update_purchase))
+        .route("/v1/purchases/{id}/approve", post(approve_purchase))
         .route("/v1/purchases/{id}/receive", post(receive_purchase))
         .route("/v1/purchases/{id}/cancel", post(cancel_purchase))
         // Permisos y roles
@@ -1037,12 +1039,46 @@ async fn get_purchase(
     Ok(Json(detail))
 }
 
-async fn receive_purchase(
+async fn cost_preview_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<procurement::CostPreviewRequest>,
+) -> ApiResult<Json<procurement::CostPreviewResponse>> {
+    let resp = procurement::cost_preview(&state.pool, &user.claims, req).await?;
+    Ok(Json(resp))
+}
+
+async fn update_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<procurement::UpdatePurchaseRequest>,
+) -> ApiResult<Json<procurement::PurchaseDetail>> {
+    let detail = procurement::update_purchase(&state.pool, &user.claims, id, req).await?;
+    Ok(Json(detail))
+}
+
+async fn approve_purchase(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<procurement::PurchaseDetail>> {
-    let detail = procurement::receive_purchase(&state.pool, &user.claims, id).await?;
+    let detail = procurement::approve_purchase(&state.pool, &user.claims, id).await?;
+    Ok(Json(detail))
+}
+
+async fn receive_purchase(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    payload: Option<Json<procurement::ReceivePurchaseRequest>>,
+) -> ApiResult<Json<procurement::PurchaseDetail>> {
+    let detail = match payload {
+        Some(Json(req)) => {
+            procurement::receive_purchase_with_req(&state.pool, &user.claims, id, req).await?
+        }
+        None => procurement::receive_purchase(&state.pool, &user.claims, id).await?,
+    };
     Ok(Json(detail))
 }
 

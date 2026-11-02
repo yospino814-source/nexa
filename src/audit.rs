@@ -33,6 +33,8 @@ pub struct AuditEntry {
 pub struct AuditFilter {
     pub branch_id: Option<Uuid>,
     pub action: Option<String>,
+    pub entity: Option<String>,
+    pub entity_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
@@ -92,8 +94,10 @@ pub async fn list_audit_entries(
             and ($4::uuid is null or a.user_id = $4)
             and ($5::timestamptz is null or a.at >= $5)
             and ($6::timestamptz is null or a.at <= $6)
+            and ($7::text is null or a.entity = $7)
+            and ($8::uuid is null or a.entity_id = $8)
           order by a.at desc
-          limit $7",
+          limit $9",
     )
     .bind(scope.tenant)
     .bind(filter.branch_id)
@@ -101,6 +105,8 @@ pub async fn list_audit_entries(
     .bind(filter.user_id)
     .bind(filter.from)
     .bind(filter.to)
+    .bind(filter.entity)
+    .bind(filter.entity_id)
     .bind(limit)
     .fetch_all(&mut *tx)
     .await?;
