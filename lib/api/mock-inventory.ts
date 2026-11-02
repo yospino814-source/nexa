@@ -234,3 +234,166 @@ export function mockExpiringLots(branchId?: string, days = 30): ExpiringLot[] {
 
   return sampleLots.filter((l) => l.days_until_expiry <= days);
 }
+
+// ---------------------------------------------------------------- AJUSTES DE INVENTARIO (F2.16)
+
+import type {
+  CreateAdjustmentInput,
+  InventoryAdjustment,
+} from "./types";
+
+const mockAdjustmentsData: InventoryAdjustment[] = [
+  {
+    id: "adj-001",
+    branch_id: MOCK_BRANCH_ID,
+    location_id: "loc-001",
+    product_id: mockCatalog[0]?.product_id || "prod-beb-001",
+    product_name: mockCatalog[0]?.name || "Coca-Cola 400 ml",
+    sku: "BEB-001",
+    location_name: "Bodega Principal",
+    lot_id: null,
+    lot_code: null,
+    qty_delta: "-5.0000",
+    reason_code: "PERDIDA",
+    notes: "Pérdida por derrame en mostrador",
+    unit_cost: "2500.0000",
+    value: "12500.00",
+    status: "APLICADO",
+    requested_by: "usr-admin-01",
+    requester_name: "Admin Principal",
+    decided_by: "usr-admin-01",
+    decider_name: "Admin Principal",
+    decided_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+    reject_reason: null,
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+  },
+  {
+    id: "adj-002",
+    branch_id: MOCK_BRANCH_ID,
+    location_id: "loc-001",
+    product_id: mockCatalog[1]?.product_id || "prod-aba-002",
+    product_name: mockCatalog[1]?.name || "Arroz Diana 500 g",
+    sku: "ABA-002",
+    location_name: "Bodega Principal",
+    lot_id: null,
+    lot_code: null,
+    qty_delta: "-80.0000",
+    reason_code: "DANO",
+    notes: "Caja rota durante descarga, supera umbral",
+    unit_cost: "3500.0000",
+    value: "280000.00",
+    status: "PENDIENTE",
+    requested_by: "usr-sup-01",
+    requester_name: "Supervisor Turno",
+    decided_by: null,
+    decider_name: null,
+    decided_at: null,
+    reject_reason: null,
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+  },
+  {
+    id: "adj-003",
+    branch_id: MOCK_BRANCH_ID,
+    location_id: "loc-001",
+    product_id: mockCatalog[2]?.product_id || "prod-lac-003",
+    product_name: mockCatalog[2]?.name || "Leche 1 L",
+    sku: "LAC-003",
+    location_name: "Bodega Principal",
+    lot_id: "lot-001",
+    lot_code: "LOT-2026-088",
+    qty_delta: "-10.0000",
+    reason_code: "VENCIMIENTO",
+    notes: "Baja por fecha de caducidad expirada",
+    unit_cost: "4200.0000",
+    value: "42000.00",
+    status: "APLICADO",
+    requested_by: "usr-admin-01",
+    requester_name: "Admin Principal",
+    decided_by: "usr-admin-01",
+    decider_name: "Admin Principal",
+    decided_at: new Date(Date.now() - 3600000 * 48).toISOString(),
+    reject_reason: null,
+    created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
+  },
+];
+
+export function mockListAdjustments(branchId?: string, status?: string): InventoryAdjustment[] {
+  return mockAdjustmentsData.filter((a) => {
+    if (branchId && a.branch_id !== branchId) return false;
+    if (status && a.status !== status) return false;
+    return true;
+  });
+}
+
+export function mockCreateAdjustment(input: CreateAdjustmentInput): InventoryAdjustment {
+  const prod = mockCatalog.find((p) => p.product_id === input.product_id);
+  const cost = Number(input.unit_cost ?? 2500);
+  const qty = Number(input.qty_delta);
+  const value = (Math.abs(qty) * cost).toFixed(2);
+  const isHighValue = Number(value) > 200000;
+
+  const adj: InventoryAdjustment = {
+    id: input.id || `adj-${Date.now()}`,
+    branch_id: input.branch_id,
+    location_id: input.location_id || "loc-001",
+    product_id: input.product_id,
+    product_name: prod?.name || "Producto Ajustado",
+    sku: "PRD-SKU",
+    location_name: "Bodega Principal",
+    lot_id: input.lot_id || null,
+    lot_code: input.lot_id ? "LOT-MOCK" : null,
+    qty_delta: String(input.qty_delta),
+    reason_code: input.reason_code,
+    notes: input.notes || null,
+    unit_cost: cost.toFixed(4),
+    value,
+    status: isHighValue ? "PENDIENTE" : "APLICADO",
+    requested_by: "usr-current",
+    requester_name: "Usuario Actual",
+    decided_by: isHighValue ? null : "usr-current",
+    decider_name: isHighValue ? null : "Usuario Actual",
+    decided_at: isHighValue ? null : new Date().toISOString(),
+    reject_reason: null,
+    created_at: new Date().toISOString(),
+  };
+
+  mockAdjustmentsData.unshift(adj);
+
+  if (!isHighValue) {
+    mockAdjust(input.product_id, qty, input.notes || input.reason_code);
+  }
+
+  return adj;
+}
+
+export function mockApproveAdjustment(id: string): InventoryAdjustment {
+  const adj = mockAdjustmentsData.find((a) => a.id === id);
+  if (!adj) throw new ApiError(404, "Ajuste no encontrado");
+  if (adj.status !== "PENDIENTE") {
+    throw new ApiError(409, "ADJUST_NOT_PENDING: El ajuste ya fue decidido");
+  }
+
+  adj.status = "APLICADO";
+  adj.decided_by = "usr-admin-01";
+  adj.decider_name = "Admin Principal";
+  adj.decided_at = new Date().toISOString();
+
+  mockAdjust(adj.product_id, Number(adj.qty_delta), adj.notes || adj.reason_code);
+  return adj;
+}
+
+export function mockRejectAdjustment(id: string, reason: string): InventoryAdjustment {
+  const adj = mockAdjustmentsData.find((a) => a.id === id);
+  if (!adj) throw new ApiError(404, "Ajuste no encontrado");
+  if (adj.status !== "PENDIENTE") {
+    throw new ApiError(409, "ADJUST_NOT_PENDING: El ajuste ya fue decidido");
+  }
+
+  adj.status = "RECHAZADO";
+  adj.decided_by = "usr-admin-01";
+  adj.decider_name = "Admin Principal";
+  adj.decided_at = new Date().toISOString();
+  adj.reject_reason = reason;
+
+  return adj;
+}

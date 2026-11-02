@@ -7,7 +7,6 @@
 import { ApiError, request, USE_MOCKS } from "./client";
 import { MOCK_BRANCH_ID, mockCatalog, mockDashboard } from "./mock";
 import {
-  mockAdjust,
   mockCount,
   mockKardex,
   mockRecordMovement,
@@ -15,6 +14,10 @@ import {
   mockSetMinQty,
   mockStockLevels,
   mockExpiringLots,
+  mockListAdjustments,
+  mockCreateAdjustment,
+  mockApproveAdjustment,
+  mockRejectAdjustment,
 } from "./mock-inventory";
 import {
   mockPurchaseApprove,
@@ -137,6 +140,9 @@ import type {
   SessionContext,
   StockAlert,
   ExpiringLot,
+  InventoryAdjustment,
+  CreateAdjustmentInput,
+  AdjustmentsFilter,
   StockLevel,
   Supplier,
   SupplierDetailResponse,
@@ -1713,16 +1719,70 @@ export const api = {
       });
     },
 
-    /** POST /v1/inventory/adjust — suma o resta unidades (delta con signo). */
-    async adjust(branchId: Uuid, productId: Uuid, delta: Decimal, cause: string): Promise<void> {
+    /** POST /v1/inventory/adjust — suma o resta unidades (delta con signo) o registra un ajuste formal. */
+    async adjust(
+      inputOrBranchId: CreateAdjustmentInput | Uuid,
+      productId?: Uuid,
+      delta?: Decimal,
+      cause?: string,
+    ): Promise<InventoryAdjustment> {
+      let body: CreateAdjustmentInput;
+      if (typeof inputOrBranchId === "object") {
+        body = {
+          id: inputOrBranchId.id ?? crypto.randomUUID(),
+          ...inputOrBranchId,
+        };
+      } else {
+        body = {
+          id: crypto.randomUUID(),
+          branch_id: inputOrBranchId,
+          product_id: productId!,
+          qty_delta: delta!,
+          reason_code: Number(delta) > 0 ? "CORRECCION" : "PERDIDA",
+          notes: cause,
+        };
+      }
       if (USE_MOCKS) {
         await delay();
-        return mockAdjust(productId, Number(delta), cause);
+        return mockCreateAdjustment(body);
       }
-      await request("/v1/inventory/adjust", {
+      return request("/v1/inventory/adjust", {
         method: "POST",
-        body: JSON.stringify({ branch_id: branchId, product_id: productId, qty: delta, cause }),
+        body: JSON.stringify(body),
       });
+    },
+
+    adjustments: {
+      async list(filter?: AdjustmentsFilter): Promise<InventoryAdjustment[]> {
+        if (USE_MOCKS) {
+          await delay();
+          return mockListAdjustments(filter?.branch_id, filter?.status);
+        }
+        const params = new URLSearchParams();
+        if (filter?.branch_id) params.set("branch_id", filter.branch_id);
+        if (filter?.status) params.set("status", filter.status);
+        const qs = params.toString() ? `?${params}` : "";
+        return request(`/v1/inventory/adjustments${qs}`);
+      },
+      async approve(id: Uuid): Promise<InventoryAdjustment> {
+        if (USE_MOCKS) {
+          await delay();
+          return mockApproveAdjustment(id);
+        }
+        return request(`/v1/inventory/adjustments/${id}/approve`, {
+          method: "POST",
+        });
+      },
+      async reject(id: Uuid, reason: string): Promise<InventoryAdjustment> {
+        if (USE_MOCKS) {
+          await delay();
+          return mockRejectAdjustment(id, reason);
+        }
+        return request(`/v1/inventory/adjustments/${id}/reject`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+      },
     },
 
     /** POST /v1/inventory/count — conteo fisico; devuelve la diferencia registrada. */

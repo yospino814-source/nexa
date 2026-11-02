@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ArrowRight, Calculator, Loader2, PackagePlus, PlusCircle, SlidersHorizontal, Target } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { api, friendlyError, type StockLevel } from "@/lib/api";
+import { api, friendlyError, type AdjustmentReasonCode, type StockLevel } from "@/lib/api";
+import { useApi } from "@/lib/api/use-api";
 import { formatQty } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +18,28 @@ const MODES: { id: StockMode; label: string; icon: typeof Calculator }[] = [
   { id: "MINIMO", label: "Punto de reorden", icon: Target },
 ];
 
-const REASONS: Record<Exclude<StockMode, "MINIMO">, string[]> = {
-  CONTEO: ["Conteo de inventario", "Auditoría", "Cierre de mes"],
-  DELTA: ["Merma / vencido", "Rotura / avería", "Consumo interno", "Robo / faltante", "Devolución de cliente"],
-  ENTRADA: ["Compra a proveedor", "Producción propia", "Devolución a bodega"],
+type ReasonOption = {
+  code: AdjustmentReasonCode;
+  label: string;
+};
+
+const REASONS: Record<Exclude<StockMode, "MINIMO">, ReasonOption[]> = {
+  CONTEO: [
+    { code: "CONTEO", label: "Conteo de inventario" },
+    { code: "CORRECCION", label: "Corrección" },
+  ],
+  DELTA: [
+    { code: "DANO", label: "Daño / avería" },
+    { code: "PERDIDA", label: "Pérdida / merma" },
+    { code: "ROBO", label: "Robo / faltante" },
+    { code: "VENCIMIENTO", label: "Vencimiento" },
+    { code: "CORRECCION", label: "Corrección" },
+    { code: "CARGA_INICIAL", label: "Carga inicial" },
+  ],
+  ENTRADA: [
+    { code: "CORRECCION", label: "Producción propia / reposición" },
+    { code: "CARGA_INICIAL", label: "Carga inicial" },
+  ],
 };
 
 /** Ajuste de existencias de un producto, con motivo para el kardex. */
@@ -39,10 +58,18 @@ export function StockDialog({
 }) {
   const [mode, setMode] = useState<StockMode>(initialMode);
   const [value, setValue] = useState("");
-  const [reason, setReason] = useState("");
+  const [reasonCode, setReasonCode] = useState<AdjustmentReasonCode | "">("");
+  const [reasonLabel, setReasonLabel] = useState("");
+  const [selectedLotId, setSelectedLotId] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: expiringLots = [] } = useApi(
+    () => (item?.track_lots ? api.inventory.expiring(branchId, 365) : Promise.resolve([])),
+    `stock-dlg-lots-${item?.product_id}-${branchId}`,
+  );
+  const productLots = (expiringLots ?? []).filter((l) => l.product_id === item?.product_id);
 
   // Reinicio al abrir con otro producto o modo.
   const openKey = item ? `${item.product_id}:${initialMode}` : null;
@@ -51,7 +78,9 @@ export function StockDialog({
     setLastKey(openKey);
     setMode(initialMode);
     setValue(initialMode === "MINIMO" && item ? formatQty(item.min_qty).replace(/\./g, "") : "");
-    setReason("");
+    setReasonCode("");
+    setReasonLabel("");
+    setSelectedLotId("");
     setNotes("");
     setError(null);
   }
@@ -64,13 +93,15 @@ export function StockDialog({
   const next =
     mode === "CONTEO" ? n : mode === "DELTA" ? current + n : mode === "ENTRADA" ? current + n : current;
   const delta = next - current;
-  const cause = [reason, notes.trim()].filter(Boolean).join(" — ");
+  const cause = [reasonLabel, notes.trim()].filter(Boolean).join(" — ");
+  const lotValid = !item.track_lots || mode === "MINIMO" || !!selectedLotId;
   const canSave =
     valid &&
     !busy &&
+    lotValid &&
     (mode === "MINIMO"
       ? n >= 0
-      : !!reason &&
+      : !!reasonCode &&
         (mode === "CONTEO" ? n >= 0 && delta !== 0 : mode === "DELTA" ? n !== 0 && next >= Number(item.reserved) : n > 0));
 
   async function save() {
@@ -79,7 +110,21 @@ export function StockDialog({
     setError(null);
     try {
       if (mode === "CONTEO") await api.inventory.count(branchId, item.product_id, String(n), cause);
-      if (mode === "DELTA") await api.inventory.adjust(branchId, item.product_id, String(n), cause);
+      if (mode === "DELTA") {
+        const adj = await api.inventory.adjust({
+          branch_id: branchId,
+          product_id: item.product_id,
+          qty_delta: String(n),
+          reason_code: (reasonCode as AdjustmentReasonCode) || (n > 0 ? "CORRECCION" : "PERDIDA"),
+          notes: cause,
+          lot_id: selectedLotId || null,
+        });
+        if (adj.status === "PENDIENTE") {
+          onSaved(`Ajuste de ${item.name} registrado como PENDIENTE por superar el umbral de aprobación.`);
+          onClose();
+          return;
+        }
+      }
       if (mode === "ENTRADA") await api.inventory.replenish(branchId, item.product_id, String(n), cause);
       if (mode === "MINIMO") await api.inventory.setMinQty(branchId, item.product_id, String(n));
       onSaved(
@@ -125,7 +170,8 @@ export function StockDialog({
               onClick={() => {
                 setMode(id);
                 setValue(id === "MINIMO" ? formatQty(item.min_qty).replace(/\./g, "") : "");
-                setReason("");
+                setReasonCode("");
+                setReasonLabel("");
               }}
               className={cn(
                 "flex items-center justify-center gap-2 rounded-2xl border px-3 py-2.5 text-sm font-medium",
@@ -185,17 +231,53 @@ export function StockDialog({
             <div className="mt-2 flex flex-wrap gap-2">
               {REASONS[mode].map((r) => (
                 <button
-                  key={r}
-                  onClick={() => setReason(r)}
+                  key={r.code}
+                  onClick={() => {
+                    setReasonCode(r.code);
+                    setReasonLabel(r.label);
+                  }}
                   className={cn(
                     "rounded-full border px-3 py-1 text-xs",
-                    reason === r ? "border-brand bg-brand/10 font-medium text-brand" : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                    reasonCode === r.code
+                      ? "border-brand bg-brand/10 font-medium text-brand"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50",
                   )}
                 >
-                  {r}
+                  {r.label}
                 </button>
               ))}
             </div>
+
+            {item.track_lots && (
+              <div className="mt-4">
+                <label
+                  htmlFor="lot-select"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  Lote de producto <span className="text-rose-500">*</span>
+                </label>
+                {productLots.length > 0 ? (
+                  <select
+                    id="lot-select"
+                    value={selectedLotId}
+                    onChange={(e) => setSelectedLotId(e.target.value)}
+                    className="mt-1.5 h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
+                  >
+                    <option value="">Selecciona un lote...</option>
+                    {productLots.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.code} (Vence: {l.expires_at} — Disp: {formatQty(l.qty)})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-1 rounded-xl bg-amber-50 p-2 text-xs text-amber-700">
+                    No se encontraron lotes activos para este producto en la bodega.
+                  </p>
+                )}
+              </div>
+            )}
+
             <textarea
               rows={2}
               value={notes}

@@ -618,6 +618,7 @@ export type StockLevel = {
   status: StockStatus;
   updated_at: string | null;
   archived?: boolean;
+  track_lots?: boolean;
 };
 
 /** GET /v1/inventory/alerts?branch_id= — src/inventory.rs::StockAlert */
@@ -1563,4 +1564,63 @@ export interface ExpiringLot {
   qty: Decimal;
   days_until_expiry: number;
   is_expired: boolean;
+}
+
+// ---------------------------------------------------------------- AJUSTES DE INVENTARIO (F2.16)
+
+export type AdjustmentReasonCode =
+  | "DANO"
+  | "PERDIDA"
+  | "ROBO"
+  | "VENCIMIENTO"
+  | "CONTEO"
+  | "CORRECCION"
+  | "CARGA_INICIAL";
+
+export type AdjustmentStatus = "PENDIENTE" | "APLICADO" | "RECHAZADO";
+
+export interface InventoryAdjustment {
+  id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  product_id: Uuid;
+  product_name?: string | null;
+  sku?: string | null;
+  location_name?: string | null;
+  lot_id?: Uuid | null;
+  lot_code?: string | null;
+  qty_delta: Decimal;
+  reason_code: AdjustmentReasonCode;
+  notes?: string | null;
+  unit_cost: Decimal;
+  value: Decimal;
+  status: AdjustmentStatus;
+  requested_by: Uuid;
+  requester_name?: string | null;
+  decided_by?: Uuid | null;
+  decider_name?: string | null;
+  decided_at?: string | null;
+  reject_reason?: string | null;
+  created_at: string;
+}
+
+export interface CreateAdjustmentInput {
+  id?: Uuid;
+  branch_id: Uuid;
+  location_id?: Uuid | null;
+  product_id: Uuid;
+  lot_id?: Uuid | null;
+  qty_delta: Decimal;
+  reason_code: AdjustmentReasonCode;
+  notes?: string | null;
+  unit_cost?: Decimal | null;
+}
+
+export interface RejectAdjustmentInput {
+  reason: string;
+}
+
+export interface AdjustmentsFilter {
+  branch_id?: Uuid;
+  status?: AdjustmentStatus;
 }
