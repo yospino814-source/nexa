@@ -638,7 +638,12 @@ export type StockAlert = {
 
 // ------------------------------------------------------------- compras y proveedores
 
-export type PurchaseStatus = "PENDIENTE" | "RECIBIDA" | "ANULADA";
+export type PurchaseStatus =
+  | "PENDIENTE"
+  | "APROBADA"
+  | "PARCIAL"
+  | "RECIBIDA"
+  | "ANULADA";
 
 /** src/procurement.rs::Supplier */
 export type Supplier = {
@@ -747,6 +752,15 @@ export type PurchaseItem = {
   line_total: Decimal;
   tax_code: TaxCode | null;
   tax_rate: Decimal | null;
+  qty_received?: Decimal;
+  discount_alloc?: Decimal;
+  freight_alloc?: Decimal;
+  tax_amount?: Decimal;
+  landed_unit_cost?: Decimal | null;
+  new_sale_price?: Decimal | null;
+  purchase_factor?: Decimal;
+  purchase_unit?: string | null;
+  track_lots?: boolean;
   notes?: string | null;
 };
 
@@ -754,11 +768,21 @@ export type PurchaseItem = {
 export type Purchase = {
   id: Uuid;
   branch_id: Uuid;
+  location_id?: Uuid;
   supplier_id: Uuid;
   supplier_name: string;
   document_number: string | null;
   supplier_invoice_date: string | null;
+  expected_at?: string | null;
   status: PurchaseStatus;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  approved_by?: Uuid | null;
+  approved_at?: string | null;
   subtotal: Decimal;
   tax_amount: Decimal;
   total_amount: Decimal;
@@ -769,18 +793,92 @@ export type Purchase = {
   items?: PurchaseItem[];
 };
 
+export type PurchaseItemInput = {
+  product_id: Uuid;
+  qty: Decimal;
+  unit_cost: Decimal;
+  new_sale_price?: Decimal | null;
+};
+
 export type CreatePurchaseInput = {
   id: Uuid;
   branch_id: Uuid;
   supplier_id: Uuid;
+  location_id?: Uuid;
+  expected_at?: string | null;
   document_number?: string | null;
   supplier_invoice_date?: string | null;
   notes?: string | null;
-  items: {
-    product_id: Uuid;
-    qty: Decimal;
-    unit_cost: Decimal;
-  }[];
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type UpdatePurchaseInput = {
+  branch_id: Uuid;
+  supplier_id: Uuid;
+  location_id?: Uuid;
+  expected_at?: string | null;
+  document_number?: string | null;
+  supplier_invoice_date?: string | null;
+  notes?: string | null;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type CostPreviewRequest = {
+  supplier_id: Uuid;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type CostPreviewLine = {
+  product_id: Uuid;
+  product_name: string;
+  qty: Decimal;
+  unit_cost: Decimal;
+  purchase_factor: Decimal;
+  discount_alloc: Decimal;
+  freight_alloc: Decimal;
+  tax_amount: Decimal;
+  landed_unit_cost: Decimal;
+  current_price: Decimal | null;
+  new_sale_price: Decimal | null;
+  resulting_margin_pct: Decimal | null;
+};
+
+export type CostPreviewResponse = {
+  lines: CostPreviewLine[];
+  subtotal: Decimal;
+  discount_total: Decimal;
+  freight_total: Decimal;
+  tax_total: Decimal;
+  total: Decimal;
+  warnings: string[];
+};
+
+export type ReceiveItemInput = {
+  purchase_item_id: Uuid;
+  qty: Decimal;
+  lot_code?: string | null;
+  expires_at?: string | null;
+};
+
+export type ReceivePurchaseRequest = {
+  id: Uuid;
+  items: ReceiveItemInput[];
 };
 
 export type PurchaseFilter = {
@@ -795,6 +893,8 @@ export type PurchaseFilter = {
 /** src/procurement.rs::PurchaseSummary */
 export type PurchaseSummary = {
   total_purchased_month: Decimal;
+  to_receive_month?: Decimal;
+  to_pay_balance?: Decimal;
   active_suppliers: number;
 };
 
@@ -884,6 +984,8 @@ export type AuditFilter = {
   branch_id?: Uuid;
   user_id?: Uuid;
   action?: string;
+  entity?: string;
+  entity_id?: Uuid;
   from?: string;
   to?: string;
   limit?: number;

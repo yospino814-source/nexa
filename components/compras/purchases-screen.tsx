@@ -6,6 +6,7 @@ import {
   Building2,
   CheckCircle2,
   Loader2,
+  PackageCheck,
   Plus,
   Search,
   Truck,
@@ -27,15 +28,25 @@ const STATUS_CONFIG: Record<
   PurchaseStatus,
   { label: string; className: string; dot: string }
 > = {
-  RECIBIDA: {
-    label: "Registrada",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    dot: "bg-emerald-500",
-  },
   PENDIENTE: {
-    label: "Pendiente de revisión",
+    label: "Borrador",
     className: "border-amber-200 bg-amber-50 text-amber-700",
     dot: "bg-amber-500",
+  },
+  APROBADA: {
+    label: "Aprobada",
+    className: "border-blue-200 bg-blue-50 text-blue-700",
+    dot: "bg-blue-500",
+  },
+  PARCIAL: {
+    label: "Parcial",
+    className: "border-purple-200 bg-purple-50 text-purple-700",
+    dot: "bg-purple-500",
+  },
+  RECIBIDA: {
+    label: "Recibida",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    dot: "bg-emerald-500",
   },
   ANULADA: {
     label: "Anulada",
@@ -61,9 +72,13 @@ export function PurchasesScreen() {
     reload: reloadSummary,
   } = useApi(() => api.purchases.summary(branch.id), branch.id);
 
+  // Load suppliers for filter
+  const { data: suppliersData } = useApi(() => api.suppliers.list(), branch.id);
+
   // Filter state
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | "">("");
+  const [supplierFilter, setSupplierFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
@@ -88,6 +103,7 @@ export function PurchasesScreen() {
         (p.document_number?.toLowerCase().includes(q) ?? false);
 
       const matchesStatus = !statusFilter || p.status === statusFilter;
+      const matchesSupplier = !supplierFilter || p.supplier_id === supplierFilter;
 
       let matchesDate = true;
       if (fromDate) {
@@ -100,9 +116,9 @@ export function PurchasesScreen() {
         matchesDate = matchesDate && new Date(p.created_at).getTime() <= toTime;
       }
 
-      return matchesQuery && matchesStatus && matchesDate;
+      return matchesQuery && matchesStatus && matchesSupplier && matchesDate;
     });
-  }, [purchases, query, statusFilter, fromDate, toDate]);
+  }, [purchases, query, statusFilter, supplierFilter, fromDate, toDate]);
 
   function showToast(message: string) {
     setToast(message);
@@ -141,7 +157,6 @@ export function PurchasesScreen() {
   const totalComprado = summaryData?.total_purchased_month
     ? Number(summaryData.total_purchased_month)
     : 0;
-  const proveedoresActivos = summaryData?.active_suppliers ?? 0;
 
   return (
     <div className="space-y-6 p-6 lg:p-10">
@@ -183,21 +198,28 @@ export function PurchasesScreen() {
         </div>
       </div>
 
-      {/* 2 StatCards: Total Comprado este mes & Proveedores Activos */}
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* 3 StatCards: Total Comprado, Por Recibir, Por Pagar */}
+      <div className="grid gap-6 md:grid-cols-3">
         <StatCard
-          title="TOTAL COMPRADO ESTE MES"
+          title="TOTAL COMPRADO (MES)"
           value={formatCOP(totalComprado)}
-          caption="Compras recibidas e ingresadas al inventario"
+          caption="Compras recibidas e ingresadas"
           icon={Truck}
           tone="success"
         />
         <StatCard
-          title="PROVEEDORES ACTIVOS"
-          value={String(proveedoresActivos)}
-          caption="Distribuidores comerciales registrados en el negocio"
+          title="POR RECIBIR"
+          value={formatCOP(summaryData?.to_receive_month ? Number(summaryData.to_receive_month) : 0)}
+          caption="Órdenes pendientes o en tránsito"
+          icon={PackageCheck}
+          tone="warning"
+        />
+        <StatCard
+          title="POR PAGAR"
+          value={formatCOP(summaryData?.to_pay_balance ? Number(summaryData.to_pay_balance) : 0)}
+          caption="Saldo pendiente a proveedores"
           icon={Building2}
-          tone="default"
+          tone="danger"
         />
       </div>
 
@@ -217,16 +239,31 @@ export function PurchasesScreen() {
             />
           </div>
 
-          {/* Filtros de Estado y Fecha */}
+          {/* Filtros de Estado, Proveedor y Fecha */}
           <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={supplierFilter}
+              onChange={(e) => setSupplierFilter(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
+            >
+              <option value="">Todos los proveedores</option>
+              {suppliersData?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as PurchaseStatus | "")}
               className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
             >
               <option value="">Todos los estados</option>
-              <option value="RECIBIDA">Registrada</option>
-              <option value="PENDIENTE">Pendiente de revisión</option>
+              <option value="PENDIENTE">Borrador</option>
+              <option value="APROBADA">Aprobada</option>
+              <option value="PARCIAL">Parcial</option>
+              <option value="RECIBIDA">Recibida</option>
               <option value="ANULADA">Anulada</option>
             </select>
 

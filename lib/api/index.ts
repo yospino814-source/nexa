@@ -16,12 +16,15 @@ import {
   mockStockLevels,
 } from "./mock-inventory";
 import {
+  mockPurchaseApprove,
   mockPurchaseCancel,
   mockPurchaseCreate,
   mockPurchaseGet,
   mockPurchaseReceive,
+  mockPurchasesCostPreview,
   mockPurchasesList,
   mockPurchaseSummary,
+  mockPurchaseUpdate,
   mockSupplierArchive,
   mockSupplierCreate,
   mockSupplierGet,
@@ -78,6 +81,10 @@ import type {
   UpdateCouponInput,
   CreateCustomerInput,
   CreatePurchaseInput,
+  UpdatePurchaseInput,
+  CostPreviewRequest,
+  CostPreviewResponse,
+  ReceivePurchaseRequest,
   CreateSupplierInput,
   Customer,
   CustomerQuery,
@@ -2175,13 +2182,46 @@ export const api = {
       return request("/v1/purchases", { method: "POST", body: JSON.stringify(body) });
     },
 
-    /** POST /v1/purchases/{id}/receive */
-    async receive(id: Uuid): Promise<Purchase> {
+    /** PUT /v1/purchases/{id} */
+    async update(id: Uuid, body: UpdatePurchaseInput): Promise<Purchase> {
       if (USE_MOCKS) {
         await delay();
-        return mockPurchaseReceive(id);
+        return mockPurchaseUpdate(id, body);
       }
-      return request(`/v1/purchases/${id}/receive`, { method: "POST" });
+      return request(`/v1/purchases/${id}`, { method: "PUT", body: JSON.stringify(body) });
+    },
+
+    /** POST /v1/purchases/{id}/approve */
+    async approve(id: Uuid): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseApprove(id);
+      }
+      return request(`/v1/purchases/${id}/approve`, { method: "POST" });
+    },
+
+    /** POST /v1/purchases/{id}/receive */
+    async receive(id: Uuid, body?: ReceivePurchaseRequest): Promise<Purchase> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchaseReceive(id, body);
+      }
+      return request(`/v1/purchases/${id}/receive`, {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    },
+
+    /** POST /v1/purchases/cost-preview */
+    async costPreview(body: CostPreviewRequest): Promise<CostPreviewResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockPurchasesCostPreview(body);
+      }
+      return request("/v1/purchases/cost-preview", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
     },
 
     /** POST /v1/purchases/{id}/cancel */
@@ -2565,6 +2605,8 @@ export const api = {
       if (filter?.branch_id) params.set("branch_id", filter.branch_id);
       if (filter?.user_id) params.set("user_id", filter.user_id);
       if (filter?.action) params.set("action", filter.action);
+      if (filter?.entity) params.set("entity", filter.entity);
+      if (filter?.entity_id) params.set("entity_id", filter.entity_id);
       if (filter?.from) params.set("from", filter.from);
       if (filter?.to) params.set("to", filter.to);
       if (filter?.limit) params.set("limit", String(filter.limit));

@@ -7,6 +7,9 @@ import { ApiError } from "./client";
 import { MOCK_BRANCH_ID, mockCatalog } from "./mock";
 import { mockRecordMovement } from "./mock-inventory";
 import type {
+  CostPreviewLine,
+  CostPreviewRequest,
+  CostPreviewResponse,
   CreatePurchaseInput,
   CreateSupplierInput,
   Decimal,
@@ -15,11 +18,13 @@ import type {
   PurchaseItem,
   PurchaseStatus,
   PurchaseSummary,
+  ReceivePurchaseRequest,
   Supplier,
   SupplierDetailResponse,
   SupplierProductDetail,
   SupplierProductItemInput,
   TaxCode,
+  UpdatePurchaseInput,
   UpdateSupplierInput,
   Uuid,
 } from "./types";
@@ -550,7 +555,136 @@ export async function mockPurchaseCreate(input: CreatePurchaseInput): Promise<Pu
   return structuredClone(newPurchase);
 }
 
-export async function mockPurchaseReceive(id: Uuid): Promise<Purchase> {
+export async function mockPurchaseApprove(id: Uuid): Promise<Purchase> {
+  const purchase = mockPurchases.find((p) => p.id === id);
+  if (!purchase) throw new ApiError(404, "not found");
+  if (purchase.status !== "PENDIENTE") {
+    throw new ApiError(409, `PURCHASE_INVALID_STATE: No se puede aprobar una orden en estado ${purchase.status}`);
+  }
+  purchase.status = "APROBADA";
+  purchase.approved_at = new Date().toISOString();
+  return structuredClone(purchase);
+}
+
+export async function mockPurchaseUpdate(id: Uuid, input: UpdatePurchaseInput): Promise<Purchase> {
+  const purchase = mockPurchases.find((p) => p.id === id);
+  if (!purchase) throw new ApiError(404, "not found");
+  if (purchase.status !== "PENDIENTE") {
+    throw new ApiError(409, `PURCHASE_INVALID_STATE: Solo se pueden editar órdenes en estado PENDIENTE`);
+  }
+  const supplier = mockSuppliers.find((s) => s.id === input.supplier_id);
+  if (!supplier) throw new ApiError(404, "supplier not found");
+  purchase.branch_id = input.branch_id;
+  purchase.supplier_id = supplier.id;
+  purchase.supplier_name = supplier.name;
+  purchase.location_id = input.location_id ?? purchase.location_id;
+  purchase.expected_at = input.expected_at ?? null;
+  purchase.document_number = input.document_number?.trim() || null;
+  purchase.supplier_invoice_date = input.supplier_invoice_date || null;
+  purchase.notes = input.notes?.trim() || null;
+  purchase.discount_amount = input.discount_amount ?? dec(0);
+  purchase.freight_amount = input.freight_amount ?? dec(0);
+  purchase.freight_mode = input.freight_mode ?? "PRORRATEAR";
+  purchase.payment_terms = input.payment_terms ?? "CONTADO";
+  purchase.credit_days = input.credit_days ?? 0;
+  purchase.iva_to_cost = input.iva_to_cost ?? false;
+
+  let subtotalNum = 0;
+  let taxNum = 0;
+  purchase.items = input.items.map((it, idx) => {
+    const prod = mockCatalog.find((c) => c.product_id === it.product_id);
+    const prodName = prod?.name ?? "Producto";
+    const lineSubtotal = Number(it.qty) * Number(it.unit_cost);
+    const taxRate = prod?.tax_code === "IVA19" ? 0.19 : 0;
+    const lineTax = lineSubtotal * taxRate;
+    subtotalNum += lineSubtotal;
+    taxNum += lineTax;
+    return {
+      id: crypto.randomUUID(),
+      product_id: it.product_id,
+      product_name: prodName,
+      sku: `SKU-${idx + 1}`,
+      qty: Number(it.qty).toFixed(4),
+      qty_received: "0.0000",
+      unit_cost: dec(Number(it.unit_cost)),
+      line_total: dec(lineSubtotal),
+      tax_code: (prod?.tax_code as TaxCode | null) ?? null,
+      tax_rate: taxRate > 0 ? "0.19" : null,
+      tax_amount: dec(lineTax),
+      landed_unit_cost: dec(Number(it.unit_cost)),
+      new_sale_price: it.new_sale_price ?? null,
+      notes: null,
+    };
+  });
+  purchase.subtotal = dec(subtotalNum);
+  purchase.tax_amount = dec(taxNum);
+  purchase.total_amount = dec(subtotalNum + taxNum + Number(purchase.freight_amount));
+  purchase.items_count = purchase.items.length;
+  return structuredClone(purchase);
+}
+
+export async function mockPurchasesCostPreview(req: CostPreviewRequest): Promise<CostPreviewResponse> {
+  const discount = Number(req.discount_amount || 0);
+  const freight = Number(req.freight_amount || 0);
+  let grossSum = 0;
+  const linesData = req.items.map((it) => {
+    const prod = mockCatalog.find((c) => c.product_id === it.product_id);
+    const gross = Number(it.qty) * Number(it.unit_cost);
+    grossSum += gross;
+    return { it, prod, gross };
+  });
+
+  let subtotal = 0;
+  let taxTotal = 0;
+  const lines: CostPreviewLine[] = linesData.map(({ it, prod, gross }) => {
+    const discWeight = grossSum > 0 ? gross / grossSum : 0;
+    const lineDisc = discount * discWeight;
+    const net = Math.max(0, gross - lineDisc);
+    const freightWeight = grossSum > 0 ? gross / grossSum : 0;
+    const lineFreight = req.freight_mode === "GASTO" ? 0 : freight * freightWeight;
+    const taxRate = prod?.tax_code === "IVA19" ? 0.19 : prod?.tax_code === "INC8" ? 0.08 : 0;
+    const lineTax = net * taxRate;
+    const incOrIvaToCost = prod?.tax_code === "INC8" || req.iva_to_cost === true;
+    const costBase = net + lineFreight + (incOrIvaToCost ? lineTax : 0);
+    const landed = Number(it.qty) > 0 ? costBase / Number(it.qty) : 0;
+    subtotal += net;
+    taxTotal += lineTax;
+
+    const currentPrice = prod?.price ? Number(prod.price) : null;
+    const salePrice = it.new_sale_price ? Number(it.new_sale_price) : currentPrice;
+    const margin = salePrice && salePrice > 0 ? ((salePrice - landed) / salePrice) * 100 : null;
+
+    return {
+      product_id: it.product_id,
+      product_name: prod?.name ?? "Producto",
+      qty: dec(Number(it.qty)),
+      unit_cost: dec(Number(it.unit_cost)),
+      purchase_factor: "1.0000",
+      discount_alloc: dec(lineDisc),
+      freight_alloc: dec(lineFreight),
+      tax_amount: dec(lineTax),
+      landed_unit_cost: dec(landed),
+      current_price: currentPrice !== null ? dec(currentPrice) : null,
+      new_sale_price: it.new_sale_price ?? null,
+      resulting_margin_pct: margin !== null ? dec(margin) : null,
+    };
+  });
+
+  return {
+    lines,
+    subtotal: dec(subtotal),
+    discount_total: dec(discount),
+    freight_total: dec(freight),
+    tax_total: dec(taxTotal),
+    total: dec(subtotal + taxTotal + freight),
+    warnings: [],
+  };
+}
+
+export async function mockPurchaseReceive(
+  id: Uuid,
+  body?: ReceivePurchaseRequest,
+): Promise<Purchase> {
   const purchase = mockPurchases.find((p) => p.id === id);
   if (!purchase) throw new ApiError(404, "not found");
 
@@ -561,19 +695,57 @@ export async function mockPurchaseReceive(id: Uuid): Promise<Purchase> {
     throw new ApiError(409, "cannot receive a cancelled purchase");
   }
 
+  // Compatibilidad: si está PENDIENTE, auto-aprobar
+  if (purchase.status === "PENDIENTE") {
+    purchase.status = "APROBADA";
+    purchase.approved_at = new Date().toISOString();
+  }
+
   const cause = purchase.document_number ? `Compra ${purchase.document_number}` : "Compra";
 
   if (purchase.items) {
-    for (const it of purchase.items) {
-      mockRecordMovement(it.product_id, "REPOSICION", Number(it.qty), cause, {
-        type: "COMPRA",
-        id: purchase.id,
-      });
+    if (body?.items && body.items.length > 0) {
+      for (const rItem of body.items) {
+        const pItem = purchase.items.find((i) => i.id === rItem.purchase_item_id);
+        if (!pItem) continue;
+        const curRcv = Number(pItem.qty_received ?? 0);
+        const toRcv = Number(rItem.qty);
+        const maxPending = Number(pItem.qty) - curRcv;
+        if (toRcv > maxPending) {
+          throw new ApiError(422, "RECEIVE_EXCEEDS_PENDING");
+        }
+        pItem.qty_received = (curRcv + toRcv).toFixed(4);
+        mockRecordMovement(pItem.product_id, "REPOSICION", toRcv, cause, {
+          type: "COMPRA",
+          id: purchase.id,
+        });
+      }
+    } else {
+      // Recibir todo lo pendiente
+      for (const it of purchase.items) {
+        const curRcv = Number(it.qty_received ?? 0);
+        const pending = Number(it.qty) - curRcv;
+        if (pending > 0) {
+          it.qty_received = Number(it.qty).toFixed(4);
+          mockRecordMovement(it.product_id, "REPOSICION", pending, cause, {
+            type: "COMPRA",
+            id: purchase.id,
+          });
+        }
+      }
     }
+
+    const allReceived = purchase.items.every(
+      (it) => Number(it.qty_received ?? 0) >= Number(it.qty),
+    );
+    purchase.status = allReceived ? "RECIBIDA" : "PARCIAL";
+  } else {
+    purchase.status = "RECIBIDA";
   }
 
-  purchase.status = "RECIBIDA";
-  purchase.received_at = new Date().toISOString();
+  if (!purchase.received_at) {
+    purchase.received_at = new Date().toISOString();
+  }
 
   return structuredClone(purchase);
 }
@@ -582,8 +754,8 @@ export async function mockPurchaseCancel(id: Uuid): Promise<Purchase> {
   const purchase = mockPurchases.find((p) => p.id === id);
   if (!purchase) throw new ApiError(404, "not found");
 
-  if (purchase.status === "RECIBIDA") {
-    throw new ApiError(409, "cannot cancel an already received purchase");
+  if (purchase.status === "RECIBIDA" || purchase.status === "PARCIAL") {
+    throw new ApiError(409, `PURCHASE_INVALID_STATE: No se puede anular una orden en estado ${purchase.status}`);
   }
   if (purchase.status === "ANULADA") {
     throw new ApiError(409, "purchase is already cancelled");
@@ -595,18 +767,26 @@ export async function mockPurchaseCancel(id: Uuid): Promise<Purchase> {
 
 export async function mockPurchaseSummary(branchId?: Uuid, month?: string): Promise<PurchaseSummary> {
   const currentMonth = month || new Date().toISOString().slice(0, 7);
-  const receivedThisMonth = mockPurchases.filter((p) => {
-    if (p.status !== "RECIBIDA") return false;
+  const thisMonthPurchases = mockPurchases.filter((p) => {
     if (branchId && p.branch_id !== branchId) return false;
     const dateStr = (p.received_at || p.created_at).slice(0, 7);
     return dateStr === currentMonth;
   });
 
-  const totalNum = receivedThisMonth.reduce((sum, p) => sum + Number(p.total_amount), 0);
+  const totalNum = thisMonthPurchases
+    .filter((p) => p.status === "RECIBIDA")
+    .reduce((sum, p) => sum + Number(p.total_amount), 0);
+
+  const toReceiveNum = thisMonthPurchases
+    .filter((p) => p.status === "PENDIENTE" || p.status === "APROBADA" || p.status === "PARCIAL")
+    .reduce((sum, p) => sum + Number(p.total_amount), 0);
+
   const activeCount = mockSuppliers.filter((s) => s.active).length;
 
   return {
     total_purchased_month: dec(totalNum),
+    to_receive_month: dec(toReceiveNum),
+    to_pay_balance: dec(toReceiveNum + totalNum * 0.4),
     active_suppliers: activeCount,
   };
 }
