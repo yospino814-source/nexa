@@ -652,6 +652,19 @@ export type Supplier = {
   notes: string | null;
   active: boolean;
   created_at: string;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
+  archived_at?: string | null;
 };
 
 export type CreateSupplierInput = {
@@ -662,6 +675,18 @@ export type CreateSupplierInput = {
   email?: string | null;
   address?: string | null;
   notes?: string | null;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
 };
 
 export type UpdateSupplierInput = {
@@ -673,6 +698,42 @@ export type UpdateSupplierInput = {
   address?: string | null;
   notes?: string | null;
   active?: boolean;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
+};
+
+export type SupplierProductItemInput = {
+  product_id: Uuid;
+  supplier_code?: string | null;
+  min_order_qty?: Decimal | null;
+  preferred: boolean;
+};
+
+export type SupplierProductDetail = {
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  supplier_code: string | null;
+  last_cost: Decimal | null;
+  min_order_qty: Decimal | null;
+  preferred: boolean;
+};
+
+export type SupplierDetailResponse = {
+  supplier: Supplier;
+  products: SupplierProductDetail[];
+  open_orders: number;
+  balance: Decimal;
 };
 
 /** src/procurement.rs::PurchaseItemDetail */

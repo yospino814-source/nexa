@@ -16,6 +16,9 @@ import type {
   PurchaseStatus,
   PurchaseSummary,
   Supplier,
+  SupplierDetailResponse,
+  SupplierProductDetail,
+  SupplierProductItemInput,
   TaxCode,
   UpdateSupplierInput,
   Uuid,
@@ -315,6 +318,18 @@ export async function mockSupplierCreate(input: CreateSupplierInput): Promise<Su
     notes: input.notes?.trim() || null,
     active: true,
     created_at: new Date().toISOString(),
+    doc_type: input.doc_type ?? "NIT",
+    dv: input.dv?.trim() || null,
+    person_type: input.person_type ?? "JURIDICA",
+    iva_responsible: input.iva_responsible ?? true,
+    self_withholding: input.self_withholding ?? false,
+    payment_terms: input.payment_terms ?? "CONTADO",
+    credit_days: input.credit_days ?? 0,
+    delivery_days: input.delivery_days ?? null,
+    category: input.category ?? "MERCANCIA",
+    bank_name: input.bank_name?.trim() || null,
+    bank_account_type: input.bank_account_type ?? null,
+    bank_account_number: input.bank_account_number?.trim() || null,
   };
 
   mockSuppliers.unshift(supplier);
@@ -343,8 +358,92 @@ export async function mockSupplierUpdate(id: Uuid, input: UpdateSupplierInput): 
   if (input.active !== undefined) {
     supplier.active = input.active;
   }
+  if (input.doc_type) supplier.doc_type = input.doc_type;
+  if (input.dv !== undefined) supplier.dv = input.dv?.trim() || null;
+  if (input.person_type) supplier.person_type = input.person_type;
+  if (input.iva_responsible !== undefined) supplier.iva_responsible = input.iva_responsible;
+  if (input.self_withholding !== undefined) supplier.self_withholding = input.self_withholding;
+  if (input.payment_terms) supplier.payment_terms = input.payment_terms;
+  if (input.credit_days !== undefined) supplier.credit_days = input.credit_days;
+  if (input.delivery_days !== undefined) supplier.delivery_days = input.delivery_days;
+  if (input.category) supplier.category = input.category;
+  if (input.bank_name !== undefined) supplier.bank_name = input.bank_name?.trim() || null;
+  if (input.bank_account_type !== undefined) supplier.bank_account_type = input.bank_account_type;
+  if (input.bank_account_number !== undefined) supplier.bank_account_number = input.bank_account_number?.trim() || null;
 
   return structuredClone(supplier);
+}
+
+export const mockSupplierProducts: Map<string, SupplierProductDetail[]> = new Map();
+
+export async function mockSupplierGet(id: Uuid): Promise<SupplierDetailResponse> {
+  const supplier = mockSuppliers.find((s) => s.id === id);
+  if (!supplier) throw new ApiError(404, "not found");
+
+  const products = mockSupplierProducts.get(id) ?? [];
+  const open_orders = mockPurchases.filter(
+    (p) => p.supplier_id === id && ["PENDIENTE", "APROBADA", "PARCIAL"].includes(p.status)
+  ).length;
+
+  return {
+    supplier: structuredClone(supplier),
+    products: structuredClone(products),
+    open_orders,
+    balance: "0.00",
+  };
+}
+
+export async function mockSupplierArchive(id: Uuid): Promise<void> {
+  const supplier = mockSuppliers.find((s) => s.id === id);
+  if (!supplier) throw new ApiError(404, "not found");
+
+  const hasOpenOrders = mockPurchases.some(
+    (p) => p.supplier_id === id && ["PENDIENTE", "APROBADA", "PARCIAL"].includes(p.status)
+  );
+  if (hasOpenOrders) {
+    throw new ApiError(409, "El proveedor tiene órdenes o deudas abiertas.");
+  }
+
+  supplier.active = false;
+  supplier.archived_at = new Date().toISOString();
+}
+
+export async function mockSupplierSetProducts(
+  id: Uuid,
+  items: SupplierProductItemInput[]
+): Promise<SupplierProductDetail[]> {
+  const supplier = mockSuppliers.find((s) => s.id === id);
+  if (!supplier) throw new ApiError(404, "not found");
+
+  for (const it of items) {
+    if (it.preferred) {
+      for (const [suppId, prods] of mockSupplierProducts.entries()) {
+        if (suppId !== id) {
+          for (const p of prods) {
+            if (p.product_id === it.product_id) {
+              p.preferred = false;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const details: SupplierProductDetail[] = items.map((it) => {
+    const prod = mockCatalog.find((c) => c.product_id === it.product_id);
+    return {
+      product_id: it.product_id,
+      product_name: prod?.name ?? "Producto",
+      sku: prod?.barcode ?? null,
+      supplier_code: it.supplier_code ?? null,
+      last_cost: it.min_order_qty ?? null,
+      min_order_qty: it.min_order_qty ?? null,
+      preferred: it.preferred,
+    };
+  });
+
+  mockSupplierProducts.set(id, details);
+  return structuredClone(details);
 }
 
 export async function mockPurchasesList(filter?: PurchaseFilter): Promise<Purchase[]> {

@@ -22,8 +22,11 @@ import {
   mockPurchaseReceive,
   mockPurchasesList,
   mockPurchaseSummary,
+  mockSupplierArchive,
   mockSupplierCreate,
+  mockSupplierGet,
   mockSuppliersList,
+  mockSupplierSetProducts,
   mockSupplierUpdate,
 } from "./mock-procurement";
 import {
@@ -97,6 +100,9 @@ import type {
   StockAlert,
   StockLevel,
   Supplier,
+  SupplierDetailResponse,
+  SupplierProductDetail,
+  SupplierProductItemInput,
   TenantUser,
   UpdateRolePermissionsInput,
   UpdateSupplierInput,
@@ -2103,6 +2109,33 @@ export const api = {
         return mockSupplierUpdate(id, body);
       }
       return request(`/v1/suppliers/${id}`, { method: "PUT", body: JSON.stringify(body) });
+    },
+
+    /** GET /v1/suppliers/{id} */
+    async get(id: Uuid): Promise<SupplierDetailResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSupplierGet(id);
+      }
+      return request(`/v1/suppliers/${id}`);
+    },
+
+    /** POST /v1/suppliers/{id}/archive */
+    async archive(id: Uuid): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSupplierArchive(id);
+      }
+      return request(`/v1/suppliers/${id}/archive`, { method: "POST" });
+    },
+
+    /** PUT /v1/suppliers/{id}/products */
+    async setProducts(id: Uuid, items: SupplierProductItemInput[]): Promise<SupplierProductDetail[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockSupplierSetProducts(id, items);
+      }
+      return request(`/v1/suppliers/${id}/products`, { method: "PUT", body: JSON.stringify(items) });
     },
   },
 
