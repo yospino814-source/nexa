@@ -16,8 +16,9 @@ use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, inventory, locations, options, orders, permissions,
-    procurement, products, refunds, registers, sales, sales_history, settings, tenancy, users,
+    AppState, audit, cash, catalog, customers, inventory, locations, options, orders, payables,
+    permissions, procurement, products, refunds, registers, sales, sales_history, settings,
+    tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -170,6 +171,12 @@ pub fn router() -> Router<AppState> {
         .route("/v1/purchases/{id}/approve", post(approve_purchase))
         .route("/v1/purchases/{id}/receive", post(receive_purchase))
         .route("/v1/purchases/{id}/cancel", post(cancel_purchase))
+        // Cuentas por pagar (F2.13)
+        .route("/v1/payables", get(list_payables))
+        .route("/v1/payables/aging", get(aging_payables))
+        .route("/v1/payables/{id}", get(get_payable))
+        .route("/v1/payables/{id}/payments", post(create_payable_payment))
+        .route("/v1/payables/{id}/write-off", post(write_off_payable))
         // Permisos y roles
         .route("/v1/permissions", get(list_permissions))
         .route(
@@ -1088,6 +1095,73 @@ async fn cancel_purchase(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<procurement::PurchaseDetail>> {
     let detail = procurement::cancel_purchase(&state.pool, &user.claims, id).await?;
+    Ok(Json(detail))
+}
+
+// ----------------------------------------------------------- cuentas por pagar
+
+async fn list_payables(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<payables::PayablesFilter>,
+) -> ApiResult<Json<Vec<payables::PayableRow>>> {
+    let (scope, mut tx) = if let Some(bid) = filter.branch_id {
+        tenancy::begin_in_branch(&state.pool, &user.claims, bid).await?
+    } else {
+        tenancy::begin(&state.pool, &user.claims).await?
+    };
+    let rows = payables::list_payables_tx(&mut tx, &scope, filter).await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+async fn aging_payables(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<payables::AgingFilter>,
+) -> ApiResult<Json<payables::PayablesAging>> {
+    let (scope, mut tx) = if let Some(bid) = filter.branch_id {
+        tenancy::begin_in_branch(&state.pool, &user.claims, bid).await?
+    } else {
+        tenancy::begin(&state.pool, &user.claims).await?
+    };
+    let row = payables::aging_summary_tx(&mut tx, &scope, filter.branch_id).await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+async fn get_payable(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<payables::PayableDetail>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let detail = payables::get_payable_detail_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(detail))
+}
+
+async fn create_payable_payment(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<payables::CreatePayablePaymentRequest>,
+) -> ApiResult<Json<payables::PayableDetail>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let detail = payables::create_payment_tx(&mut tx, &scope, id, body).await?;
+    tx.commit().await?;
+    Ok(Json(detail))
+}
+
+async fn write_off_payable(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<payables::WriteOffPayableRequest>,
+) -> ApiResult<Json<payables::PayableDetail>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let detail = payables::write_off_tx(&mut tx, &scope, id, body).await?;
+    tx.commit().await?;
     Ok(Json(detail))
 }
 

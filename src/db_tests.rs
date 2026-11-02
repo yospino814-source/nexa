@@ -792,6 +792,7 @@ async fn database_integration() {
     f2_costing(&app, &admin).await;
     f2_suppliers(&app, &admin).await;
     f2_purchases(&app, &admin).await;
+    f2_payables(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -7864,4 +7865,467 @@ async fn f2_purchases(app: &PgPool, admin: &PgPool) {
 
     cleanup(admin, tenant, &[owner]).await;
     cleanup(admin, tenant_no_iva, &[owner_no_iva]).await;
+}
+
+/// F2.13 Cuentas por pagar y aging
+async fn f2_payables(app: &PgPool, admin: &PgPool) {
+    use crate::payables;
+    use chrono::Duration;
+    let tenant = seed_tenant(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let cashier = seed_user(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let (_scope, mut tx) = tenancy::begin(app, &c_owner).await.unwrap();
+    let loc_id = crate::locations::default_location_id_tx(&mut tx, branch)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let reg_id = default_register(admin, branch).await;
+
+    // Crear proveedor y producto
+    let supp = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Proveedor CxP Test".into(),
+            tax_id: Some("900999888".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            delivery_days: None,
+            category: Some("MERCANCIA".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let p1 = seed_product(admin, tenant, "Prod CxP 1", "UND", None, false).await;
+
+    // [P] Dos recepciones parciales hacen crecer una sola cuenta
+    let po_id = Uuid::new_v4();
+    let po = procurement::create_purchase(
+        app,
+        &c_owner,
+        procurement::CreatePurchaseRequest {
+            id: po_id,
+            branch_id: branch,
+            supplier_id: supp.id,
+            location_id: Some(loc_id),
+            document_number: Some("FAC-CXP-001".into()),
+            expected_at: None,
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: Some(Decimal::ZERO),
+            freight_amount: Some(Decimal::ZERO),
+            freight_mode: Some("PRORRATEAR".into()),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            iva_to_cost: Some(false),
+            items: vec![procurement::PurchaseItemRequest {
+                product_id: p1,
+                qty: dec(10),
+                unit_cost: dec(100),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    procurement::approve_purchase(app, &c_owner, po.purchase.id)
+        .await
+        .unwrap();
+
+    // 1ra recepción parcial: 4 unidades
+    let r1_id = Uuid::new_v4();
+    procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        po.purchase.id,
+        procurement::ReceivePurchaseRequest {
+            id: r1_id,
+            items: vec![procurement::ReceiveItemInput {
+                purchase_item_id: po.items[0].id,
+                qty: dec(4),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Verificar que existe exactamente 1 cuenta por pagar con amount_total = 400
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let payables_1 = payables::list_payables_tx(
+        &mut tx,
+        &scope_owner,
+        payables::PayablesFilter {
+            branch_id: Some(branch),
+            status: None,
+            supplier_id: Some(supp.id),
+            overdue: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(payables_1.len(), 1);
+    assert_eq!(payables_1[0].amount_total, dec(400));
+    assert_eq!(payables_1[0].amount_paid, dec(0));
+    assert_eq!(payables_1[0].balance, dec(400));
+    assert_eq!(payables_1[0].status, "ABIERTA");
+    let payable_id = payables_1[0].id;
+
+    // 2da recepción parcial: 6 unidades restantes
+    let r2_id = Uuid::new_v4();
+    procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        po.purchase.id,
+        procurement::ReceivePurchaseRequest {
+            id: r2_id,
+            items: vec![procurement::ReceiveItemInput {
+                purchase_item_id: po.items[0].id,
+                qty: dec(6),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let payables_2 = payables::list_payables_tx(
+        &mut tx,
+        &scope_owner,
+        payables::PayablesFilter {
+            branch_id: Some(branch),
+            status: None,
+            supplier_id: Some(supp.id),
+            overdue: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // Sigue siendo 1 sola cuenta pero ahora amount_total = 1000
+    assert_eq!(payables_2.len(), 1);
+    assert_eq!(payables_2[0].id, payable_id);
+    assert_eq!(payables_2[0].amount_total, dec(1000));
+    assert_eq!(payables_2[0].amount_paid, dec(0));
+    assert_eq!(payables_2[0].balance, dec(1000));
+
+    // [P] Un pago mayor al saldo: 422
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let pay_err = payables::create_payment_tx(
+        &mut tx,
+        &scope_owner,
+        payable_id,
+        payables::CreatePayablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(1200),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("REF-123456".into()),
+        },
+    )
+    .await
+    .unwrap_err();
+    tx.rollback().await.unwrap();
+
+    match pay_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "PAYMENT_EXCEEDS_BALANCE");
+        }
+        other => panic!(
+            "esperaba 422 PAYMENT_EXCEEDS_BALANCE pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // [P] Un pago en efectivo crea un movimiento PAGO_PROVEEDOR y baja el esperado del turno
+    // Primero, si intentamos pagar en efectivo sin turno abierto: 409 PAYMENT_NEEDS_OPEN_SESSION
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let no_session_err = payables::create_payment_tx(
+        &mut tx,
+        &scope_owner,
+        payable_id,
+        payables::CreatePayablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(300),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    tx.rollback().await.unwrap();
+    match no_session_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "PAYMENT_NEEDS_OPEN_SESSION");
+        }
+        other => panic!(
+            "esperaba 409 PAYMENT_NEEDS_OPEN_SESSION pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // Abrimos turno de caja con 500.000
+    let session = cash::open(app, &c_owner, branch, reg_id, dec(500000))
+        .await
+        .unwrap();
+
+    // Pagamos 300 en efectivo
+    let pay1_id = Uuid::new_v4();
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let paid_detail = payables::create_payment_tx(
+        &mut tx,
+        &scope_owner,
+        payable_id,
+        payables::CreatePayablePaymentRequest {
+            id: pay1_id,
+            amount: dec(300),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(paid_detail.payable.amount_paid, dec(300));
+    assert_eq!(paid_detail.payable.balance, dec(700));
+    assert_eq!(paid_detail.payable.status, "PARCIAL");
+    assert_eq!(paid_detail.payments.len(), 1);
+    assert_eq!(paid_detail.payments[0].method, "EFECTIVO");
+    assert_eq!(paid_detail.payments[0].amount, dec(300));
+
+    // Verificar que el esperado del turno bajó de 500.000 a 499.700
+    let (_scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let cash_summary = cash::summary_tx(&mut tx, session.id).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(cash_summary.expected_cash, dec(499700));
+
+    // [P] El vencimiento usa los días de crédito del proveedor
+    let supp_cred = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Proveedor Credito 30d".into(),
+            tax_id: Some("900111222".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CREDITO".into()),
+            credit_days: Some(30),
+            delivery_days: None,
+            category: Some("MERCANCIA".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let po_cred_id = Uuid::new_v4();
+    let po_cred = procurement::create_purchase(
+        app,
+        &c_owner,
+        procurement::CreatePurchaseRequest {
+            id: po_cred_id,
+            branch_id: branch,
+            supplier_id: supp_cred.id,
+            location_id: Some(loc_id),
+            document_number: Some("FAC-CRED-001".into()),
+            expected_at: None,
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: Some(Decimal::ZERO),
+            freight_amount: Some(Decimal::ZERO),
+            freight_mode: Some("PRORRATEAR".into()),
+            payment_terms: Some("CREDITO".into()),
+            credit_days: Some(30),
+            iva_to_cost: Some(false),
+            items: vec![procurement::PurchaseItemRequest {
+                product_id: p1,
+                qty: dec(5),
+                unit_cost: dec(200),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    procurement::approve_purchase(app, &c_owner, po_cred_id)
+        .await
+        .unwrap();
+
+    let r_cred_id = Uuid::new_v4();
+    procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        po_cred_id,
+        procurement::ReceivePurchaseRequest {
+            id: r_cred_id,
+            items: vec![procurement::ReceiveItemInput {
+                purchase_item_id: po_cred.items[0].id,
+                qty: dec(5),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let pay_cred_row_id = sqlx::query_scalar::<_, Uuid>(
+        "select id from payables where source_type = 'COMPRA' and source_id = $1",
+    )
+    .bind(po_cred_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let pay_cred = payables::get_payable_detail_tx(&mut tx, &scope_owner, pay_cred_row_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let expected_due = chrono::Utc::now().date_naive() + Duration::days(30);
+    assert_eq!(pay_cred.payable.due_date, expected_due);
+    assert_eq!(pay_cred.payable.amount_total, dec(1000));
+    assert_eq!(pay_cred.payable.status, "ABIERTA");
+
+    // [P] Los tramos de antigüedad suman el saldo total
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let aging = payables::aging_summary_tx(&mut tx, &scope_owner, Some(branch))
+        .await
+        .unwrap();
+    let all_open = payables::list_payables_tx(
+        &mut tx,
+        &scope_owner,
+        payables::PayablesFilter {
+            branch_id: Some(branch),
+            status: None,
+            supplier_id: None,
+            overdue: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    let total_open_balance: Decimal = all_open
+        .iter()
+        .filter(|p| p.status == "ABIERTA" || p.status == "PARCIAL")
+        .map(|p| p.balance)
+        .sum();
+
+    let aging_sum =
+        aging.al_dia + aging.d1_30 + aging.d31_60 + aging.d61_90 + aging.d91_120 + aging.d120_mas;
+    assert_eq!(aging_sum, total_open_balance);
+
+    // Test adicional: Castigar cuenta (write-off)
+    // Cajero intenta castigar -> 403
+    let (scope_cashier, mut tx) = tenancy::begin_in_branch(app, &c_cashier, branch)
+        .await
+        .unwrap();
+    let cashier_err = payables::write_off_tx(
+        &mut tx,
+        &scope_cashier,
+        pay_cred.payable.id,
+        payables::WriteOffPayableRequest {
+            reason: "Empresa en liquidación".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    tx.rollback().await.unwrap();
+    assert!(matches!(
+        cashier_err,
+        ApiError::Domain(crate::error::DomainError::Forbidden)
+    ));
+
+    // Dueño castiga la cuenta
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let written_off = payables::write_off_tx(
+        &mut tx,
+        &scope_owner,
+        pay_cred.payable.id,
+        payables::WriteOffPayableRequest {
+            reason: "Empresa en liquidación judicial".into(),
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(written_off.payable.status, "CASTIGADA");
+    assert_eq!(
+        written_off.payable.written_off_reason,
+        Some("Empresa en liquidación judicial".into())
+    );
+
+    // Intentar pagar cuenta castigada -> 409 PAYABLE_CLOSED
+    let (scope_owner, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let closed_err = payables::create_payment_tx(
+        &mut tx,
+        &scope_owner,
+        pay_cred.payable.id,
+        payables::CreatePayablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(100),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("REF-CLOSED".into()),
+        },
+    )
+    .await
+    .unwrap_err();
+    tx.rollback().await.unwrap();
+    match closed_err {
+        ApiError::Domain(DomainError::Coded { code, status, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "PAYABLE_CLOSED");
+        }
+        other => panic!("esperaba 409 PAYABLE_CLOSED pero obtuve {:?}", other),
+    }
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }
