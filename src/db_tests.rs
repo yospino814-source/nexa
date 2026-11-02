@@ -790,6 +790,7 @@ async fn database_integration() {
     f2_locations(&app, &admin).await;
     f2_pipeline(&app, &admin).await;
     f2_costing(&app, &admin).await;
+    f2_suppliers(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1445,6 +1446,7 @@ async fn supplier_checks(app: &PgPool, admin: &PgPool) {
         email: Some("alpes@test.com".into()),
         address: Some("Calle 10 # 20-30".into()),
         notes: None,
+        ..Default::default()
     };
     assert!(is_forbidden(
         &procurement::create_supplier(app, &c_cashier_a, req.clone()).await
@@ -1467,6 +1469,7 @@ async fn supplier_checks(app: &PgPool, admin: &PgPool) {
         email: None,
         address: None,
         notes: None,
+        ..Default::default()
     };
     assert!(is_conflict(
         &procurement::create_supplier(app, &c_owner_a, req_dup).await
@@ -1501,6 +1504,7 @@ async fn supplier_checks(app: &PgPool, admin: &PgPool) {
         address: Some("Cra 15 # 45-67".into()),
         notes: Some("Excelente proveedor".into()),
         active: Some(false),
+        ..Default::default()
     };
     let updated = procurement::update_supplier(app, &c_owner_a, sup1.id, update_req)
         .await
@@ -1545,6 +1549,7 @@ async fn purchase_checks(app: &PgPool, admin: &PgPool) {
             email: None,
             address: None,
             notes: None,
+            ..Default::default()
         },
     )
     .await
@@ -7268,6 +7273,198 @@ async fn f2_costing(app: &PgPool, admin: &PgPool) {
         dec(120),
         "destino debe conservar costo unitario del origen (120)"
     );
+
+    cleanup(admin, tenant, &[owner]).await;
+}
+
+async fn f2_suppliers(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let c_owner = claims(owner, Some(tenant), None);
+
+    let branch = seed_branch(admin, tenant).await;
+    let (_scope, mut tx) = tenancy::begin(app, &c_owner).await.unwrap();
+    let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let prod = seed_product(admin, tenant, "F2 Suppliers Product", "UND", None, false).await;
+
+    // 1. [P] Un DV incorrecto: 422 NIT_DV_INVALID.
+    // Para NIT "900123456", el DV real es 8. Si enviamos 5 debe fallar con NIT_DV_INVALID.
+    let err_dv = crate::procurement::create_supplier(
+        app,
+        &c_owner,
+        crate::procurement::CreateSupplierRequest {
+            name: "Proveedor DV Malo".into(),
+            tax_id: Some("900123456".into()),
+            doc_type: Some("NIT".into()),
+            dv: Some("5".into()),
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            delivery_days: Some(5),
+            category: Some("MERCANCIA".into()),
+            bank_name: None,
+            bank_account_type: None,
+            bank_account_number: None,
+            contact_name: None,
+            phone: None,
+            email: None,
+            address: None,
+            notes: None,
+        },
+    )
+    .await;
+
+    match err_dv {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "NIT_DV_INVALID");
+        }
+        other => panic!("esperaba 422 NIT_DV_INVALID pero obtuve {:?}", other),
+    }
+
+    // Creación exitosa: sin DV (debe calcular 8 automáticamente)
+    let s_ok = crate::procurement::create_supplier(
+        app,
+        &c_owner,
+        crate::procurement::CreateSupplierRequest {
+            name: "Proveedor Exitoso".into(),
+            tax_id: Some("900123456".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            delivery_days: Some(3),
+            category: Some("MERCANCIA".into()),
+            bank_name: Some("Bancolombia".into()),
+            bank_account_type: Some("AHORROS".into()),
+            bank_account_number: Some("123456789".into()),
+            contact_name: Some("Juan Perez".into()),
+            phone: None,
+            email: None,
+            address: None,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(s_ok.dv.as_deref(), Some("8"));
+
+    // 2. [P] Archivar con una orden abierta: 409 SUPPLIER_HAS_OPEN_DOCS.
+    let status_pending: i32 = sqlx::query_scalar("select public.tipo_id('PUR', 'PENDIENTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+
+    let purchase_id = Uuid::new_v4();
+    sqlx::query(
+        "insert into purchase_receipts (id, tenant_id, branch_id, supplier_id, document_number, total_amount, status_id, location_id)
+         values ($1, $2, $3, $4, 'OC-001', 50000, $5, $6)"
+    )
+    .bind(purchase_id)
+    .bind(tenant)
+    .bind(branch)
+    .bind(s_ok.id)
+    .bind(status_pending)
+    .bind(def_loc)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let err_arch = crate::procurement::archive_supplier(app, &c_owner, s_ok.id).await;
+    match err_arch {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "SUPPLIER_HAS_OPEN_DOCS");
+        }
+        other => panic!(
+            "esperaba 409 SUPPLIER_HAS_OPEN_DOCS pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // Cancelar la orden para permitir archivar
+    let status_cancel: i32 = sqlx::query_scalar("select public.tipo_id('PUR', 'ANULADA')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+
+    sqlx::query("update purchase_receipts set status_id = $1 where id = $2")
+        .bind(status_cancel)
+        .bind(purchase_id)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    crate::procurement::archive_supplier(app, &c_owner, s_ok.id)
+        .await
+        .expect("debe poder archivar sin órdenes abiertas");
+
+    // Verificar productos por proveedor y switch de preferred
+    let s2 = crate::procurement::create_supplier(
+        app,
+        &c_owner,
+        crate::procurement::CreateSupplierRequest {
+            name: "Proveedor Secundario".into(),
+            tax_id: Some("800197268".into()),
+            doc_type: Some("NIT".into()),
+            dv: None,
+            person_type: Some("JURIDICA".into()),
+            iva_responsible: Some(true),
+            self_withholding: Some(false),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            delivery_days: None,
+            category: Some("MERCANCIA".into()),
+            bank_name: None,
+            bank_account_type: None,
+            bank_account_number: None,
+            contact_name: None,
+            phone: None,
+            email: None,
+            address: None,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    crate::procurement::set_supplier_products(
+        app,
+        &c_owner,
+        s2.id,
+        vec![crate::procurement::SupplierProductItemInput {
+            product_id: prod,
+            supplier_code: Some("PROD-S2".into()),
+            min_order_qty: Some(dec(5)),
+            preferred: true,
+        }],
+    )
+    .await
+    .unwrap();
+
+    let det2 = crate::procurement::get_supplier(app, &c_owner, s2.id)
+        .await
+        .unwrap();
+    assert_eq!(det2.products.len(), 1);
+    assert!(det2.products[0].preferred);
 
     cleanup(admin, tenant, &[owner]).await;
 }

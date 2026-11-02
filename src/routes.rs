@@ -159,7 +159,9 @@ pub fn router() -> Router<AppState> {
         .route("/v1/locations/{id}", put(update_location))
         // Proveedores
         .route("/v1/suppliers", get(list_suppliers).post(create_supplier))
-        .route("/v1/suppliers/{id}", put(update_supplier))
+        .route("/v1/suppliers/{id}", get(get_supplier).put(update_supplier))
+        .route("/v1/suppliers/{id}/archive", post(archive_supplier))
+        .route("/v1/suppliers/{id}/products", put(set_supplier_products))
         // Compras
         .route("/v1/purchases", get(list_purchases).post(create_purchase))
         .route("/v1/purchases/summary", get(purchases_summary))
@@ -959,6 +961,34 @@ async fn update_supplier(
 ) -> ApiResult<Json<procurement::Supplier>> {
     let supplier = procurement::update_supplier(&state.pool, &user.claims, id, body).await?;
     Ok(Json(supplier))
+}
+
+async fn get_supplier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<procurement::SupplierDetailResponse>> {
+    let res = procurement::get_supplier(&state.pool, &user.claims, id).await?;
+    Ok(Json(res))
+}
+
+async fn archive_supplier(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    procurement::archive_supplier(&state.pool, &user.claims, id).await?;
+    Ok(StatusCode::OK)
+}
+
+async fn set_supplier_products(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<Vec<procurement::SupplierProductItemInput>>,
+) -> ApiResult<Json<Vec<procurement::SupplierProductDetail>>> {
+    let res = procurement::set_supplier_products(&state.pool, &user.claims, id, body).await?;
+    Ok(Json(res))
 }
 
 // -------------------------------------------------------------------- compras
