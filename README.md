@@ -115,14 +115,41 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | POST | `/v1/inventory/transfer` | Traslado entre sucursales `{from_branch_id, to_branch_id, product_id, qty, cause}`; exige permiso en ambas |
 | PUT | `/v1/inventory/min-qty` | Punto de reorden `{branch_id, product_id, min_qty}` |
 | GET | `/v1/suppliers?q=&include_inactive=` | Lista de proveedores del negocio |
-| POST | `/v1/suppliers` | Crear proveedor `{name, tax_id?, contact_name?, phone?, email?, address?, notes?}` |
-| PUT | `/v1/suppliers/{id}` | Editar proveedor, incluido `active` |
+| POST | `/v1/suppliers` | Crear proveedor `{name, tax_id?, doc_type?, dv?, person_type?, iva_responsible?, self_withholding?, payment_terms?, credit_days?, delivery_days?, category?, bank_name?, bank_account_type?, bank_account_number?, contact_name?, phone?, email?, address?, notes?}` |
+| PUT | `/v1/suppliers/{id}` | Editar proveedor |
+| POST | `/v1/suppliers/{id}/archive` | Archivar proveedor (valida que no tenga compras o deudas abiertas) |
+| PUT | `/v1/suppliers/{id}/products` | Configurar catálogo del proveedor `{products: [{product_id, supplier_code?, min_order_qty?, preferred}]}` |
 | GET | `/v1/purchases?branch_id=&from=&to=&supplier_id=&status=&limit=` | Historial de compras con número de ítems y total |
-| POST | `/v1/purchases` | Crear compra en estado `PENDIENTE` (idempotente) |
-| GET | `/v1/purchases/summary?branch_id=&month=YYYY-MM` | Total comprado en el mes (solo `RECIBIDA`) y proveedores activos |
-| GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto y SKU |
-| POST | `/v1/purchases/{id}/receive` | Pasa compra a `RECIBIDA`, suma stock, registra kardex y actualiza `cost_price` |
-| POST | `/v1/purchases/{id}/cancel` | Anula compra (solo desde `PENDIENTE`) |
+| POST | `/v1/purchases` | Crear orden de compra en estado `PENDIENTE` (idempotente) |
+| GET | `/v1/purchases/summary?branch_id=&month=YYYY-MM` | Total comprado en el mes y proveedores activos |
+| POST | `/v1/purchases/cost-preview` | Vista previa de prorrateo de costos y márgenes de ganancia |
+| GET | `/v1/purchases/suggestions?branch_id=` | Sugerencias de compra por stock mínimo agrupadas por proveedor |
+| POST | `/v1/purchases/suggestions/create` | Generar órdenes en borrador desde sugerencias seleccionadas |
+| GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto, SKU, unidad de compra y costos |
+| PUT | `/v1/purchases/{id}` | Actualizar orden de compra en estado `PENDIENTE` |
+| POST | `/v1/purchases/{id}/approve` | Aprobar orden de compra (`purchases:approve`) |
+| POST | `/v1/purchases/{id}/receive` | Recepción parcial o total con lotes, vencimientos y fletes (`purchases:receive`) |
+| POST | `/v1/purchases/{id}/cancel` | Anular orden de compra (`purchases:approve`) |
+| GET | `/v1/payables?branch_id=&status=&supplier_id=&overdue=` | Cuentas por pagar con saldo y estado (`payables:read`) |
+| GET | `/v1/payables/aging?branch_id=` | Reporte de cartera y antigüedad de saldos (`payables:read`) |
+| GET | `/v1/payables/{id}` | Detalle de cuenta por pagar e historial de pagos (`payables:read`) |
+| POST | `/v1/payables/{id}/payments` | Registrar abono o pago a cuenta por pagar (`payables:pay`) |
+| POST | `/v1/payables/{id}/write-off` | Castigar saldo pendiente de cuenta por pagar (`payables:pay`) |
+| GET | `/v1/expense-categories` | Listado de categorías de gasto activas (`expenses:read`) |
+| POST | `/v1/expense-categories` | Crear categoría de gasto (`expenses:create`) |
+| PUT | `/v1/expense-categories/{id}` | Actualizar categoría de gasto (`expenses:create`) |
+| GET | `/v1/expenses?branch_id=&category_id=&status=&from=&to=&limit=` | Historial de gastos (`expenses:read`) |
+| GET | `/v1/expenses/summary?branch_id=&month=` | Métricas y total de gastos del mes (`expenses:read`) |
+| GET | `/v1/expenses/{id}` | Detalle de gasto (`expenses:read`) |
+| POST | `/v1/expenses` | Registrar gasto, pasa a `APROBADO` o `PENDIENTE` según umbral (`expenses:create`) |
+| POST | `/v1/expenses/{id}/approve` | Aprobar gasto pendiente (`expenses:approve`) |
+| POST | `/v1/expenses/{id}/reject` | Rechazar gasto pendiente con motivo (`expenses:approve`) |
+| POST | `/v1/expenses/{id}/cancel` | Cancelar gasto no pagado (`expenses:create`) |
+| GET | `/v1/inventory/expiring?branch_id=&days=30` | Lotes vencidos o próximos a vencer (`inventory:read`) |
+| POST | `/v1/inventory/adjust` | Registrar ajuste de inventario con motivo, validación de signo y umbral (`inventory:adjust`) |
+| GET | `/v1/inventory/adjustments?branch_id=&status=` | Historial de solicitudes de ajuste (`inventory:read`) |
+| POST | `/v1/inventory/adjustments/{id}/approve` | Aprobar ajuste y aplicar delta al stock (`inventory:adjust_approve`) |
+| POST | `/v1/inventory/adjustments/{id}/reject` | Rechazar solicitud de ajuste (`inventory:adjust_approve`) |
 | GET | `/v1/permissions` | Catálogo de permisos del sistema y roles |
 | GET | `/v1/permissions/roles/{role_id}` | Permisos efectivos de un rol (base + overrides de tenant) |
 | PUT | `/v1/permissions/roles/{role_id}` | Actualizar overrides de permisos de un rol (solo `DUENO`) |
