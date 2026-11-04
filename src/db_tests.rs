@@ -797,6 +797,7 @@ async fn database_integration() {
     f2_lots(&app, &admin).await;
     f2_adjustments(&app, &admin).await;
     f2_suggestions(&app, &admin).await;
+    f3_customers(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -9333,6 +9334,255 @@ async fn f2_suggestions(app: &PgPool, admin: &PgPool) {
     assert_eq!(order_detail.items[0].product_id, prod.row.id);
     assert_eq!(order_detail.items[0].qty, dec(4));
     assert_eq!(order_detail.items[0].unit_cost, dec(12000));
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+/// F3.1 Clientes completos: normalización, DV, upsert, límites de crédito y archivo.
+async fn f3_customers(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), None);
+    let c_cashier = claims(cashier, Some(tenant), None);
+    let branch = seed_branch(admin, tenant).await;
+
+    // 1. [P] Un NIT con un DV incorrecto: 422 NIT_DV_INVALID
+    // Para NIT "900123456", el DV real es 8. Si enviamos 5 debe fallar.
+    let err_dv = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: Some("5".into()),
+            name: "Cliente DV Malo SAS".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await;
+
+    match err_dv {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "NIT_DV_INVALID");
+        }
+        other => panic!("esperaba 422 NIT_DV_INVALID pero obtuve {:?}", other),
+    }
+
+    // Crear cliente inicial con NIT válido: "900.123.456-8", teléfono "3001112233"
+    let c1 = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900.123.456-8".into()),
+            dv: None,
+            name: "Empresa Original SAS".into(),
+            phone: Some("3001112233".into()),
+            email: Some("contacto@empresaoriginal.com".into()),
+            price_tier_id: None,
+            tax_regime: Some("RESPONSABLE_IVA".into()),
+            fiscal_responsibilities: Some(vec!["O-13".into()]),
+            ciiu: Some("6201".into()),
+            withholding_agent: Some(false),
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: Some("Cliente VIP".into()),
+            credit_limit: Some(dec(0)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(c1.customer.dv.as_deref(), Some("8"));
+    assert_eq!(c1.customer.person_type, "JURIDICA");
+    assert_eq!(c1.customer.phone.as_deref(), Some("3001112233"));
+
+    // 2. [P] `upsert` con un cliente existente solo llena los campos vacíos y no cambia el teléfono que ya tenía
+    let upsert_res = customers::upsert(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: Some("8".into()),
+            name: "Empresa Original SAS Renombrada".into(),
+            phone: Some("3229998877".into()), // Nuevo teléfono enviado (no debe sobrescribir)
+            email: Some("contacto@empresaoriginal.com".into()),
+            price_tier_id: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: Some("05001".into()), // Campo vacío antes -> debe llenarse
+            billing_address: Some("Calle 10 # 20-30".into()), // Campo vacío antes -> debe llenarse
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(upsert_res.result, "UPDATED");
+    assert_eq!(
+        upsert_res.customer.customer.phone.as_deref(),
+        Some("3001112233"),
+        "upsert no debe cambiar el teléfono que ya tenía el cliente"
+    );
+    assert_eq!(
+        upsert_res.customer.customer.city_code.as_deref(),
+        Some("05001"),
+        "upsert debe llenar campos que estaban vacíos"
+    );
+    assert_eq!(
+        upsert_res.customer.customer.billing_address.as_deref(),
+        Some("Calle 10 # 20-30"),
+        "upsert debe llenar dirección de facturación que estaba vacía"
+    );
+
+    // 3. [P] Un usuario sin `credit:override` que cambia el `credit_limit`: 403
+    let err_credit_limit = customers::update(
+        app,
+        &c_cashier,
+        c1.customer.id,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: Some("8".into()),
+            name: "Empresa Original SAS".into(),
+            phone: Some("3001112233".into()),
+            email: Some("contacto@empresaoriginal.com".into()),
+            price_tier_id: None,
+            tax_regime: Some("RESPONSABLE_IVA".into()),
+            fiscal_responsibilities: Some(vec!["O-13".into()]),
+            ciiu: Some("6201".into()),
+            withholding_agent: Some(false),
+            city_code: Some("05001".into()),
+            billing_address: Some("Calle 10 # 20-30".into()),
+            shipping_address: None,
+            pinned_note: Some("Cliente VIP".into()),
+            credit_limit: Some(dec(500000)), // Cajero intenta cambiar cupo a 500.000 sin credit:override
+            credit_block_days: Some(30),
+        },
+    )
+    .await;
+
+    match err_credit_limit {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Forbidden)) => {}
+        other => panic!("esperaba 403 Forbidden pero obtuve {:?}", other),
+    }
+
+    // El dueño (con credit:override) sí puede cambiar el cupo
+    let updated_by_owner = customers::update(
+        app,
+        &c_owner,
+        c1.customer.id,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: Some("8".into()),
+            name: "Empresa Original SAS".into(),
+            phone: Some("3001112233".into()),
+            email: Some("contacto@empresaoriginal.com".into()),
+            price_tier_id: None,
+            tax_regime: Some("RESPONSABLE_IVA".into()),
+            fiscal_responsibilities: Some(vec!["O-13".into()]),
+            ciiu: Some("6201".into()),
+            withholding_agent: Some(false),
+            city_code: Some("05001".into()),
+            billing_address: Some("Calle 10 # 20-30".into()),
+            shipping_address: None,
+            pinned_note: Some("Cliente VIP".into()),
+            credit_limit: Some(dec(500000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(updated_by_owner.customer.credit_limit, dec(500000));
+    assert_eq!(updated_by_owner.credit_available, dec(500000));
+
+    // 4. [P] Archivar a un cliente con saldo: 409 CUSTOMER_HAS_BALANCE
+    // Simulamos una cuenta por cobrar pendiente en receivables
+    let rec_id = Uuid::new_v4();
+    sqlx::query(
+        "insert into receivables (
+            id, tenant_id, branch_id, customer_id, source, principal, amount_total,
+            amount_paid, status, due_date, created_by
+         ) values ($1, $2, $3, $4, 'ACUERDO', 100000, 100000, 0, 'ABIERTA', current_date + 30, $5)",
+    )
+    .bind(rec_id)
+    .bind(tenant)
+    .bind(branch)
+    .bind(c1.customer.id)
+    .bind(owner)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let err_archive = customers::archive(app, &c_owner, c1.customer.id).await;
+    match err_archive {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "CUSTOMER_HAS_BALANCE");
+        }
+        other => panic!("esperaba 409 CUSTOMER_HAS_BALANCE pero obtuve {:?}", other),
+    }
+
+    // Pagamos la cuenta por cobrar (status = PAGADA, amount_paid = 100000)
+    sqlx::query("update receivables set status = 'PAGADA', amount_paid = 100000 where id = $1")
+        .bind(rec_id)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    // Ahora archivar debe tener éxito
+    customers::archive(app, &c_owner, c1.customer.id)
+        .await
+        .unwrap();
+
+    let detail_archived = customers::get(app, &c_owner, c1.customer.id)
+        .await
+        .unwrap();
+    assert!(detail_archived.customer.archived_at.is_some());
+
+    // Desarchivar
+    customers::unarchive(app, &c_owner, c1.customer.id)
+        .await
+        .unwrap();
+
+    let detail_unarchived = customers::get(app, &c_owner, c1.customer.id)
+        .await
+        .unwrap();
+    assert!(detail_unarchived.customer.archived_at.is_none());
 
     cleanup(admin, tenant, &[owner, cashier]).await;
 }
