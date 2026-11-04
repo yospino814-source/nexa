@@ -1071,6 +1071,32 @@ export type Customer = {
   phone: string | null;
   email: string | null;
   price_tier_id: Uuid | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  tax_regime?: "RESPONSABLE_IVA" | "NO_RESPONSABLE";
+  fiscal_responsibilities?: string[];
+  ciiu?: string | null;
+  withholding_agent?: boolean;
+  city_code?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
+  pinned_note?: string | null;
+  credit_limit?: Decimal;
+  credit_block_days?: number;
+  archived_at?: string | null;
+  balance?: Decimal;
+  max_days_overdue?: number;
+};
+
+export type CustomerDetail = Customer & {
+  balance: Decimal;
+  credit_available: Decimal;
+  wallet_balance: Decimal;
+  missing_fiscal: string[];
+};
+
+export type CustomerUpsertResponse = {
+  customer: CustomerDetail;
+  result: "CREATED" | "UPDATED" | "UNCHANGED";
 };
 
 export type CreateCustomerInput = {
@@ -1081,10 +1107,23 @@ export type CreateCustomerInput = {
   phone?: string | null;
   email?: string | null;
   price_tier_id?: Uuid | null;
+  tax_regime?: "RESPONSABLE_IVA" | "NO_RESPONSABLE";
+  fiscal_responsibilities?: string[];
+  ciiu?: string | null;
+  withholding_agent?: boolean;
+  city_code?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
+  pinned_note?: string | null;
+  credit_limit?: Decimal;
+  credit_block_days?: number;
 };
 
 export type CustomerQuery = {
   q?: string;
+  status?: "AL_DIA" | "EN_MORA" | "ARCHIVADO" | "TODOS" | string;
+  page?: number;
+  page_size?: number;
   limit?: number;
 };
 

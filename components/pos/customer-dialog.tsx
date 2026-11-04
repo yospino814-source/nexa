@@ -61,6 +61,7 @@ export function CustomerDialog({
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
 
   // Alias state
@@ -99,6 +100,7 @@ export function CustomerDialog({
       setPhone("");
       setEmail("");
       setFormError(null);
+      setSuccessMsg(null);
       setDuplicateId(null);
       setAlias(currentAlias ?? "");
       setAliasError(null);
@@ -108,6 +110,7 @@ export function CustomerDialog({
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccessMsg(null);
     setDuplicateId(null);
 
     const trimmedName = name.trim();
@@ -127,9 +130,14 @@ export function CustomerDialog({
 
     setSaving(true);
     try {
-      const created = await api.customers.create(payload);
-      onSelectCustomer(created);
-      onOpenChange(false);
+      const res = await api.customers.upsert(payload);
+      const msg = res.result === "CREATED" ? "Cliente creado" : "Cliente actualizado con los datos nuevos";
+      setSuccessMsg(msg);
+      setTimeout(() => {
+        onSelectCustomer(res.customer);
+        onOpenChange(false);
+        setSuccessMsg(null);
+      }, 500);
     } catch (err) {
       if (err instanceof ApiError && err.code === "CUSTOMER_DUPLICATED") {
         const dupId = (err.data as { id?: string })?.id;
@@ -318,6 +326,12 @@ export function CustomerDialog({
         {/* Tab 2: Nuevo */}
         {tab === "new" && (
           <form onSubmit={handleCreate} className="flex flex-col gap-4 p-6 pt-4">
+            {successMsg && (
+              <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 font-medium flex items-center gap-2">
+                <Check className="size-4 text-emerald-600" />
+                <span>{successMsg}</span>
+              </div>
+            )}
             {formError && (
               <div className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700 flex flex-col gap-2">
                 <span>{formError}</span>

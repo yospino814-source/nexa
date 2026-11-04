@@ -108,7 +108,9 @@ import type {
   ReceivePurchaseRequest,
   CreateSupplierInput,
   Customer,
+  CustomerDetail,
   CustomerQuery,
+  CustomerUpsertResponse,
   DashboardSummary,
   Decimal,
   DocType,
@@ -2963,32 +2965,69 @@ export const api = {
   },
 
   customers: {
-    /** GET /v1/customers?q=&limit= */
-    async search(query?: CustomerQuery): Promise<Customer[]> {
+    /** GET /v1/customers?q=&status=&page=&page_size= */
+    async list(query?: CustomerQuery): Promise<Customer[]> {
       if (USE_MOCKS) {
         await delay();
         const q = query?.q?.trim().toLowerCase() || "";
-        const limit = Math.min(Math.max(query?.limit || 20, 1), 50);
-        if (!q) {
-          return structuredClone(mockCustomers.slice(0, limit));
+        const limit = query?.page_size || query?.limit || 50;
+        let filtered = mockCustomers;
+        if (query?.status && query.status !== "TODOS") {
+          if (query.status === "ARCHIVADO") {
+            filtered = filtered.filter((c) => Boolean(c.archived_at));
+          } else if (query.status === "EN_MORA") {
+            filtered = filtered.filter((c) => !c.archived_at && (c.max_days_overdue ?? 0) > 0);
+          } else if (query.status === "AL_DIA") {
+            filtered = filtered.filter((c) => !c.archived_at && (c.max_days_overdue ?? 0) === 0);
+          }
+        } else {
+          filtered = filtered.filter((c) => !c.archived_at);
         }
-        const filtered = mockCustomers.filter(
-          (c) =>
-            c.name.toLowerCase().includes(q) ||
-            (c.doc_number && c.doc_number.toLowerCase().startsWith(q)) ||
-            (c.phone && c.phone.startsWith(q)),
-        );
+        if (q) {
+          filtered = filtered.filter(
+            (c) =>
+              c.name.toLowerCase().includes(q) ||
+              (c.doc_number && c.doc_number.toLowerCase().startsWith(q)) ||
+              (c.phone && c.phone.startsWith(q)),
+          );
+        }
         return structuredClone(filtered.slice(0, limit));
       }
       const params = new URLSearchParams();
       if (query?.q) params.set("q", query.q);
+      if (query?.status) params.set("status", query.status);
+      if (query?.page) params.set("page", String(query.page));
+      if (query?.page_size) params.set("page_size", String(query.page_size));
       if (query?.limit) params.set("limit", String(query.limit));
       const qs = params.toString() ? `?${params.toString()}` : "";
       return request(`/v1/customers${qs}`);
     },
 
+    /** Alias retrocompatible para búsqueda */
+    async search(query?: CustomerQuery): Promise<Customer[]> {
+      return this.list(query);
+    },
+
+    /** GET /v1/customers/{id} */
+    async get(id: string): Promise<CustomerDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const found = mockCustomers.find((c) => c.id === id);
+        if (!found) throw new ApiError(404, "Cliente no encontrado");
+        const detail: CustomerDetail = {
+          ...found,
+          balance: found.balance ?? "0.00",
+          credit_available: dec(Math.max(0, Number(found.credit_limit ?? 0) - Number(found.balance ?? 0))),
+          wallet_balance: "0.00",
+          missing_fiscal: [],
+        };
+        return structuredClone(detail);
+      }
+      return request(`/v1/customers/${id}`);
+    },
+
     /** POST /v1/customers */
-    async create(input: CreateCustomerInput): Promise<Customer> {
+    async create(input: CreateCustomerInput): Promise<CustomerDetail> {
       if (USE_MOCKS) {
         await delay();
         const name = input.name.trim().replace(/\s+/g, " ");
@@ -3039,15 +3078,121 @@ export const api = {
           dv,
           phone,
           email,
-          price_tier_id: null,
+          price_tier_id: input.price_tier_id ?? null,
+          person_type: doc_type === "NIT" ? "JURIDICA" : "NATURAL",
+          tax_regime: input.tax_regime ?? "NO_RESPONSABLE",
+          fiscal_responsibilities: input.fiscal_responsibilities ?? ["R-99-PN"],
+          ciiu: input.ciiu ?? null,
+          withholding_agent: input.withholding_agent ?? false,
+          city_code: input.city_code ?? null,
+          billing_address: input.billing_address ?? null,
+          shipping_address: input.shipping_address ?? null,
+          pinned_note: input.pinned_note ?? null,
+          credit_limit: input.credit_limit ?? "0.00",
+          credit_block_days: input.credit_block_days ?? 30,
+          archived_at: null,
+          balance: "0.00",
+          max_days_overdue: 0,
         };
         mockCustomers.push(newCust);
-        return structuredClone(newCust);
+        const detail: CustomerDetail = {
+          ...newCust,
+          balance: "0.00",
+          credit_available: newCust.credit_limit ?? "0.00",
+          wallet_balance: "0.00",
+          missing_fiscal: [],
+        };
+        return structuredClone(detail);
       }
       return request("/v1/customers", {
         method: "POST",
         body: JSON.stringify(input),
       });
+    },
+
+    /** PUT /v1/customers/{id} */
+    async update(id: string, input: CreateCustomerInput): Promise<CustomerDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const idx = mockCustomers.findIndex((c) => c.id === id);
+        if (idx === -1) throw new ApiError(404, "Cliente no encontrado");
+        mockCustomers[idx] = {
+          ...mockCustomers[idx],
+          ...input,
+        };
+        return this.get(id);
+      }
+      return request(`/v1/customers/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** POST /v1/customers/upsert */
+    async upsert(input: CreateCustomerInput): Promise<CustomerUpsertResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        const existing = mockCustomers.find(
+          (c) =>
+            (input.email && c.email?.toLowerCase() === input.email.toLowerCase()) ||
+            (input.doc_number && c.doc_number === input.doc_number && c.doc_type === input.doc_type),
+        );
+        if (existing) {
+          const detail = await this.get(existing.id);
+          return {
+            customer: detail,
+            result: "UPDATED",
+          };
+        }
+        const created = await this.create(input);
+        return {
+          customer: created,
+          result: "CREATED",
+        };
+      }
+      return request("/v1/customers/upsert", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** POST /v1/customers/{id}/archive */
+    async archive(id: string): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        const found = mockCustomers.find((c) => c.id === id);
+        if (found) found.archived_at = new Date().toISOString();
+        return;
+      }
+      return request(`/v1/customers/${id}/archive`, {
+        method: "POST",
+      });
+    },
+
+    /** POST /v1/customers/{id}/unarchive */
+    async unarchive(id: string): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        const found = mockCustomers.find((c) => c.id === id);
+        if (found) found.archived_at = null;
+        return;
+      }
+      return request(`/v1/customers/${id}/unarchive`, {
+        method: "POST",
+      });
+    },
+
+    /** GET /v1/customers/{id}/purchases?page= */
+    async getPurchases(id: string, page = 1): Promise<SaleHistoryPage> {
+      if (USE_MOCKS) {
+        await delay();
+        return {
+          items: [],
+          total_count: 0,
+          totals: { count: 0, amount: "0.00" },
+        };
+      }
+      return request(`/v1/customers/${id}/purchases?page=${page}`);
     },
   },
 };
@@ -3064,6 +3209,28 @@ export const ERROR_MESSAGES: Record<string, string> = {
   CASH_STATE_CHANGED: "Hubo movimientos nuevos mientras contabas. Volvé a contar.",
   CUSTOMER_INVALID: "Revisá los datos del cliente.",
   CUSTOMER_DUPLICATED: "Ya existe un cliente con ese documento.",
+  CUSTOMER_DV_CONFLICT: "El dígito de verificación no coincide.",
+  CUSTOMER_HAS_BALANCE: "El cliente tiene saldos pendientes.",
+  CUSTOMER_NO_PHONE: "El cliente no tiene teléfono.",
+  SALE_MULTIPLE_CREDIT: "Solo puede haber un pago a crédito por venta.",
+  CREDIT_REQUIRES_CUSTOMER: "Para vender a crédito elegí un cliente.",
+  CREDIT_NOT_ENABLED: "Este cliente no tiene cupo de crédito.",
+  CREDIT_BLOCKED_OVERDUE: "El cliente tiene deudas vencidas: crédito bloqueado.",
+  CREDIT_LIMIT_EXCEEDED: "La venta supera el cupo disponible.",
+  REFUND_EXCEEDS_RECEIVABLE: "La devolución supera lo que queda por pagar del crédito.",
+  RECEIVABLE_CLOSED: "La cuenta ya está cerrada.",
+  AGREEMENT_INVALID: "Revisá las cuentas del acuerdo.",
+  WALLET_INSUFFICIENT: "El saldo a favor no alcanza.",
+  WALLET_REQUIRES_CUSTOMER: "Para usar saldo a favor elegí un cliente.",
+  REFUND_REQUIRES_CUSTOMER: "La venta no tiene cliente para devolverle saldo.",
+  LAYAWAY_NO_COUPON: "Los separados no admiten cupones.",
+  LAYAWAY_PLAN_MISMATCH: "Las cuotas deben sumar el total.",
+  LAYAWAY_NOT_ACTIVE: "El separado no está activo.",
+  LAYAWAY_PENALTY_INVALID: "La penalidad no puede superar lo pagado.",
+  LAYAWAY_NOT_EXPIRABLE: "El separado todavía no venció.",
+  QUOTE_INVALID_STATE: "La cotización no admite esa acción.",
+  QUOTE_ALREADY_CONVERTED: "La cotización ya se convirtió en venta.",
+  QUOTE_MISMATCH: "Los productos no coinciden con la cotización.",
   SALE_CUSTOMER_AND_ALIAS: "Elegí cliente o alias, no los dos.",
   SALE_ALIAS_INVALID: "El alias debe tener entre 1 y 40 caracteres.",
   SALE_ALIAS_NOT_ALLOWED: "Esta sucursal no permite ventas con alias.",
