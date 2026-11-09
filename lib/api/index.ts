@@ -18,6 +18,8 @@ import {
   mockCreateAdjustment,
   mockApproveAdjustment,
   mockRejectAdjustment,
+  mockAddProduct,
+  mockUpdateProduct,
 } from "./mock-inventory";
 import {
   mockCreateFromSuggestions,
@@ -1949,6 +1951,15 @@ export const api = {
       if (USE_MOCKS) {
         await delay();
         const id = crypto.randomUUID();
+        mockAddProduct({
+          product_id: id,
+          name: input.name,
+          category: (input as Record<string, unknown>).category as string | undefined,
+          price: input.base_price ? String(input.base_price) : "0.00",
+          cost_price: input.cost_price ? String(input.cost_price) : null,
+          barcode: input.barcode,
+          min_qty: input.reorder_qty ? String(input.reorder_qty) : null,
+        });
         return {
           id,
           name: input.name,
@@ -1987,6 +1998,12 @@ export const api = {
     async update(id: Uuid, input: ProductInput): Promise<ProductDetail> {
       if (USE_MOCKS) {
         await delay();
+        mockUpdateProduct(id, {
+          name: input.name,
+          price: input.base_price ? String(input.base_price) : null,
+          cost_price: input.cost_price ? String(input.cost_price) : null,
+          barcode: input.barcode,
+        });
         return this.get(id);
       }
       return request(`/v1/products/${id}`, {
@@ -2518,9 +2535,12 @@ export const api = {
         await delay();
         return mockExpenseCreate(input);
       }
+      const payload: Partial<CreateExpenseInput> = { ...input };
+      delete payload.payment_method;
+      delete payload.attachment_name;
       return request("/v1/expenses", {
         method: "POST",
-        body: JSON.stringify(input),
+        body: JSON.stringify(payload),
       });
     },
 

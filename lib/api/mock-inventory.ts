@@ -22,6 +22,9 @@ const META: Meta[] = [
   { sku: "SNA-010", barcode: "7702189045201", cost: 1300, min: 10 },
   { sku: "SNA-011", barcode: "7702007030129", cost: 900, min: 6 },
   { sku: "ASE-012", barcode: "7702191660317", cost: 9100, min: 5 },
+  { sku: "ABA-013", barcode: "7709923810014", cost: 9200, min: 5 },
+  { sku: "ABA-014", barcode: "7702011034012", cost: 5900, min: 8 },
+  { sku: "BEB-015", barcode: "7702004099815", cost: 1100, min: 10 },
 ];
 
 const meta = new Map<Uuid, Meta>(mockCatalog.map((p, i) => [p.product_id, META[i]]));
@@ -397,3 +400,54 @@ export function mockRejectAdjustment(id: string, reason: string): InventoryAdjus
 
   return adj;
 }
+
+export function mockAddProduct(data: {
+  product_id: Uuid;
+  name: string;
+  category?: string;
+  price: string;
+  cost_price?: string | null;
+  barcode?: string | null;
+  min_qty?: string | null;
+}) {
+  const priceNum = Number(data.price) || 0;
+  const costNum = Number(data.cost_price) || 0;
+  const sku = data.barcode || `PRD-${Date.now().toString().slice(-4)}`;
+  mockCatalog.unshift({
+    product_id: data.product_id,
+    name: data.name,
+    category: data.category || "Abarrotes",
+    price: priceNum.toFixed(2),
+    tax_code: null,
+    tax_rate: null,
+    available: "0.000",
+  });
+  meta.set(data.product_id, {
+    sku,
+    barcode: data.barcode || sku,
+    cost: costNum,
+    min: Number(data.min_qty || 5),
+  });
+}
+
+export function mockUpdateProduct(
+  id: Uuid,
+  data: {
+    name?: string;
+    price?: string | null;
+    cost_price?: string | null;
+    barcode?: string | null;
+  },
+) {
+  const p = mockCatalog.find((item) => item.product_id === id);
+  if (p) {
+    if (data.name) p.name = data.name;
+    if (data.price) p.price = Number(data.price).toFixed(2);
+    const m = meta.get(id);
+    if (m) {
+      if (data.cost_price !== undefined && data.cost_price !== null) m.cost = Number(data.cost_price);
+      if (data.barcode !== undefined) m.barcode = data.barcode || "";
+    }
+  }
+}
+

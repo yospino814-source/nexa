@@ -1571,6 +1571,8 @@ export type Expense = {
   payable_id: Uuid | null;
   payable_amount_paid: Decimal | null;
   payable_status: string | null;
+  payment_method?: string | null;
+  attachment_name?: string | null;
 };
 
 export type ExpensesFilter = {
@@ -1604,6 +1606,8 @@ export type CreateExpenseInput = {
   amount: Decimal;
   tax_amount?: Decimal;
   expense_date: string;
+  payment_method?: string | null;
+  attachment_name?: string | null;
 };
 
 export type RejectExpenseInput = {

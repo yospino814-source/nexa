@@ -44,6 +44,9 @@ export const mockCatalog: CatalogItem[] = [
   item(10, "Papas fritas 45 g", "Snacks y Dulces", 2200, "IVA19", 35),
   item(11, "Chocolatina 30 g", "Snacks y Dulces", 1500, "IVA19", 4),
   item(12, "Detergente 1 kg", "Aseo y Hogar", 12900, "IVA19", 15),
+  item(13, "Aceite Premier 1 L", "Abarrotes", 12500, null, 0),
+  item(14, "Atún Van Camp's 160 g", "Abarrotes", 8200, null, 2),
+  item(15, "Agua Cristal 600 ml", "Bebidas", 2000, null, 28),
 ];
 
 const hourly = [

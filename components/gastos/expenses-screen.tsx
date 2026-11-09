@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Banknote,
   CheckCircle2,
-  Clock,
   DollarSign,
   FileText,
   Loader2,
+  Paperclip,
   Plus,
   RefreshCw,
   Search,
+  TrendingUp,
+  Upload,
+  Wallet,
+  X,
 } from "lucide-react";
 
-import { StatCard } from "@/components/nexa/stat-card";
 import { MoneyInput } from "@/components/caja/money-input";
 import {
   Dialog,
@@ -25,6 +28,7 @@ import {
 import {
   api,
   friendlyError,
+  USE_MOCKS,
   type CreateExpenseInput,
   type CreatePayablePaymentInput,
   type Expense,
@@ -70,6 +74,41 @@ const STATUS_CONFIG: Record<
   },
 };
 
+const PAYMENT_METHODS = [
+  "Transferencia Bancolombia",
+  "Dispersión Bancaria",
+  "Nequi Empresa",
+  "Débito Automático",
+  "Efectivo / Caja Menor",
+  "Tarjeta Débito",
+  "Bancolombia",
+];
+
+function formatExpenseDate(isoDate: string) {
+  if (!isoDate) return "-";
+  try {
+    const [y, m, d] = isoDate.split("-");
+    const months = [
+      "Ene",
+      "Feb",
+      "Mar",
+      "Abr",
+      "May",
+      "Jun",
+      "Jul",
+      "Ago",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dic",
+    ];
+    const monthName = months[parseInt(m, 10) - 1] || m;
+    return `${d} ${monthName} ${y}`;
+  } catch {
+    return isoDate;
+  }
+}
+
 export function ExpensesScreen() {
   const currentBranch = useCurrentBranch();
   const branchId = currentBranch?.id;
@@ -82,6 +121,7 @@ export function ExpensesScreen() {
   const [selectedStatus, setSelectedStatus] = useState<ExpenseStatus | "ALL">("ALL");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("ALL");
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("ALL");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
@@ -99,8 +139,13 @@ export function ExpensesScreen() {
   const [formDate, setFormDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
+  const [formPaymentMethod, setFormPaymentMethod] = useState(
+    "Transferencia Bancolombia",
+  );
+  const [formAttachmentName, setFormAttachmentName] = useState<string>("");
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Formulario rechazo
   const [rejectReason, setRejectReason] = useState("");
@@ -109,7 +154,7 @@ export function ExpensesScreen() {
 
   // Formulario pago de cuenta por pagar vinculada
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<PayablePaymentMethod>("EFECTIVO");
+  const [payableMethod, setPayableMethod] = useState<PayablePaymentMethod>("EFECTIVO");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -156,7 +201,6 @@ export function ExpensesScreen() {
   }, []);
 
   const {
-    data: summary,
     reload: reloadSummary,
   } = useApi<ExpenseSummary>(
     () => api.expenses.summary({ branch_id: branchId, month: currentMonthStr }),
@@ -175,6 +219,7 @@ export function ExpensesScreen() {
       if (selectedStatus !== "ALL" && e.status !== selectedStatus) return false;
       if (selectedCategoryId !== "ALL" && e.category_id !== selectedCategoryId) return false;
       if (selectedSupplierId !== "ALL" && e.supplier_id !== selectedSupplierId) return false;
+      if (USE_MOCKS && selectedPaymentMethod !== "ALL" && e.payment_method !== selectedPaymentMethod) return false;
       if (fromDate && e.expense_date < fromDate) return false;
       if (toDate && e.expense_date > toDate) return false;
       if (search.trim()) {
@@ -183,13 +228,14 @@ export function ExpensesScreen() {
         const matchesDesc = e.description.toLowerCase().includes(q);
         const matchesCat = e.category_name.toLowerCase().includes(q);
         const matchesSupp = e.supplier_name?.toLowerCase().includes(q) ?? false;
-        if (!matchesDoc && !matchesDesc && !matchesCat && !matchesSupp) return false;
+        const matchesMethod = e.payment_method?.toLowerCase().includes(q) ?? false;
+        if (!matchesDoc && !matchesDesc && !matchesCat && !matchesSupp && !matchesMethod) return false;
       }
       return true;
     });
-  }, [expenses, selectedStatus, selectedCategoryId, selectedSupplierId, fromDate, toDate, search]);
+  }, [expenses, selectedStatus, selectedCategoryId, selectedSupplierId, selectedPaymentMethod, fromDate, toDate, search]);
 
-  // Agrupación por categoría para gráfico de barras horizontal
+  // Agrupación por categoría para gráfico de barras horizontal (ordenado de mayor a menor)
   const categoryStats = useMemo(() => {
     const map = new Map<string, { name: string; color: string; total: number }>();
     for (const exp of filteredExpenses) {
@@ -207,9 +253,15 @@ export function ExpensesScreen() {
     return arr;
   }, [filteredExpenses]);
 
-  const maxCategoryTotal = useMemo(() => {
-    return categoryStats.length > 0 ? categoryStats[0].total : 0;
+  // Total de gastos activos en el mes y métricas para las 2 tarjetas resumen
+  const totalActiveExpenses = useMemo(() => {
+    return categoryStats.reduce((sum, c) => sum + c.total, 0);
   }, [categoryStats]);
+
+  const monthlyBudget = 18_000_000; // Presupuesto mensual estándar COP
+  const budgetExecutionPct = monthlyBudget > 0 ? (totalActiveExpenses / monthlyBudget) * 100 : 0;
+  const topCategory = categoryStats.length > 0 ? categoryStats[0] : null;
+  const topCategoryPct = totalActiveExpenses > 0 && topCategory ? (topCategory.total / totalActiveExpenses) * 100 : 0;
 
   // Manejar creación
   const handleOpenCreateModal = () => {
@@ -219,8 +271,21 @@ export function ExpensesScreen() {
     setFormAmount(0);
     setFormTaxAmount(0);
     setFormDate(new Date().toISOString().slice(0, 10));
+    setFormPaymentMethod("Transferencia Bancolombia");
+    setFormAttachmentName("");
     setCreateError(null);
     setIsCreateModalOpen(true);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFormAttachmentName(file.name);
+    }
+  };
+
+  const handleSimulateAttachment = () => {
+    setFormAttachmentName("Factura_Soporte.pdf");
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -252,6 +317,10 @@ export function ExpensesScreen() {
         tax_amount: formTaxAmount > 0 ? formTaxAmount.toFixed(2) : undefined,
         expense_date: formDate,
       };
+      if (USE_MOCKS) {
+        input.payment_method = formPaymentMethod || "Efectivo / Caja Menor";
+        input.attachment_name = formAttachmentName.trim() || null;
+      }
       await api.expenses.create(input);
       setIsCreateModalOpen(false);
       showToast("Gasto registrado con éxito.");
@@ -322,7 +391,7 @@ export function ExpensesScreen() {
     setPaymentModalExpense(expense);
     const balance = Number(expense.total) - Number(expense.payable_amount_paid || 0);
     setPaymentAmount(Math.max(0, balance));
-    setPaymentMethod("EFECTIVO");
+    setPayableMethod("EFECTIVO");
     setPaymentReference("");
     setPaymentError(null);
   };
@@ -335,7 +404,7 @@ export function ExpensesScreen() {
       setPaymentError("El monto debe ser mayor a cero.");
       return;
     }
-    if ((paymentMethod === "TRANSFERENCIA" || paymentMethod === "CHEQUE") && !paymentReference.trim()) {
+    if ((payableMethod === "TRANSFERENCIA" || payableMethod === "CHEQUE") && !paymentReference.trim()) {
       setPaymentError("La referencia es obligatoria para transferencias o cheques.");
       return;
     }
@@ -346,7 +415,7 @@ export function ExpensesScreen() {
       const input: CreatePayablePaymentInput = {
         id: crypto.randomUUID(),
         amount: paymentAmount.toFixed(2),
-        method: paymentMethod,
+        method: payableMethod,
         reference: paymentReference.trim() || null,
       };
       await api.payables.createPayment(paymentModalExpense.payable_id, input);
@@ -369,21 +438,21 @@ export function ExpensesScreen() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header con botón destacado + Registrar gasto */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Gastos Operativos
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-headline">
+            Gestión y Control de Gastos
           </h1>
-          <p className="text-sm text-slate-500">
-            Registro, aprobación y control de gastos para {currentBranch?.name || "la sucursal"}.
+          <p className="text-sm text-slate-500 mt-0.5">
+            Control de flujo de salida, costos fijos y variables para {currentBranch?.name || "la sucursal"}.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={reloadAll}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
             title="Recargar datos"
           >
             <RefreshCw className="h-4 w-4" />
@@ -393,74 +462,132 @@ export function ExpensesScreen() {
             <button
               type="button"
               onClick={handleOpenCreateModal}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+              className="inline-flex items-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all active:scale-95"
             >
               <Plus className="h-4 w-4" />
-              <span>Registrar gasto</span>
+              <span>+ Registrar gasto</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* StatCards del mes */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total mes (Aprobados/Pagados)"
-          value={formatCOP(Number(summary?.total_approved_month ?? 0))}
-          caption={`${summary?.count_approved ?? 0} gastos contabilizados`}
-          icon={DollarSign}
-          tone="success"
-        />
-        <StatCard
-          title="Pendientes por aprobar"
-          value={formatCOP(Number(summary?.total_pending_month ?? 0))}
-          caption={`${summary?.count_pending ?? 0} gastos pendientes`}
-          icon={Clock}
-          tone="warning"
-        />
-        <StatCard
-          title="Pagados en el mes"
-          value={formatCOP(Number(summary?.total_paid_month ?? 0))}
-          caption="Desembolsos completados"
-          icon={CheckCircle2}
-          tone="default"
-        />
-        <StatCard
-          title="Gasto más alto"
-          value={categoryStats.length > 0 ? formatCOP(categoryStats[0].total) : "$ 0"}
-          caption={categoryStats.length > 0 ? categoryStats[0].name : "Sin registros"}
-          icon={Banknote}
-          tone="default"
-        />
+      {/* 1. Fila de 2 tarjetas resumen */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Card 1: Total Gastos del Mes */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Total Gastos del Mes
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-700">
+                <DollarSign className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                {formatCOP(totalActiveExpenses)}
+              </span>
+            </div>
+            <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+              <Wallet className="h-3.5 w-3.5 text-teal-700" />
+              <span>
+                Presupuesto mensual: {formatCOP(monthlyBudget)} · {budgetExecutionPct.toFixed(1)}% ejecutado
+              </span>
+            </div>
+          </div>
+          {/* Barra de progreso de ejecución */}
+          <div className="mt-6 pt-4 border-t border-slate-100">
+            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-2">
+              <span>Ejecución del Límite de Gasto</span>
+              <span className="text-teal-700 font-bold">{budgetExecutionPct.toFixed(1)}%</span>
+            </div>
+            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  budgetExecutionPct > 90 ? "bg-rose-500" : "bg-teal-700",
+                )}
+                style={{ width: `${Math.min(100, budgetExecutionPct)}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Saldo disponible presupuestado: {formatCOP(Math.max(0, monthlyBudget - totalActiveExpenses))}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 2: Gasto más alto por categoría */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Gasto más alto por categoría
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-700">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                {topCategory ? formatCOP(topCategory.total) : "$ 0"}
+              </span>
+            </div>
+            <p className="text-base font-semibold text-slate-800 mt-1">
+              {topCategory ? topCategory.name : "Sin registros"}
+            </p>
+            <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200/50 text-xs font-medium">
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>
+                Representa el {topCategoryPct.toFixed(1)}% del egreso total consolidado
+              </span>
+            </div>
+          </div>
+          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>Categorías activas con movimientos:</span>
+            <span className="font-bold text-slate-800">{categoryStats.length} categorías</span>
+          </div>
+        </div>
       </div>
 
-      {/* Gráfico de barras horizontal: gastos por categoría */}
+      {/* 2. Gráfico de barras horizontal por categoría (ordenado de mayor a menor) */}
       {categoryStats.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">
-            Distribución por categoría (Gastos activos)
-          </h2>
-          <p className="mb-4 text-xs text-slate-500">
-            Comparativa de desembolsos aprobados y pagados por categoría.
-          </p>
-          <div className="space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 font-headline">
+                Distribución de Egresos por Categoría
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Gastos agrupados por categoría, ordenados de mayor a menor según el monto total ejecutado.
+              </p>
+            </div>
+            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg self-start sm:self-auto">
+              Total: {categoryStats.length} categorías
+            </span>
+          </div>
+
+          <div className="space-y-4">
             {categoryStats.map((cat) => {
-              const pct = maxCategoryTotal > 0 ? (cat.total / maxCategoryTotal) * 100 : 0;
+              const pct = totalActiveExpenses > 0 ? (cat.total / totalActiveExpenses) * 100 : 0;
               return (
-                <div key={cat.name} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-medium">
-                    <span className="flex items-center gap-2 text-slate-700">
+                <div key={cat.name} className="space-y-1.5">
+                  <div className="flex justify-between items-center text-xs font-semibold">
+                    <span className="text-slate-800 flex items-center gap-2">
                       <span
-                        className="inline-block h-3 w-3 rounded-full"
+                        className="w-2.5 h-2.5 rounded-full"
                         style={{ backgroundColor: cat.color }}
                       />
                       {cat.name}
                     </span>
-                    <span className="text-slate-900">{formatCOP(cat.total)}</span>
+                    <span className="text-slate-700 font-bold">
+                      {formatCOP(cat.total)}{" "}
+                      <span className="text-slate-400 font-normal">({pct.toFixed(1)}%)</span>
+                    </span>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-300"
+                      className="h-full rounded-full transition-all duration-500"
                       style={{
                         width: `${pct}%`,
                         backgroundColor: cat.color,
@@ -474,38 +601,25 @@ export function ExpensesScreen() {
         </div>
       )}
 
-      {/* Filtros */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* 3. Filtros */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar por concepto, N° de gasto, proveedor..."
+              placeholder="Buscar por concepto, N° de gasto, proveedor, método..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-teal-700 focus:outline-none focus:ring-1 focus:ring-teal-700"
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value as ExpenseStatus | "ALL")}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none"
-            >
-              <option value="ALL">Todos los estados</option>
-              <option value="PENDIENTE">Pendientes</option>
-              <option value="APROBADO">Aprobados</option>
-              <option value="PAGADO">Pagados</option>
-              <option value="RECHAZADO">Rechazados</option>
-              <option value="CANCELADO">Cancelados</option>
-            </select>
-
-            <select
               value={selectedCategoryId}
               onChange={(e) => setSelectedCategoryId(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
             >
               <option value="ALL">Todas las categorías</option>
               {categories.map((c) => (
@@ -515,17 +629,47 @@ export function ExpensesScreen() {
               ))}
             </select>
 
+            {!USE_MOCKS && (
+              <select
+                value={selectedSupplierId}
+                onChange={(e) => setSelectedSupplierId(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
+              >
+                <option value="ALL">Todos los proveedores</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {USE_MOCKS && (
+              <select
+                value={selectedPaymentMethod}
+                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
+              >
+                <option value="ALL">Todos los métodos de pago</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <select
-              value={selectedSupplierId}
-              onChange={(e) => setSelectedSupplierId(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value as ExpenseStatus | "ALL")}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-teal-700 focus:outline-none"
             >
-              <option value="ALL">Todos los proveedores</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
+              <option value="ALL">Todos los estados</option>
+              <option value="PENDIENTE">Pendientes</option>
+              <option value="APROBADO">Aprobados</option>
+              <option value="PAGADO">Pagados</option>
+              <option value="RECHAZADO">Rechazados</option>
+              <option value="CANCELADO">Cancelados</option>
             </select>
 
             <div className="flex items-center gap-1">
@@ -533,7 +677,7 @@ export function ExpensesScreen() {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-emerald-500 focus:outline-none"
+                className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-teal-700 focus:outline-none"
                 title="Fecha desde"
               />
               <span className="text-xs text-slate-400">-</span>
@@ -541,7 +685,7 @@ export function ExpensesScreen() {
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-emerald-500 focus:outline-none"
+                className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-teal-700 focus:outline-none"
                 title="Fecha hasta"
               />
             </div>
@@ -549,11 +693,11 @@ export function ExpensesScreen() {
         </div>
       </div>
 
-      {/* Tabla de gastos */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      {/* 4. Tabla de historial de gastos */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loadingExpenses ? (
           <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+            <Loader2 className="h-8 w-8 animate-spin text-teal-700" />
           </div>
         ) : filteredExpenses.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center p-6 text-center">
@@ -570,29 +714,30 @@ export function ExpensesScreen() {
               <button
                 type="button"
                 onClick={handleOpenCreateModal}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all"
               >
                 <Plus className="h-4 w-4" />
-                <span>Registrar primer gasto</span>
+                <span>+ Registrar gasto</span>
               </button>
             )}
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-600">
-                <tr>
-                  <th className="px-4 py-3">Gasto</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3">Concepto / Detalle</th>
-                  <th className="px-4 py-3">Categoría</th>
-                  <th className="px-4 py-3">Proveedor</th>
-                  <th className="px-4 py-3 text-right">Monto</th>
-                  <th className="px-4 py-3 text-center">Estado</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
+            <table className="w-full text-left border-collapse text-sm text-slate-600">
+              <thead>
+                <tr className="bg-slate-50/75 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <th className="py-3.5 px-6">Fecha</th>
+                  <th className="py-3.5 px-6">Concepto</th>
+                  <th className="py-3.5 px-6">Categoría</th>
+                  {!USE_MOCKS && <th className="py-3.5 px-6">Proveedor</th>}
+                  <th className="py-3.5 px-6 text-right">Monto</th>
+                  {USE_MOCKS && <th className="py-3.5 px-6">Método de pago</th>}
+                  {USE_MOCKS && <th className="py-3.5 px-6 text-center">Comprobante</th>}
+                  <th className="py-3.5 px-6 text-center">Estado</th>
+                  <th className="py-3.5 px-6 text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredExpenses.map((exp) => {
                   const cfg = STATUS_CONFIG[exp.status];
                   const canCancelThis = canApprove || canCreate;
@@ -601,28 +746,34 @@ export function ExpensesScreen() {
                       key={exp.id}
                       className="transition-colors hover:bg-slate-50/80"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
-                        {exp.document_number}
+                      {/* Fecha */}
+                      <td className="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">
+                        {formatExpenseDate(exp.expense_date)}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                        {exp.expense_date}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900 line-clamp-1">
+
+                      {/* Concepto */}
+                      <td className="py-4 px-6">
+                        <div className="font-semibold text-slate-900 line-clamp-1">
                           {exp.description}
                         </div>
+                        <div className="text-[11px] text-slate-400">
+                          {exp.document_number} {exp.supplier_name ? `· ${exp.supplier_name}` : ""}
+                        </div>
                         {exp.reject_reason && (
-                          <div className="text-xs text-rose-600 line-clamp-1">
+                          <div className="text-xs text-rose-600 line-clamp-1 mt-0.5">
                             Motivo: {exp.reject_reason}
                           </div>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
+
+                      {/* Categoría (Badge de color por tipo) */}
+                      <td className="py-4 px-6 whitespace-nowrap">
                         <span
-                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border"
                           style={{
-                            backgroundColor: `${exp.category_color}1A`,
+                            backgroundColor: `${exp.category_color}18`,
                             color: exp.category_color,
+                            borderColor: `${exp.category_color}35`,
                           }}
                         >
                           <span
@@ -632,20 +783,52 @@ export function ExpensesScreen() {
                           {exp.category_name}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
-                        {exp.supplier_name || "-"}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right">
-                        <div className="font-semibold text-slate-900">
-                          {formatCOP(Number(exp.total))}
-                        </div>
+
+                      {/* Proveedor en modo real */}
+                      {!USE_MOCKS && (
+                        <td className="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">
+                          {exp.supplier_name || "-"}
+                        </td>
+                      )}
+
+                      {/* Monto (COP) */}
+                      <td className="py-4 px-6 text-right whitespace-nowrap font-bold text-slate-900">
+                        <div>{formatCOP(Number(exp.total))}</div>
                         {Number(exp.tax_amount) > 0 && (
-                          <div className="text-xs text-slate-400">
+                          <div className="text-[11px] font-normal text-slate-400">
                             Imp: {formatCOP(Number(exp.tax_amount))}
                           </div>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-center">
+
+                      {/* Método de pago en modo demo */}
+                      {USE_MOCKS && (
+                        <td className="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">
+                          {exp.payment_method || "Efectivo / Caja Menor"}
+                        </td>
+                      )}
+
+                      {/* Comprobante en modo demo */}
+                      {USE_MOCKS && (
+                        <td className="py-4 px-6 text-center whitespace-nowrap">
+                          {exp.attachment_name ? (
+                            <button
+                              type="button"
+                              onClick={() => showToast(`Visualizando soporte: ${exp.attachment_name}`)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50"
+                              title={exp.attachment_name}
+                            >
+                              <Paperclip className="h-3.5 w-3.5" />
+                              <span className="max-w-[130px] truncate">{exp.attachment_name}</span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-300">-</span>
+                          )}
+                        </td>
+                      )}
+
+                      {/* Estado */}
+                      <td className="py-4 px-6 text-center whitespace-nowrap">
                         <span
                           className={cn(
                             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
@@ -656,7 +839,9 @@ export function ExpensesScreen() {
                           {cfg.label}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right">
+
+                      {/* Acciones */}
+                      <td className="py-4 px-6 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {exp.status === "PENDIENTE" && (
                             <>
@@ -664,7 +849,7 @@ export function ExpensesScreen() {
                                 <button
                                   type="button"
                                   onClick={() => handleApprove(exp)}
-                                  className="rounded px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                  className="rounded-lg px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition-colors"
                                 >
                                   Aprobar
                                 </button>
@@ -673,7 +858,7 @@ export function ExpensesScreen() {
                                 <button
                                   type="button"
                                   onClick={() => handleOpenReject(exp)}
-                                  className="rounded px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50"
+                                  className="rounded-lg px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 transition-colors"
                                 >
                                   Rechazar
                                 </button>
@@ -682,7 +867,7 @@ export function ExpensesScreen() {
                                 <button
                                   type="button"
                                   onClick={() => handleCancel(exp)}
-                                  className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                                  className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 transition-colors"
                                 >
                                   Cancelar
                                 </button>
@@ -694,16 +879,17 @@ export function ExpensesScreen() {
                             <button
                               type="button"
                               onClick={() => handleOpenPayment(exp)}
-                              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                              className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-100 transition-colors"
                             >
-                              <Banknote className="h-3 w-3" />
+                              <Banknote className="h-3.5 w-3.5" />
                               <span>Pagar</span>
                             </button>
                           )}
 
                           {exp.status === "PAGADO" && (
-                            <span className="text-xs text-emerald-600 font-medium">
-                              Desembolsado
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-semibold">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span>Pagado</span>
                             </span>
                           )}
                         </div>
@@ -717,49 +903,116 @@ export function ExpensesScreen() {
         )}
       </div>
 
-      {/* Modal: Registrar gasto */}
+      {/* Modal: Registrar nuevo gasto */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Registrar nuevo gasto</DialogTitle>
-            <DialogDescription>
-              Ingresá el detalle del gasto operativo para su aprobación y pago.
+            <DialogTitle className="font-headline text-lg font-bold text-slate-900">
+              Registrar nuevo gasto operativo
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Registra un egreso de caja o cuenta bancaria con su comprobante de respaldo.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreateSubmit} className="space-y-4 pt-2">
+          <form onSubmit={handleCreateSubmit} className="space-y-4 pt-1">
             {createError && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                 {createError}
               </div>
             )}
 
+            {/* Concepto del gasto */}
             <div>
-              <label className="block text-xs font-medium text-slate-700">
-                Categoría *
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Concepto del gasto *
               </label>
-              <select
-                value={formCategoryId}
-                onChange={(e) => setFormCategoryId(e.target.value)}
+              <input
+                type="text"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
                 required
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="ej. Pago servicio internet fibra óptica"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-teal-700 focus:outline-none focus:ring-1 focus:ring-teal-700"
+              />
             </div>
 
+            {/* Grid 2 Cols: Categoría & Monto */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Categoría *
+                </label>
+                <select
+                  value={formCategoryId}
+                  onChange={(e) => setFormCategoryId(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-teal-700 focus:outline-none"
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Monto en COP *
+                </label>
+                <MoneyInput
+                  value={formAmount}
+                  onChange={setFormAmount}
+                  placeholder="0 COP"
+                />
+              </div>
+            </div>
+
+            {/* Fecha de pago & Método de pago */}
+            <div className={USE_MOCKS ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : ""}>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Fecha de pago *
+                </label>
+                <input
+                  type="date"
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-teal-700 focus:outline-none"
+                />
+              </div>
+
+              {USE_MOCKS && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Método de pago *
+                  </label>
+                  <select
+                    value={formPaymentMethod}
+                    onChange={(e) => setFormPaymentMethod(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-teal-700 focus:outline-none"
+                  >
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Proveedor opcional */}
             <div>
-              <label className="block text-xs font-medium text-slate-700">
+              <label className="block text-xs font-medium text-slate-700 mb-1">
                 Proveedor (opcional)
               </label>
               <select
                 value={formSupplierId}
                 onChange={(e) => setFormSupplierId(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-700 focus:outline-none"
               >
                 <option value="">Ninguno / Pago directo</option>
                 {suppliers.map((s) => (
@@ -770,76 +1023,85 @@ export function ExpensesScreen() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700">
-                Concepto / Descripción *
-              </label>
-              <textarea
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                required
-                rows={2}
-                placeholder="Ej. Arriendo local noviembre..."
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+            {/* Adjuntar comprobante (dropzone simulado solo en modo demo) */}
+            {USE_MOCKS && (
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Monto neto *
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Adjuntar comprobante o soporte (opcional)
                 </label>
-                <MoneyInput
-                  value={formAmount}
-                  onChange={setFormAmount}
-                  className="mt-1"
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  accept=".pdf,.png,.jpg,.jpeg"
                 />
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Impuesto (IVA/INC)
-                </label>
-                <MoneyInput
-                  value={formTaxAmount}
-                  onChange={setFormTaxAmount}
-                  className="mt-1"
-                />
+                {formAttachmentName ? (
+                  <div className="flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Paperclip className="h-4 w-4 text-teal-700" />
+                      <span className="font-semibold text-teal-900">{formAttachmentName}</span>
+                      <span className="text-[11px] text-teal-600">(1.2 MB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormAttachmentName("")}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-teal-100/50 transition-colors"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-200 hover:border-teal-700 rounded-xl p-4 text-center bg-slate-50/50 hover:bg-teal-50/20 transition-all cursor-pointer"
+                  >
+                    <div className="flex flex-col items-center gap-1.5">
+                      <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+                        <Upload className="h-4 w-4" />
+                      </div>
+                      <p className="text-xs font-semibold text-slate-700">
+                        Haz clic para subir o arrastra un archivo
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        PDF, JPG o PNG hasta 10MB
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSimulateAttachment();
+                        }}
+                        className="mt-1 text-[11px] text-teal-700 underline font-medium hover:text-teal-800"
+                      >
+                        (O simular adjunto rápido)
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
-            <div className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-600 flex justify-between font-semibold">
-              <span>Total a pagar:</span>
-              <span className="text-slate-900 font-bold">
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600 flex justify-between font-semibold">
+              <span>Total a registrar:</span>
+              <span className="text-slate-900 font-bold text-sm">
                 {formatCOP(formAmount + formTaxAmount)}
               </span>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700">
-                Fecha del gasto *
-              </label>
-              <input
-                type="date"
-                value={formDate}
-                onChange={(e) => setFormDate(e.target.value)}
-                required
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={createBusy}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 px-5 py-2 text-sm font-bold text-white shadow-sm transition-all disabled:opacity-50"
               >
                 {createBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                 Guardar gasto
@@ -861,7 +1123,7 @@ export function ExpensesScreen() {
 
           <form onSubmit={handleRejectSubmit} className="space-y-4 pt-2">
             {rejectError && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                 {rejectError}
               </div>
             )}
@@ -876,7 +1138,7 @@ export function ExpensesScreen() {
                 required
                 rows={3}
                 placeholder="Escribí por qué se rechaza este gasto..."
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-rose-500 focus:outline-none"
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-rose-500 focus:outline-none"
               />
             </div>
 
@@ -884,14 +1146,14 @@ export function ExpensesScreen() {
               <button
                 type="button"
                 onClick={() => setRejectModalExpense(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cerrar
               </button>
               <button
                 type="submit"
                 disabled={rejectBusy}
-                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
               >
                 {rejectBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                 Confirmar rechazo
@@ -917,7 +1179,7 @@ export function ExpensesScreen() {
 
           <form onSubmit={handlePaymentSubmit} className="space-y-4 pt-2">
             {paymentError && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                 {paymentError}
               </div>
             )}
@@ -938,9 +1200,9 @@ export function ExpensesScreen() {
                 Método de pago *
               </label>
               <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as PayablePaymentMethod)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
+                value={payableMethod}
+                onChange={(e) => setPayableMethod(e.target.value as PayablePaymentMethod)}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
               >
                 <option value="EFECTIVO">Efectivo (baja caja del turno actual)</option>
                 <option value="TRANSFERENCIA">Transferencia bancaria</option>
@@ -948,7 +1210,7 @@ export function ExpensesScreen() {
               </select>
             </div>
 
-            {paymentMethod !== "EFECTIVO" && (
+            {payableMethod !== "EFECTIVO" && (
               <div>
                 <label className="block text-xs font-medium text-slate-700">
                   Referencia / N° Comprobante *
@@ -959,23 +1221,23 @@ export function ExpensesScreen() {
                   onChange={(e) => setPaymentReference(e.target.value)}
                   placeholder="Ej. TRANSF-982348..."
                   required
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setPaymentModalExpense(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={paymentBusy}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
               >
                 {paymentBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                 Registrar desembolso

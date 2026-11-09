@@ -5,16 +5,24 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Beer,
   CheckCircle2,
   ClipboardList,
+  Coffee,
   Download,
   History,
+  Milk,
+  Package,
   PackagePlus,
   Pencil,
   Plus,
   Search,
+  ShoppingBag,
+  SlidersHorizontal,
+  Sparkles,
   Tag,
   Upload,
+  Wheat,
   X,
   XCircle,
 } from "lucide-react";
@@ -26,9 +34,63 @@ import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP, formatQty } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { ProductFormDialog } from "./product-form-dialog";
 import { StockDialog, type StockMode } from "./stock-dialog";
 import { TransferDialog } from "./transfer-dialog";
 import { TierPricesDialog } from "./tier-prices-dialog";
+
+function CategoryIcon({ category, name }: { category?: string | null; name: string }) {
+  const cat = (category || "").toLowerCase();
+  const n = name.toLowerCase();
+
+  if (n.includes("café") || n.includes("cafe")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-800" title="Café">
+        <Coffee className="size-5" />
+      </div>
+    );
+  }
+  if (cat.includes("bebida") || n.includes("cerveza") || n.includes("coca-cola") || n.includes("jugo") || n.includes("agua")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-700" title="Bebidas">
+        <Beer className="size-5" />
+      </div>
+    );
+  }
+  if (cat.includes("lácteo") || cat.includes("lacteo") || n.includes("leche") || n.includes("yogur")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-700" title="Lácteos">
+        <Milk className="size-5" />
+      </div>
+    );
+  }
+  if (cat.includes("panad") || n.includes("pan") || n.includes("torta")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-100/60 text-amber-800" title="Panadería">
+        <Wheat className="size-5" />
+      </div>
+    );
+  }
+  if (cat.includes("aseo") || n.includes("jabón") || n.includes("jabon") || n.includes("detergente")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-purple-200 bg-purple-50 text-purple-700" title="Aseo">
+        <Sparkles className="size-5" />
+      </div>
+    );
+  }
+  if (cat.includes("snack") || cat.includes("dulce") || n.includes("papa") || n.includes("chocolatina")) {
+    return (
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700" title="Snacks">
+        <ShoppingBag className="size-5" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 text-teal-800" title="Producto">
+      <Package className="size-5" />
+    </div>
+  );
+}
 
 const ADMIN_ROLES = ["DUENO", "ADMIN_CAJA"];
 
@@ -42,6 +104,7 @@ const STATUS: Record<StockStatus, { label: string; className: string; dot: strin
 export function InventoryScreen() {
   const branch = useCurrentBranch();
   const branches = useSession((s) => s.branches);
+  const selectBranch = useSession((s) => s.selectBranch);
   const { data, loading, error, reload } = useApi(() => api.inventory.stock(branch.id), branch.id);
   const { data: alertsData, reload: reloadAlerts } = useApi(() => api.inventory.alerts(branch.id), branch.id);
   const alerts: StockAlert[] = useMemo(() => alertsData ?? [], [alertsData]);
@@ -54,6 +117,10 @@ export function InventoryScreen() {
   const [editing, setEditing] = useState<{ item: StockLevel; mode: StockMode } | null>(null);
   const [moving, setMoving] = useState<StockLevel | null>(null);
   const [tierPricingItem, setTierPricingItem] = useState<StockLevel | null>(null);
+  const [productModal, setProductModal] = useState<{ open: boolean; product?: StockLevel | null }>({
+    open: false,
+    product: null,
+  });
   const [showAlerts, setShowAlerts] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -121,12 +188,13 @@ export function InventoryScreen() {
               {alerts.length} {alerts.length === 1 ? "alerta" : "alertas"}
             </button>
           )}
-          <Link
-            href="/inventario/producto/nuevo"
-            className="flex h-11 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+          <button
+            type="button"
+            onClick={() => setProductModal({ open: true, product: null })}
+            className="flex h-11 items-center gap-2 rounded-full bg-teal-700 px-5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal-800 active:scale-98"
           >
             <Plus className="size-4" /> Nuevo producto
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -174,6 +242,14 @@ export function InventoryScreen() {
           />
         </label>
         <Select label="Categoría" value={category} onChange={setCategory} options={categories.map((c) => [c, c])} />
+        {branches.length > 1 && (
+          <Select
+            label="Sucursal"
+            value={branch.id}
+            onChange={(v) => selectBranch(v)}
+            options={branches.map((b) => [b.id, b.name])}
+          />
+        )}
         <Select
           label="Uso"
           value={usageFilter}
@@ -241,13 +317,18 @@ export function InventoryScreen() {
               return (
                 <tr key={i.product_id} className={cn("hover:bg-slate-50/50 transition-colors", i.status === "AGOTADO" && "bg-rose-50/30")}>
                   <td className="px-6 py-4">
-                    <Link
-                      href={`/inventario/producto/${i.product_id}`}
-                      className="font-semibold text-slate-900 hover:text-emerald-600 transition-colors"
-                    >
-                      {i.name}
-                    </Link>
-                    <p className="font-mono text-xs text-slate-400">{i.sku ?? i.barcode ?? "—"}</p>
+                    <div className="flex items-center gap-3">
+                      <CategoryIcon category={i.category} name={i.name} />
+                      <div>
+                        <Link
+                          href={`/inventario/producto/${i.product_id}`}
+                          className="font-semibold text-slate-900 hover:text-teal-700 transition-colors"
+                        >
+                          {i.name}
+                        </Link>
+                        <p className="font-mono text-xs text-slate-400">{i.sku ?? i.barcode ?? "—"}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-4 py-4">
                     <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
@@ -285,8 +366,11 @@ export function InventoryScreen() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton label="Ajustar existencias" onClick={() => setEditing({ item: i, mode: "CONTEO" })}>
+                      <IconButton label="Editar producto" onClick={() => setProductModal({ open: true, product: i })}>
                         <Pencil className="size-4" />
+                      </IconButton>
+                      <IconButton label="Ajustar existencias" onClick={() => setEditing({ item: i, mode: "CONTEO" })}>
+                        <SlidersHorizontal className="size-4" />
                       </IconButton>
                       <IconButton label="Precios por tarifa y presentación" onClick={() => setTierPricingItem(i)}>
                         <Tag className="size-4" />
@@ -395,6 +479,17 @@ export function InventoryScreen() {
           </div>
         </div>
       )}
+
+      <ProductFormDialog
+        open={productModal.open}
+        onOpenChange={(open) => setProductModal((prev) => ({ ...prev, open }))}
+        product={productModal.product}
+        branchId={branch.id}
+        onSaved={(msg) => {
+          saved(msg);
+          reload();
+        }}
+      />
     </div>
   );
 }
