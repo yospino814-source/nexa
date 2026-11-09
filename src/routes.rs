@@ -95,10 +95,7 @@ pub fn router() -> Router<AppState> {
         // Clientes (F1.4, F3.1)
         .route("/v1/customers", get(list_customers).post(create_customer))
         .route("/v1/customers/upsert", post(upsert_customer))
-        .route(
-            "/v1/customers/{id}",
-            get(get_customer).put(update_customer),
-        )
+        .route("/v1/customers/{id}", get(get_customer).put(update_customer))
         .route("/v1/customers/{id}/archive", post(archive_customer))
         .route("/v1/customers/{id}/unarchive", post(unarchive_customer))
         .route("/v1/customers/{id}/purchases", get(list_customer_purchases))
@@ -129,6 +126,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/sales/{id}", get(sales_history_detail))
         .route("/v1/sales/quote", post(sales_quote))
         .route("/v1/sales/{id}/void", post(void_sale))
+        .route("/v1/credit/schedule-preview", get(schedule_preview))
         .route(
             "/v1/cash-registers",
             get(list_cash_registers).post(create_cash_register),
@@ -458,6 +456,16 @@ async fn sales_quote(
     Body(req): Body<sales::QuoteRequest>,
 ) -> ApiResult<Json<sales::QuoteResponse>> {
     Ok(Json(sales::quote(&state.pool, &user.claims, req).await?))
+}
+
+async fn schedule_preview(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<crate::credit::SchedulePreviewQuery>,
+) -> ApiResult<Json<crate::credit::SchedulePreviewResponse>> {
+    Ok(Json(
+        crate::credit::preview(&state.pool, &user.claims, q).await?,
+    ))
 }
 
 async fn list_cash_registers(
@@ -1578,7 +1586,9 @@ async fn update_customer(
     Path(id): Path<Uuid>,
     Body(input): Body<customers::CreateCustomerInput>,
 ) -> ApiResult<Json<customers::CustomerDetail>> {
-    Ok(Json(customers::update(&state.pool, &user.claims, id, input).await?))
+    Ok(Json(
+        customers::update(&state.pool, &user.claims, id, input).await?,
+    ))
 }
 
 async fn upsert_customer(
@@ -1586,7 +1596,9 @@ async fn upsert_customer(
     user: AuthUser,
     Body(input): Body<customers::CreateCustomerInput>,
 ) -> ApiResult<Json<customers::CustomerUpsertResponse>> {
-    Ok(Json(customers::upsert(&state.pool, &user.claims, input).await?))
+    Ok(Json(
+        customers::upsert(&state.pool, &user.claims, input).await?,
+    ))
 }
 
 async fn archive_customer(

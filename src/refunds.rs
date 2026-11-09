@@ -271,17 +271,24 @@ pub async fn create_tx(
     }
 
     // 5. Método.
+    let mut effective_method = req.method.as_db();
     let mut original_method: Option<String> = None;
     let mut reversal_reference: Option<String> = None;
-    if req.method == RefundMethod::Original {
-        let methods: Vec<String> = sqlx::query_scalar(
-            "select t.tima_codigo from payments p
-               join tbl_tipos_maestra t on t.tima_id = p.method_id
-              where p.order_id = $1",
-        )
-        .bind(req.order_id)
-        .fetch_all(&mut **tx)
-        .await?;
+
+    let methods: Vec<String> = sqlx::query_scalar(
+        "select t.tima_codigo from payments p
+           join tbl_tipos_maestra t on t.tima_id = p.method_id
+          where p.order_id = $1",
+    )
+    .bind(req.order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if methods.len() == 1 && methods[0] == "CREDITO" {
+        // F3.2: si CREDITO es el único pago, el método se fuerza a ORIGINAL con original_method = CREDITO
+        effective_method = "ORIGINAL";
+        original_method = Some("CREDITO".to_string());
+    } else if req.method == RefundMethod::Original {
         if methods.len() != 1 {
             return Err(invalid(
                 "REFUND_ORIGINAL_MIXED",
@@ -324,7 +331,7 @@ pub async fn create_tx(
     .bind(req.order_id)
     .bind(&prefix)
     .bind(number)
-    .bind(req.method.as_db())
+    .bind(effective_method)
     .bind(&original_method)
     .bind(&reversal_reference)
     .bind(&reason)
@@ -384,6 +391,149 @@ pub async fn create_tx(
 
 // ------------------------------------------------------------------ efectos
 
+/// Reduce la cuenta por cobrar asociada a una orden.
+/// Devuelve el monto aplicado.
+pub async fn reduce_receivable_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    order_id: Uuid,
+    amount: Decimal,
+    strict: bool,
+) -> Result<Decimal, ApiError> {
+    // 1. select id, principal, amount_total, amount_paid from receivables where order_id = $1 and tenant_id = $2 for update. Si no existe: devuelve 0.
+    let row: Option<(Uuid, Decimal, Decimal, Decimal)> = sqlx::query_as(
+        "select id, principal, amount_total, amount_paid
+           from receivables
+          where order_id = $1 and tenant_id = $2
+          for update",
+    )
+    .bind(order_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some((rec_id, principal, amount_total, amount_paid)) = row else {
+        return Ok(Decimal::ZERO);
+    };
+
+    // 2. saldo = amount_total − amount_paid
+    let saldo = amount_total - amount_paid;
+
+    // 3. Si strict y amount > saldo: 409 REFUND_EXCEEDS_RECEIVABLE
+    if strict && amount > saldo {
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "REFUND_EXCEEDS_RECEIVABLE",
+            "El monto a devolver supera el saldo de la cuenta por cobrar",
+            None,
+        ));
+    }
+
+    // 4. aplicado = min(amount, saldo). Si es 0, devuelve 0.
+    let aplicado = amount.min(saldo);
+    if aplicado <= Decimal::ZERO {
+        return Ok(Decimal::ZERO);
+    }
+
+    // 5. amount_total −= aplicado y principal −= aplicado. Si queda amount_total = amount_paid, status = 'PAGADA'.
+    let new_total = amount_total - aplicado;
+    let new_principal = (principal - aplicado).max(Decimal::ZERO);
+    sqlx::query(
+        "update receivables
+            set amount_total = $2,
+                principal = $3,
+                status = case when $2 = amount_paid then 'PAGADA' else status end
+          where id = $1 and tenant_id = $4",
+    )
+    .bind(rec_id)
+    .bind(new_total)
+    .bind(new_principal)
+    .bind(scope.tenant)
+    .execute(&mut **tx)
+    .await?;
+
+    // 6. Cuotas, de la última a la primera (order by n desc, con for update), hasta agotar aplicado.
+    let installments: Vec<(i32, Decimal, Decimal)> = sqlx::query_as(
+        "select n, amount, amount_paid
+           from receivable_installments
+          where receivable_id = $1 and tenant_id = $2
+          order by n desc
+          for update",
+    )
+    .bind(rec_id)
+    .bind(scope.tenant)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut restante = aplicado;
+    for (n, inst_amount, inst_paid) in installments {
+        if restante <= Decimal::ZERO {
+            break;
+        }
+        let reducible = inst_amount - inst_paid;
+        if reducible > restante {
+            let new_amount = inst_amount - restante;
+            sqlx::query(
+                "update receivable_installments
+                    set amount = $3
+                  where receivable_id = $1 and n = $2 and tenant_id = $4",
+            )
+            .bind(rec_id)
+            .bind(n)
+            .bind(new_amount)
+            .bind(scope.tenant)
+            .execute(&mut **tx)
+            .await?;
+            break;
+        } else {
+            if inst_paid == Decimal::ZERO {
+                sqlx::query(
+                    "delete from receivable_installments
+                      where receivable_id = $1 and n = $2 and tenant_id = $3",
+                )
+                .bind(rec_id)
+                .bind(n)
+                .bind(scope.tenant)
+                .execute(&mut **tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "update receivable_installments
+                        set amount = amount_paid
+                      where receivable_id = $1 and n = $2 and tenant_id = $3",
+                )
+                .bind(rec_id)
+                .bind(n)
+                .bind(scope.tenant)
+                .execute(&mut **tx)
+                .await?;
+            }
+            restante -= reducible;
+        }
+    }
+
+    // 7. due_date = select min(due_date) from receivable_installments where receivable_id = $1 and amount_paid < amount, leído con fetch_one en Option<chrono::NaiveDate>. Si es Some, actualiza receivables.due_date; si es None, no lo toca.
+    let next_due: Option<chrono::NaiveDate> = sqlx::query_scalar(
+        "select min(due_date) from receivable_installments
+          where receivable_id = $1 and amount_paid < amount",
+    )
+    .bind(rec_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    if let Some(due) = next_due {
+        sqlx::query("update receivables set due_date = $2 where id = $1 and tenant_id = $3")
+            .bind(rec_id)
+            .bind(due)
+            .bind(scope.tenant)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    // 8. Devuelve aplicado.
+    Ok(aplicado)
+}
+
 /// Aplica stock, caja, saldo devuelto y nota crédito, y deja la devolución
 /// `APROBADA`. La devolución debe estar bloqueada o recién creada en `tx`.
 async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Result<(), ApiError> {
@@ -435,30 +585,88 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
         .await?;
     }
 
-    // 2. Caja, si el dinero sale en efectivo.
-    let cash_out = method == "EFECTIVO" || original_method.as_deref() == Some("EFECTIVO");
+    // 2. Pagos de la orden para saber si hubo CREDITO
+    let methods: Vec<String> = sqlx::query_scalar(
+        "select t.tima_codigo from payments p
+           join tbl_tipos_maestra t on t.tima_id = p.method_id
+          where p.order_id = $1",
+    )
+    .bind(order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let has_credit = methods.iter().any(|m| m == "CREDITO");
     let mut session: Option<Uuid> = None;
-    if cash_out {
-        let open = cash::open_session_tx(tx, scope, branch).await?;
-        let Some(session_id) = open else {
-            return Err(conflict(
-                "REFUND_NEEDS_OPEN_SESSION",
-                "open a cash session to refund cash",
-            ));
-        };
-        cash::record_movement_tx(
-            tx,
-            scope,
-            session_id,
-            CashMovementKind::Devolucion,
-            total,
-            &label,
-            None,
-            Some("REFUND"),
-            Some(refund_id),
-        )
-        .await?;
-        session = Some(session_id);
+
+    if original_method.as_deref() == Some("CREDITO") || (methods.len() == 1 && has_credit) {
+        // Un solo pago CREDITO
+        let aplicado = reduce_receivable_tx(tx, scope, order_id, total, true).await?;
+        sqlx::query("update refunds set receivable_applied = $2 where id = $1")
+            .bind(refund_id)
+            .bind(aplicado)
+            .execute(&mut **tx)
+            .await?;
+        // No hay movimiento de caja: cash_out ya es falso con original_method = CREDITO
+    } else if has_credit {
+        // Pago mixto con CREDITO:
+        // 1. aplicado = reduce_receivable_tx(..., total, strict = false)
+        let aplicado = reduce_receivable_tx(tx, scope, order_id, total, false).await?;
+        // 2. receivable_applied = aplicado
+        sqlx::query("update refunds set receivable_applied = $2 where id = $1")
+            .bind(refund_id)
+            .bind(aplicado)
+            .execute(&mut **tx)
+            .await?;
+        // 3. movimiento DEVOLUCION por total - aplicado
+        let cash_refund = total - aplicado;
+        // 4. si total - aplicado = 0, no se llama a record_movement_tx y no se exige turno abierto
+        if cash_refund > Decimal::ZERO {
+            let open = cash::open_session_tx(tx, scope, branch).await?;
+            let Some(session_id) = open else {
+                return Err(conflict(
+                    "REFUND_NEEDS_OPEN_SESSION",
+                    "open a cash session to refund cash",
+                ));
+            };
+            cash::record_movement_tx(
+                tx,
+                scope,
+                session_id,
+                CashMovementKind::Devolucion,
+                cash_refund,
+                &label,
+                None,
+                Some("REFUND"),
+                Some(refund_id),
+            )
+            .await?;
+            session = Some(session_id);
+        }
+    } else {
+        // Sin pago CREDITO: como hoy
+        let cash_out = method == "EFECTIVO" || original_method.as_deref() == Some("EFECTIVO");
+        if cash_out {
+            let open = cash::open_session_tx(tx, scope, branch).await?;
+            let Some(session_id) = open else {
+                return Err(conflict(
+                    "REFUND_NEEDS_OPEN_SESSION",
+                    "open a cash session to refund cash",
+                ));
+            };
+            cash::record_movement_tx(
+                tx,
+                scope,
+                session_id,
+                CashMovementKind::Devolucion,
+                total,
+                &label,
+                None,
+                Some("REFUND"),
+                Some(refund_id),
+            )
+            .await?;
+            session = Some(session_id);
+        }
     }
 
     // 3. Lo devuelto de la venta.

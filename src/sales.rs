@@ -31,6 +31,7 @@ pub enum PaymentMethod {
     Efectivo,
     Datafono,
     Qr,
+    Credito,
 }
 
 impl PaymentMethod {
@@ -39,6 +40,7 @@ impl PaymentMethod {
             PaymentMethod::Efectivo => "EFECTIVO",
             PaymentMethod::Datafono => "DATAFONO",
             PaymentMethod::Qr => "QR",
+            PaymentMethod::Credito => "CREDITO",
         }
     }
 }
@@ -79,7 +81,7 @@ pub struct SalePayment {
     pub reference: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SaleRequest {
     /// Clave de idempotencia generada por el cliente; es tambien el id de la orden.
     pub id: Uuid,
@@ -98,9 +100,13 @@ pub struct SaleRequest {
     pub customer_alias: Option<String>,
     #[serde(default)]
     pub coupon_code: Option<String>,
+    #[serde(default)]
+    pub credit_plan: Option<crate::credit::CreditPlan>,
+    #[serde(default)]
+    pub credit_override_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QuoteRequest {
     pub branch_id: Uuid,
     pub items: Vec<SaleItem>,
@@ -196,6 +202,27 @@ fn validate(req: &SaleRequest) -> Result<(), ApiError> {
         .count();
     if cash_lines > 1 {
         return Err(validation("at most one cash payment per sale"));
+    }
+    let credit_lines = req
+        .payments
+        .iter()
+        .filter(|p| p.method == PaymentMethod::Credito)
+        .count();
+    if credit_lines > 1 {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_MULTIPLE_CREDIT",
+            "at most one credit payment per sale",
+            None,
+        ));
+    }
+    if req.credit_plan.is_some() && credit_lines == 0 {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "CREDIT_PLAN_INVALID",
+            "credit_plan requires a credit payment",
+            None,
+        ));
     }
     if req.tip_amount.is_some_and(|t| t < Decimal::ZERO) {
         return Err(validation("tip_amount must be >= 0"));
@@ -1128,7 +1155,7 @@ pub async fn checkout_tx(
             StatusCode::CONFLICT,
             "PRICE_CHANGED",
             "Los precios cambiaron. Revisá el total.",
-            Some(serde_json::to_value(&quote_resp).unwrap()),
+            serde_json::to_value(&quote_resp).ok(),
         ));
     }
 
@@ -1255,6 +1282,145 @@ pub async fn checkout_tx(
 
     // 6. Pagos.
     let settlement = settle(total, &req.payments)?;
+
+    // F3.2: Si hay pago CREDITO, validar cupo, mora y autorización (en este orden exacto)
+    let credit_payment = req
+        .payments
+        .iter()
+        .find(|p| p.method == PaymentMethod::Credito);
+    let credit_info = if let Some(cp) = credit_payment {
+        // 0. today: fecha local de la sucursal
+        let today: chrono::NaiveDate = sqlx::query_scalar(
+            "select (now() at time zone timezone)::date from branches where id = $1",
+        )
+        .bind(branch)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // 1. scope.require_permission("credit:sell")?
+        scope.require_permission("credit:sell")?;
+
+        // 2. customer_id sin unwrap
+        let Some(cid) = req.customer_id else {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "CREDIT_REQUIRES_CUSTOMER",
+                "Para vender a crédito elegí un cliente",
+                None,
+            ));
+        };
+
+        // 3. credit_plan validate y luego validate_dates
+        if let Some(plan) = &req.credit_plan {
+            plan.validate()?;
+            plan.validate_dates(today)?;
+        }
+
+        // 4. Bloqueo del cliente
+        let locked: Option<Uuid> = sqlx::query_scalar(
+            "select id from customers where tenant_id = $1 and id = $2 for update",
+        )
+        .bind(scope.tenant)
+        .bind(cid)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if locked.is_none() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_CUSTOMER_INVALID",
+                "El cliente seleccionado no existe o está archivado",
+                None,
+            ));
+        }
+
+        // 5. C es el monto del pago CREDITO
+        let c = cp.amount;
+
+        // 6 / 7. Sin o con credit_override_reason
+        if let Some(reason) = &req.credit_override_reason {
+            // 7.1
+            scope.require_permission("credit:override")?;
+            // 7.2
+            let trimmed = reason.trim();
+            let count = trimmed.chars().count();
+            if !(3..=200).contains(&count) {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "CREDIT_OVERRIDE_REASON_INVALID",
+                    "El motivo de autorización debe tener entre 3 y 200 caracteres",
+                    None,
+                ));
+            }
+            // 7.4
+            crate::audit::record_tx(
+                tx,
+                scope,
+                "CREDITO_AUTORIZADO",
+                "customers",
+                cid,
+                None,
+                Some(serde_json::json!({
+                    "customer_id": cid,
+                    "amount": c,
+                    "reason": trimmed,
+                })),
+                None,
+            )
+            .await?;
+        } else {
+            // 6.1
+            let (credit_limit, credit_block_days): (Decimal, i32) = sqlx::query_as(
+                "select credit_limit, credit_block_days from customers where tenant_id = $1 and id = $2",
+            )
+            .bind(scope.tenant)
+            .bind(cid)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            // 6.2
+            let (balance, max_days_overdue): (Decimal, i32) = sqlx::query_as(
+                "select balance, max_days_overdue from public.customer_credit_position($1)",
+            )
+            .bind(cid)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            // 6.3
+            if credit_limit <= Decimal::ZERO {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_NOT_ENABLED",
+                    "Este cliente no tiene cupo de crédito",
+                    None,
+                ));
+            }
+
+            // 6.4
+            if max_days_overdue > credit_block_days {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_BLOCKED_OVERDUE",
+                    "El cliente tiene facturas en mora",
+                    Some(serde_json::json!({ "days": max_days_overdue })),
+                ));
+            }
+
+            // 6.5
+            let available = (credit_limit - balance).max(Decimal::ZERO);
+            if c > available {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_LIMIT_EXCEEDED",
+                    "La venta supera el cupo disponible",
+                    Some(serde_json::json!({ "available": available })),
+                ));
+            }
+        }
+
+        Some((cid, c, today))
+    } else {
+        None
+    };
     for p in &req.payments {
         let (amount, tendered) = if p.method == PaymentMethod::Efectivo {
             (settlement.cash_applied, Some(p.amount))
@@ -1310,6 +1476,51 @@ pub async fn checkout_tx(
     .bind(req.tip_waiter_id)
     .execute(&mut **tx)
     .await?;
+
+    // F3.2: Creación de la cuenta por cobrar si hubo pago CREDITO
+    if let Some((cid, credit_amount, today)) = credit_info {
+        let (interest_total, due_date, scheduled_installments) =
+            crate::credit::generate_schedule(credit_amount, req.credit_plan.as_ref(), today);
+
+        let amount_total = credit_amount + interest_total;
+        let plan_json = serde_json::to_value(&req.credit_plan).ok();
+
+        let rec_id = Uuid::new_v4();
+        sqlx::query(
+            "insert into receivables
+               (id, tenant_id, branch_id, customer_id, source, order_id, principal,
+                interest_total, amount_total, amount_paid, status, due_date, plan, created_by)
+             values ($1, $2, $3, $4, 'VENTA', $5, $6, $7, $8, 0, 'ABIERTA', $9, $10, $11)",
+        )
+        .bind(rec_id)
+        .bind(scope.tenant)
+        .bind(branch)
+        .bind(cid)
+        .bind(req.id)
+        .bind(credit_amount)
+        .bind(interest_total)
+        .bind(amount_total)
+        .bind(due_date)
+        .bind(plan_json)
+        .bind(scope.user)
+        .execute(&mut **tx)
+        .await?;
+
+        for inst in scheduled_installments {
+            sqlx::query(
+                "insert into receivable_installments
+                   (tenant_id, receivable_id, n, due_date, amount, amount_paid)
+                 values ($1, $2, $3, $4, $5, 0)",
+            )
+            .bind(scope.tenant)
+            .bind(rec_id)
+            .bind(inst.n)
+            .bind(inst.due_date)
+            .bind(inst.amount)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
 
     // 12. Registro de uso de promociones aplicadas
     for applied in &priced_cart.promotions {
@@ -1463,7 +1674,10 @@ pub async fn quote_tx(
         match pricing::price_cart(&price_lines, &promos, coupon_rule.as_ref(), tip) {
             Ok(pc) => pc,
             Err(err) => {
-                let mut pc = pricing::price_cart(&price_lines, &promos, None, tip).unwrap();
+                let mut pc = match pricing::price_cart(&price_lines, &promos, None, tip) {
+                    Ok(pc) => pc,
+                    Err(_) => unreachable!("pricing without coupon does not fail"),
+                };
                 pc.coupon_error = Some(err);
                 pc
             }
@@ -1665,6 +1879,26 @@ pub async fn void_tx(
         return Err(void_not_allowed("FISCAL_ACCEPTED"));
     }
 
+    // F3.2: Si la venta tiene cuenta por cobrar
+    let rec: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "select id, amount_paid from receivables where order_id = $1 and tenant_id = $2 for update",
+    )
+    .bind(order_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((rec_id, amount_paid)) = rec {
+        if amount_paid > Decimal::ZERO {
+            return Err(void_not_allowed("HAS_PAYMENTS"));
+        }
+        sqlx::query("delete from receivables where id = $1 and tenant_id = $2")
+            .bind(rec_id)
+            .bind(scope.tenant)
+            .execute(&mut **tx)
+            .await?;
+    }
+
     // 6. Motivo.
     let reason = req.reason.trim();
     let n = reason.chars().count();
@@ -1852,6 +2086,7 @@ mod tests {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         };
         assert!(validate(&base).is_ok());
 

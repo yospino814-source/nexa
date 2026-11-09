@@ -77,6 +77,7 @@ pub fn base_allows(role: &str, code: &str) -> bool {
                 | "customers:read"
                 | "customers:write"
                 | "credit:collect"
+                | "credit:sell"
         ),
         "MESERO" => matches!(code, "inventory:read" | "pos:order" | "customers:read"),
         "COCINA" => matches!(code, "inventory:read" | "pos:kitchen"),
@@ -94,6 +95,8 @@ pub fn base_allows(role: &str, code: &str) -> bool {
                 | "customers:read"
                 | "customers:write"
                 | "credit:collect"
+                | "credit:sell"
+                | "credit:override"
                 | "pos:refund"
                 | "inventory:adjust"
                 | "reports:read"

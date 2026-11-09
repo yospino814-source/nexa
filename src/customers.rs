@@ -77,13 +77,20 @@ pub struct CustomerDetail {
     pub missing_fiscal: Vec<String>,
 }
 
+impl std::ops::Deref for CustomerDetail {
+    type Target = Customer;
+    fn deref(&self) -> &Self::Target {
+        &self.customer
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CustomerUpsertResponse {
     pub customer: CustomerDetail,
     pub result: &'static str,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct CreateCustomerInput {
     #[serde(default)]
     pub doc_type: Option<String>,
@@ -178,7 +185,10 @@ pub fn compute_missing_fiscal(
 ) -> Vec<String> {
     let mut missing = Vec::new();
     let has_doc_type = doc_type.map(str::trim).filter(|s| !s.is_empty()).is_some();
-    let has_doc_number = doc_number.map(str::trim).filter(|s| !s.is_empty()).is_some();
+    let has_doc_number = doc_number
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some();
     if !has_doc_type || !has_doc_number {
         missing.push("documento".to_string());
     }
@@ -188,7 +198,11 @@ pub fn compute_missing_fiscal(
     if city_code.map(str::trim).filter(|s| !s.is_empty()).is_none() {
         missing.push("municipio".to_string());
     }
-    if billing_address.map(str::trim).filter(|s| !s.is_empty()).is_none() {
+    if billing_address
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
         missing.push("dirección de facturación".to_string());
     }
     missing
@@ -242,14 +256,22 @@ pub fn normalize_customer(input: CreateCustomerInput) -> Result<NormalizedCustom
 
     let raw_doc_number = input.doc_number.and_then(|raw| {
         let trimmed = raw.trim();
-        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
     });
 
     let unparsed_number = if let Some(ref raw_num) = raw_doc_number {
         if let Some(idx) = raw_num.rfind('-') {
             let num_part = &raw_num[..idx];
             let dv_part = &raw_num[idx + 1..];
-            let clean_dv: String = dv_part.trim().chars().filter(|c| c.is_ascii_digit()).collect();
+            let clean_dv: String = dv_part
+                .trim()
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .collect();
             if !clean_dv.is_empty() {
                 if let Some(ref explicit_dv) = candidate_dv {
                     if explicit_dv != &clean_dv {
@@ -780,12 +802,14 @@ pub async fn update(
     // si no lo tiene y cambian: 403.
     let credit_limit_changed = norm.credit_limit != existing.credit_limit;
     let credit_block_days_changed = norm.credit_block_days != existing.credit_block_days;
-    if (credit_limit_changed || credit_block_days_changed) && !scope.has_permission("credit:override") {
+    if (credit_limit_changed || credit_block_days_changed)
+        && !scope.has_permission("credit:override")
+    {
         return Err(ApiError::Domain(DomainError::Forbidden));
     }
 
     // Verificar unicidad de documento si cambió
-    if let (Some(ref dt), Some(ref dn)) = (&norm.doc_type, &norm.doc_number) {
+    if let (Some(dt), Some(dn)) = (&norm.doc_type, &norm.doc_number) {
         let conflict: Option<Uuid> = sqlx::query_scalar(
             "select id from customers
               where tenant_id = $1 and doc_type = $2 and doc_number = $3 and id <> $4 and archived_at is null",
@@ -881,7 +905,7 @@ pub async fn upsert(
 
     // Luego por doc_type y doc_number si no se encontró por email
     if existing.is_none() {
-        if let (Some(ref dt), Some(ref dn)) = (&norm.doc_type, &norm.doc_number) {
+        if let (Some(dt), Some(dn)) = (&norm.doc_type, &norm.doc_number) {
             existing = sqlx::query_as::<_, Customer>(
                 "select id, doc_type, doc_number, dv, name, phone, email, price_tier_id,
                         person_type, tax_regime, fiscal_responsibilities, ciiu, withholding_agent,
@@ -918,7 +942,8 @@ pub async fn upsert(
                 up_doc_type = norm.doc_type.clone();
                 changed = true;
             }
-            if up_doc_number.as_deref().unwrap_or("").trim().is_empty() && norm.doc_number.is_some() {
+            if up_doc_number.as_deref().unwrap_or("").trim().is_empty() && norm.doc_number.is_some()
+            {
                 up_doc_number = norm.doc_number.clone();
                 changed = true;
             }
@@ -946,15 +971,29 @@ pub async fn upsert(
                 up_city_code = norm.city_code.clone();
                 changed = true;
             }
-            if up_billing_address.as_deref().unwrap_or("").trim().is_empty() && norm.billing_address.is_some() {
+            if up_billing_address
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+                && norm.billing_address.is_some()
+            {
                 up_billing_address = norm.billing_address.clone();
                 changed = true;
             }
-            if up_shipping_address.as_deref().unwrap_or("").trim().is_empty() && norm.shipping_address.is_some() {
+            if up_shipping_address
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+                && norm.shipping_address.is_some()
+            {
                 up_shipping_address = norm.shipping_address.clone();
                 changed = true;
             }
-            if up_pinned_note.as_deref().unwrap_or("").trim().is_empty() && norm.pinned_note.is_some() {
+            if up_pinned_note.as_deref().unwrap_or("").trim().is_empty()
+                && norm.pinned_note.is_some()
+            {
                 up_pinned_note = norm.pinned_note.clone();
                 changed = true;
             }
@@ -1039,11 +1078,7 @@ pub async fn upsert(
 
 /// Archiva un cliente (F3.1).
 /// Si tiene saldo en cartera, separados ACTIVO o saldo a favor: 409 CUSTOMER_HAS_BALANCE.
-pub async fn archive(
-    pool: &PgPool,
-    claims: &Claims,
-    customer_id: Uuid,
-) -> Result<(), ApiError> {
+pub async fn archive(pool: &PgPool, claims: &Claims, customer_id: Uuid) -> Result<(), ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("customers:write")?;
 
@@ -1122,22 +1157,17 @@ pub async fn archive(
 }
 
 /// Desarchiva un cliente (F3.1).
-pub async fn unarchive(
-    pool: &PgPool,
-    claims: &Claims,
-    customer_id: Uuid,
-) -> Result<(), ApiError> {
+pub async fn unarchive(pool: &PgPool, claims: &Claims, customer_id: Uuid) -> Result<(), ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("customers:write")?;
 
-    let affected = sqlx::query(
-        "update customers set archived_at = null where tenant_id = $1 and id = $2",
-    )
-    .bind(scope.tenant)
-    .bind(customer_id)
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
+    let affected =
+        sqlx::query("update customers set archived_at = null where tenant_id = $1 and id = $2")
+            .bind(scope.tenant)
+            .bind(customer_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
 
     if affected == 0 {
         return Err(ApiError::Domain(DomainError::NotFound));
@@ -1317,13 +1347,8 @@ mod tests {
             ]
         );
 
-        let partial = compute_missing_fiscal(
-            Some("CC"),
-            Some("12345678"),
-            None,
-            Some("05001"),
-            None,
-        );
+        let partial =
+            compute_missing_fiscal(Some("CC"), Some("12345678"), None, Some("05001"), None);
         assert_eq!(
             partial,
             vec!["correo".to_string(), "dirección de facturación".to_string()]

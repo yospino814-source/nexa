@@ -234,16 +234,18 @@ pub async fn detail(
     let sale = sales::load_response(&mut tx, order_id).await?;
     let refunds = refunds::for_order_tx(&mut tx, order_id).await?;
     let customer = match customer_id {
-        Some(id) => sqlx::query_as::<_, Customer>(
-            "select id, doc_type, doc_number, dv, name, phone, email, price_tier_id,
+        Some(id) => {
+            sqlx::query_as::<_, Customer>(
+                "select id, doc_type, doc_number, dv, name, phone, email, price_tier_id,
                     person_type, tax_regime, fiscal_responsibilities, ciiu, withholding_agent,
                     city_code, billing_address, shipping_address, pinned_note, credit_limit,
                     credit_block_days, archived_at
                from customers where id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?,
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+        }
         None => None,
     };
     let cashier_name: Option<String> = sqlx::query_scalar(
