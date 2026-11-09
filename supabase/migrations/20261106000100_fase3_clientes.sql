@@ -5,7 +5,7 @@
 insert into public.permissions (code, module, description) values
   ('credit:override', 'credit', 'Autorizar crédito por encima del cupo o con mora'),
   ('wallet:adjust', 'customers', 'Ajustar el saldo a favor de un cliente')
-on conflict (code) do update set description = excluded.description, module = excluded.module;
+on conflict (code) do nothing;
 
 -- DUENO y ADMIN_CAJA reciben credit:override y wallet:adjust
 insert into public.role_permissions (role_id, permission_code)
@@ -25,6 +25,16 @@ cross join public.permissions p
 where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
   and r.tima_codigo = 'SUPERVISOR'
   and p.code = 'credit:override'
+on conflict do nothing;
+
+-- SUPERVISOR recibe credit:sell
+insert into public.role_permissions (role_id, permission_code)
+select r.tima_id, p.code
+from public.tbl_tipos_maestra r
+cross join public.permissions p
+where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
+  and r.tima_codigo = 'SUPERVISOR'
+  and p.code = 'credit:sell'
 on conflict do nothing;
 
 -- CAJERO recibe credit:sell
@@ -73,7 +83,7 @@ create table if not exists public.receivables (
   source text not null check (source in ('VENTA','ACUERDO')),
   order_id uuid,
   prefix text, number bigint,
-  principal numeric(14,2) not null check (principal > 0),
+  principal numeric(14,2) not null check (principal >= 0),
   interest_total numeric(14,2) not null default 0 check (interest_total >= 0),
   amount_total numeric(14,2) not null,
   amount_paid numeric(14,2) not null default 0 check (amount_paid >= 0),
@@ -120,6 +130,32 @@ create policy receivable_installments_isolation on public.receivable_installment
   with check (tenant_id = public.current_tenant_id());
 grant select, insert, update, delete on public.receivable_installments to authenticated;
 
+create or replace function public.customer_credit_position(p_customer uuid)
+returns table (balance numeric(14,2), max_days_overdue integer)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with x as (
+    select r.amount_total - r.amount_paid as saldo,
+           greatest(0, (now() at time zone b.timezone)::date - coalesce(i.first_due, r.due_date)) as dias
+      from public.receivables r
+      join public.branches b on b.id = r.branch_id
+      left join lateral (
+        select min(ri.due_date) as first_due
+          from public.receivable_installments ri
+         where ri.receivable_id = r.id and ri.amount_paid < ri.amount
+      ) i on true
+     where r.tenant_id = public.current_tenant_id()
+       and r.customer_id = p_customer
+       and r.status in ('ABIERTA','PARCIAL')
+  )
+  select coalesce(sum(saldo), 0)::numeric(14,2), coalesce(max(dias), 0)::integer from x
+$$;
+revoke all on function public.customer_credit_position(uuid) from public, anon;
+grant execute on function public.customer_credit_position(uuid) to authenticated;
+
 -- 4. F3.3 Abonos y cuotas
 create table if not exists public.receivable_payments (
   id uuid primary key,
@@ -146,6 +182,9 @@ create policy receivable_payments_isolation on public.receivable_payments for al
   using (public.in_scope(tenant_id, branch_id))
   with check (public.in_scope(tenant_id, branch_id));
 grant select, insert, update, delete on public.receivable_payments to authenticated;
+
+create index if not exists receivables_customer_idx on public.receivables (tenant_id, customer_id) where status in ('ABIERTA','PARCIAL');
+create index if not exists receivable_payments_receivable_idx on public.receivable_payments (receivable_id, created_at);
 
 -- 5. F3.6 Saldo a favor (billetera)
 create table if not exists public.customer_wallets (
@@ -183,6 +222,9 @@ begin
   end if;
   alter table public.refunds add constraint refunds_method_check check (method in ('EFECTIVO','ORIGINAL','SALDO_A_FAVOR'));
 end $$;
+
+alter table public.refunds
+  add column if not exists receivable_applied numeric(14,2) not null default 0 check (receivable_applied >= 0);
 
 alter table public.customer_wallets enable row level security;
 drop policy if exists customer_wallets_isolation on public.customer_wallets;
