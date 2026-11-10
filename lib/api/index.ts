@@ -93,6 +93,7 @@ import {
   setMockReceivablesCashContext,
   mockCreateReceivableFromSale,
 } from "./mock-receivables";
+import { mockCreateBusiness } from "./mock-onboarding";
 import type {
   AuditEntry,
   AuditFilter,
@@ -121,6 +122,8 @@ import type {
   Promotion,
   CreatePromotionInput,
   UpdatePromotionInput,
+  CreateBusinessInput,
+  OnboardingResult,
   Coupon,
   CreateCouponInput,
   UpdateCouponInput,
@@ -1284,6 +1287,19 @@ export const api = {
         };
       }
       return request("/v1/business");
+    },
+  },
+
+  onboarding: {
+    /** POST /v1/onboarding */
+    async create(input: CreateBusinessInput): Promise<OnboardingResult> {
+      if (USE_MOCKS) {
+        return mockCreateBusiness(input);
+      }
+      return request<OnboardingResult>("/v1/onboarding", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
   },
 
@@ -3219,6 +3235,8 @@ export const api = {
 };
 
 export const ERROR_MESSAGES: Record<string, string> = {
+  ONBOARDING_INVALID: "Revisá los datos del negocio.",
+  ONBOARDING_ALREADY_MEMBER: "Tu usuario ya tiene un negocio.",
   REGISTER_INVALID: "Revisá los datos de la caja.",
   REGISTER_CODE_TAKEN: "Ya existe una caja con ese código.",
   REGISTER_HAS_OPEN_SESSION: "La caja tiene un turno abierto. Cerralo primero.",

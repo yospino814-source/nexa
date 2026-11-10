@@ -1861,3 +1861,14 @@ export interface AdjustmentsFilter {
   branch_id?: Uuid;
   status?: AdjustmentStatus;
 }
+
+export interface CreateBusinessInput {
+  business_name: string;
+  branch_name: string;
+  full_name: string;
+}
+
+export interface OnboardingResult {
+  tenant_id: Uuid;
+  branch_id: Uuid;
+}

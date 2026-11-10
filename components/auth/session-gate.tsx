@@ -47,6 +47,12 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
             que te invite o creá tu negocio.
           </p>
           <button
+            onClick={() => router.push("/onboarding")}
+            className="flex h-12 w-full items-center justify-center rounded-2xl bg-brand font-semibold text-white hover:bg-brand-dark"
+          >
+            Crear mi negocio
+          </button>
+          <button
             onClick={signOut}
             className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 font-semibold hover:bg-slate-50"
           >
