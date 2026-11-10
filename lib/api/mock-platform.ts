@@ -303,7 +303,7 @@ export function mockInviteUser(input: InviteUserInput): Invitation {
     id: "inv-" + Date.now(),
     email: input.email,
     role: input.role,
-    branch_ids: input.branch_ids,
+    branch_ids: input.branch_id ? [input.branch_id] : [],
     status: "PENDIENTE",
     created_at: new Date().toISOString(),
   };
@@ -311,9 +311,9 @@ export function mockInviteUser(input: InviteUserInput): Invitation {
   mockAuditEntries.unshift({
     id: "a-" + Date.now(),
     tenant_id: "t1",
-    branch_id: input.branch_ids[0] ?? null,
+    branch_id: input.branch_id ?? null,
     user_id: "u1111111-1111-4111-8111-111111111111",
-    action: "INVITACION_USUARIO",
+    action: "USUARIO_INVITADO",
     entity: "invitation",
     entity_id: inv.id,
     details: { email: input.email, role: input.role },

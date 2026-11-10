@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   Check,
+  Copy,
   Lock,
   Mail,
   Plus,
@@ -18,12 +19,13 @@ import {
 
 import {
   api,
+  friendlyError,
   type Role,
   type RolePermissionItem,
   type TenantUser,
 } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
-import { ROLE_LABELS, initials, useSession } from "@/lib/stores/session";
+import { ASSIGNABLE_ROLES, ROLE_LABELS, initials, useSession } from "@/lib/stores/session";
 import { cn } from "@/lib/utils";
 
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
@@ -52,6 +54,11 @@ const MODULE_LABELS: Record<string, string> = {
 export function UsersScreen() {
   const branches = useSession((s) => s.branches);
   const currentEmail = useSession((s) => s.email);
+  const isOwner = branches.some((b) => b.role === "DUENO");
+  const availableRoles: Role[] = isOwner ? [...ASSIGNABLE_ROLES, "DUENO"] : ASSIGNABLE_ROLES;
+
+  const { data: businessInfo } = useApi(() => api.business.get(), "business-info");
+  const businessName = businessInfo?.business_name || businessInfo?.name || branches[0]?.name || "Nexa";
 
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [query, setQuery] = useState("");
@@ -66,11 +73,30 @@ export function UsersScreen() {
   const [toast, setToast] = useState<string | null>(null);
 
   // Invite form state
+  const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("CAJERO");
   const [inviteBranch, setInviteBranch] = useState<string>("ALL");
   const [submittingInvite, setSubmittingInvite] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [createdInvite, setCreatedInvite] = useState<{
+    fullName: string;
+    email: string;
+    role: Role;
+    message: string;
+  } | null>(null);
+  const [copiedMessage, setCopiedMessage] = useState(false);
+
+  function openInviteModal() {
+    setInviteName("");
+    setInviteEmail("");
+    setInviteRole("CAJERO");
+    setInviteBranch("ALL");
+    setInviteError(null);
+    setCreatedInvite(null);
+    setCopiedMessage(false);
+    setInviteModalOpen(true);
+  }
 
   const { data, reload } = useApi(() => api.users.list(), "users-list");
   const { data: rolePermsData, reload: reloadRolePerms } = useApi(
@@ -107,25 +133,39 @@ export function UsersScreen() {
 
   async function handleSendInvite(e: React.FormEvent) {
     e.preventDefault();
-    if (!inviteEmail.trim()) {
+    const nameTrimmed = inviteName.trim();
+    if (nameTrimmed.length < 2 || nameTrimmed.length > 80) {
+      setInviteError("El nombre debe tener entre 2 y 80 caracteres.");
+      return;
+    }
+    const emailTrimmed = inviteEmail.trim();
+    if (!emailTrimmed || !emailTrimmed.includes("@")) {
       setInviteError("Ingresá un correo electrónico válido");
       return;
     }
     setSubmittingInvite(true);
     setInviteError(null);
     try {
-      const branchIds = inviteBranch === "ALL" ? branches.map((b) => b.id) : [inviteBranch];
+      const branchId = inviteBranch === "ALL" ? null : inviteBranch;
       await api.users.invite({
-        email: inviteEmail.trim(),
+        email: emailTrimmed,
+        full_name: nameTrimmed,
         role: inviteRole,
-        branch_ids: branchIds,
+        branch_id: branchId,
       });
-      setInviteModalOpen(false);
-      setInviteEmail("");
-      notify("Invitación enviada con éxito");
+
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const roleLabel = ROLE_LABELS[inviteRole] ?? inviteRole;
+      const message = `Hola ${nameTrimmed}, te invité a ${businessName} en Nexa POS como ${roleLabel}. Para entrar, creá tu cuenta con este correo: ${emailTrimmed}, en ${origin}/registro?correo=${encodeURIComponent(emailTrimmed)}. Si ya tenés cuenta, solo iniciá sesión.`;
+      setCreatedInvite({
+        fullName: nameTrimmed,
+        email: emailTrimmed,
+        role: inviteRole,
+        message,
+      });
       reload();
     } catch (err: unknown) {
-      setInviteError(err instanceof Error ? err.message : "Error al enviar invitación");
+      setInviteError(friendlyError(err));
     } finally {
       setSubmittingInvite(false);
     }
@@ -304,7 +344,7 @@ export function UsersScreen() {
             </div>
 
             <button
-              onClick={() => setInviteModalOpen(true)}
+              onClick={openInviteModal}
               className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="size-4" />
@@ -406,12 +446,12 @@ export function UsersScreen() {
                       </span>
                     </td>
                     <td className="px-4 py-4 text-slate-600">
-                      {inv.branch_ids.length === branches.length
-                        ? "Todas las sucursales"
-                        : branches
-                            .filter((b) => inv.branch_ids.includes(b.id))
-                            .map((b) => b.name)
-                            .join(", ") || "Sin sucursal"}
+                      {inv.branch_name ??
+                        (inv.branch_id
+                          ? branches.find((b) => b.id === inv.branch_id)?.name ?? "Sucursal"
+                          : inv.branch_ids && inv.branch_ids.length < branches.length
+                            ? branches.filter((b) => inv.branch_ids?.includes(b.id)).map((b) => b.name).join(", ")
+                            : "Todas las sucursales")}
                     </td>
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
@@ -420,12 +460,38 @@ export function UsersScreen() {
                       </span>
                     </td>
                     <td className="py-4 pr-6 pl-4 text-right">
-                      <button
-                        onClick={() => notify("Invitación reenviada a " + inv.email)}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        Reenviar
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const origin = typeof window !== "undefined" ? window.location.origin : "";
+                            const roleLabel = ROLE_LABELS[inv.role] ?? inv.role;
+                            const msg = `Hola, te invité a ${businessName} en Nexa POS como ${roleLabel}. Para entrar, creá tu cuenta con este correo: ${inv.email}, en ${origin}/registro?correo=${encodeURIComponent(inv.email)}. Si ya tenés cuenta, solo iniciá sesión.`;
+                            navigator.clipboard.writeText(msg);
+                            notify("Mensaje copiado");
+                          }}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Copiar mensaje
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (confirm(`¿Revocar la invitación de ${inv.email}?`)) {
+                              try {
+                                await api.users.revokeInvitation(inv.id);
+                                reload();
+                                notify("Invitación revocada");
+                              } catch (err: unknown) {
+                                notify(friendlyError(err));
+                              }
+                            }
+                          }}
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                        >
+                          Revocar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -557,102 +623,169 @@ export function UsersScreen() {
           <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-xl font-bold text-slate-900">Invitar usuario</h3>
+                <h3 className="text-xl font-bold text-slate-900">
+                  {createdInvite ? "Invitación creada" : "Invitar usuario"}
+                </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Enviaremos un enlace para que cree su contraseña y comience a trabajar.
+                  {createdInvite
+                    ? "Compartile este mensaje al invitado para que configure su acceso:"
+                    : "Enviaremos un enlace para que cree su contraseña y comience a trabajar."}
                 </p>
               </div>
               <button
-                onClick={() => setInviteModalOpen(false)}
+                onClick={() => {
+                  setInviteModalOpen(false);
+                  setCreatedInvite(null);
+                }}
                 className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
                 <X className="size-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSendInvite} className="mt-5 space-y-4">
-              {inviteError && (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
-                  {inviteError}
+            {createdInvite ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                  ¡Invitación creada con éxito! Podés enviarle el siguiente mensaje por WhatsApp o copiarlo al portapapeles:
                 </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Correo electrónico</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="ejemplo@negocio.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+                <textarea
+                  readOnly
+                  rows={5}
+                  value={createdInvite.message}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 outline-none select-all font-mono"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">Rol en el equipo</label>
-                <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
-                  {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                    <label
-                      key={r}
-                      className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition",
-                        inviteRole === r
-                          ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900"
-                          : "border-slate-200 hover:border-slate-300",
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="inviteRole"
-                        value={r}
-                        checked={inviteRole === r}
-                        onChange={() => setInviteRole(r)}
-                        className="mt-0.5 text-slate-900 focus:ring-slate-900"
-                      />
-                      <div className="text-xs">
-                        <div className="font-bold text-slate-900">{ROLE_LABELS[r]}</div>
-                        <div className="text-slate-500">{ROLE_DESCRIPTIONS[r]}</div>
-                      </div>
-                    </label>
-                  ))}
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(createdInvite.message);
+                      setCopiedMessage(true);
+                      setTimeout(() => setCopiedMessage(false), 2000);
+                    }}
+                    className="flex h-10 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    {copiedMessage ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                    {copiedMessage ? "Copiado" : "Copiar mensaje"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.open("https://wa.me/?text=" + encodeURIComponent(createdInvite.message), "_blank");
+                    }}
+                    className="flex h-10 items-center gap-1.5 rounded-full bg-emerald-600 px-4 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700"
+                  >
+                    Enviar por WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteModalOpen(false);
+                      setCreatedInvite(null);
+                      reload();
+                    }}
+                    className="flex h-10 items-center rounded-full bg-slate-900 px-5 text-xs font-semibold text-white shadow-xs hover:bg-slate-800"
+                  >
+                    Listo
+                  </button>
                 </div>
               </div>
+            ) : (
+              <form onSubmit={handleSendInvite} className="mt-5 space-y-4">
+                {inviteError && (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+                    {inviteError}
+                  </div>
+                )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Sucursal asignada</label>
-                <select
-                  value={inviteBranch}
-                  onChange={(e) => setInviteBranch(e.target.value)}
-                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
-                >
-                  <option value="ALL">Todas las sucursales</option>
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Nombre completo"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+                  />
+                </div>
 
-              <div className="mt-6 flex items-center justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setInviteModalOpen(false)}
-                  className="h-10 rounded-full border border-slate-200 px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingInvite}
-                  className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {submittingInvite && <RefreshCw className="size-4 animate-spin" />}
-                  Enviar invitación
-                </button>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Correo electrónico</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="ejemplo@negocio.com"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-2">Rol en el equipo</label>
+                  <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+                    {availableRoles.map((r) => (
+                      <label
+                        key={r}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition",
+                          inviteRole === r
+                            ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900"
+                            : "border-slate-200 hover:border-slate-300",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="inviteRole"
+                          value={r}
+                          checked={inviteRole === r}
+                          onChange={() => setInviteRole(r)}
+                          className="mt-0.5 text-slate-900 focus:ring-slate-900"
+                        />
+                        <div className="text-xs">
+                          <div className="font-bold text-slate-900">{ROLE_LABELS[r]}</div>
+                          <div className="text-slate-500">{ROLE_DESCRIPTIONS[r]}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Sucursal asignada</label>
+                  <select
+                    value={inviteBranch}
+                    onChange={(e) => setInviteBranch(e.target.value)}
+                    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                  >
+                    <option value="ALL">Todas las sucursales</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-6 flex items-center justify-end gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setInviteModalOpen(false)}
+                    className="h-10 rounded-full border border-slate-200 px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingInvite}
+                    className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {submittingInvite && <RefreshCw className="size-4 animate-spin" />}
+                    Enviar invitación
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

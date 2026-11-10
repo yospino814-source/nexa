@@ -94,6 +94,11 @@ import {
   mockCreateReceivableFromSale,
 } from "./mock-receivables";
 import { mockCreateBusiness } from "./mock-onboarding";
+import {
+  mockMyInvitations,
+  mockAcceptInvitation,
+  mockRevokeInvitation,
+} from "./mock-invitations";
 import type {
   AuditEntry,
   AuditFilter,
@@ -124,6 +129,8 @@ import type {
   UpdatePromotionInput,
   CreateBusinessInput,
   OnboardingResult,
+  MyInvitation,
+  AcceptInvitationResult,
   Coupon,
   CreateCouponInput,
   UpdateCouponInput,
@@ -2960,6 +2967,38 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+
+    async revokeInvitation(id: Uuid): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockRevokeInvitation(id);
+      }
+      return request(`/v1/users/invitations/${id}/revoke`, {
+        method: "POST",
+      });
+    },
+  },
+
+  invitations: {
+    /** GET /v1/invitations/mine */
+    async mine(): Promise<MyInvitation[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockMyInvitations();
+      }
+      return request("/v1/invitations/mine");
+    },
+
+    /** POST /v1/invitations/{id}/accept */
+    async accept(id: Uuid): Promise<AcceptInvitationResult> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockAcceptInvitation(id);
+      }
+      return request(`/v1/invitations/${id}/accept`, {
+        method: "POST",
+      });
+    },
   },
 
   permissions: {
@@ -3235,6 +3274,10 @@ export const api = {
 };
 
 export const ERROR_MESSAGES: Record<string, string> = {
+  ROLE_NOT_AVAILABLE: "Ese rol todavía no está disponible.",
+  USER_ALREADY_MEMBER: "Esa persona ya trabaja en tu negocio.",
+  INVITATION_NOT_FOUND: "No encontramos esa invitación para tu correo.",
+  INVITATION_NOT_PENDING: "Esa invitación ya no está vigente.",
   ONBOARDING_INVALID: "Revisá los datos del negocio.",
   ONBOARDING_ALREADY_MEMBER: "Tu usuario ya tiene un negocio.",
   REGISTER_INVALID: "Revisá los datos de la caja.",

@@ -9,6 +9,7 @@ import {
   setUnauthorizedHandler,
   USE_MOCKS,
   type BranchAccess,
+  type MyInvitation,
   type Role,
 } from "@/lib/api";
 import { AUTH_ENABLED } from "@/lib/supabase/config";
@@ -33,15 +34,19 @@ type SessionState = {
   branches: BranchAccess[];
   branchId: string | null;
   permissions: string[];
+  invitations: MyInvitation[];
   can: (code: string) => boolean;
   boot: () => Promise<void>;
   selectBranch: (branchId: string) => void;
+  acceptInvitation: (id: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const BRANCH_KEY = "nexa.branch";
 const REMEMBER_KEY = "nexa.remember";
 const ALIVE_KEY = "nexa.alive";
+
+export const ASSIGNABLE_ROLES: Role[] = ["ADMIN_CAJA", "SUPERVISOR", "CAJERO", "BODEGA"];
 
 export const ROLE_LABELS: Record<Role, string> = {
   DUENO: "Dueño",
@@ -87,6 +92,7 @@ export const useSession = create<SessionState>((set, get) => ({
   branches: [],
   branchId: null,
   permissions: [],
+  invitations: [],
 
   can(code) {
     const role = get().branches.find((b) => b.id === get().branchId)?.role;
@@ -100,6 +106,11 @@ export const useSession = create<SessionState>((set, get) => ({
       booting = null;
     });
     return booting;
+  },
+
+  async acceptInvitation(id) {
+    await api.invitations.accept(id);
+    await get().boot();
   },
 
   async selectBranch(branchId) {
@@ -117,7 +128,7 @@ export const useSession = create<SessionState>((set, get) => ({
   async signOut() {
     await getSupabase()?.auth.signOut();
     localStorage.removeItem(BRANCH_KEY);
-    set({ status: "signed-out", email: null, name: null, branches: [], branchId: null, permissions: [] });
+    set({ status: "signed-out", email: null, name: null, branches: [], branchId: null, permissions: [], invitations: [] });
   },
 }));
 
@@ -153,6 +164,13 @@ async function bootOnce(set: Setter) {
   } else {
     // Modo demo sin Supabase.
     name = "Usuario demo";
+  }
+
+  try {
+    const invs = await api.invitations.mine();
+    set({ invitations: invs });
+  } catch {
+    set({ invitations: [] });
   }
 
   try {

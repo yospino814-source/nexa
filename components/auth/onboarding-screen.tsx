@@ -28,7 +28,7 @@ import {
 
 export function OnboardingScreen() {
   const router = useRouter();
-  const { status, error, name: sessionName, boot } = useSession();
+  const { status, error, name: sessionName, boot, invitations } = useSession();
 
   const [businessName, setBusinessName] = useState("");
   const [branchName, setBranchName] = useState("Principal");
@@ -210,6 +210,24 @@ export function OnboardingScreen() {
       subtitle="El nombre aparecerá en tus tirillas y documentos"
     >
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {invitations.length > 0 && (
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+            <AlertTriangle className="size-5 shrink-0 text-amber-600" />
+            <div className="flex-1 space-y-2">
+              <p>
+                Tenés {invitations.length} {invitations.length === 1 ? "invitación pendiente" : "invitaciones pendientes"}. Si vas a trabajar en un negocio que ya existe, aceptala en vez de crear uno nuevo.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/panel")}
+                className="rounded-full bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-700"
+              >
+                Ver invitaciones
+              </button>
+            </div>
+          </div>
+        )}
+
         {generalError && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {generalError}

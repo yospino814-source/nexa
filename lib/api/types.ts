@@ -1067,16 +1067,36 @@ export type TenantUser = {
 export type Invitation = {
   id: Uuid;
   email: string;
+  full_name?: string | null;
   role: Role;
-  branch_ids: Uuid[];
-  status: "PENDIENTE" | "ACEPTADA" | "CANCELADA";
+  role_name?: string | null;
+  branch_id?: Uuid | null;
+  branch_name?: string | null;
+  branch_ids?: Uuid[];
+  status: "PENDIENTE" | "ACEPTADA" | "REVOCADA" | "CANCELADA";
   created_at: string;
 };
 
 export type InviteUserInput = {
   email: string;
+  full_name: string;
   role: Role;
-  branch_ids: Uuid[];
+  branch_id?: Uuid | null;
+};
+
+export type MyInvitation = {
+  id: Uuid;
+  tenant_name: string;
+  branch_name: string | null;
+  role_code: string;
+  role_name: string;
+  created_at: string;
+};
+
+export type AcceptInvitationResult = {
+  tenant_id: Uuid;
+  branch_id: Uuid | null;
+  role: string;
 };
 
 export type UpdateUserRoleInput = {
