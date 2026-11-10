@@ -802,6 +802,7 @@ async fn database_integration() {
     f3_customers(&app, &admin).await;
     f3_credit_sale(&app, &admin).await;
     f3_payments(&app, &admin).await;
+    f3_aging(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -11614,6 +11615,236 @@ async fn f3_payments(app: &PgPool, admin: &PgPool) {
     .unwrap();
     assert_eq!(list_all.len(), 1);
     assert_eq!(list_all[0].id, rec_id);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+#[test]
+fn whatsapp_phone_normalization() {
+    assert_eq!(
+        crate::receivables::normalize_colombian_cell("300 123 4567"),
+        Ok("3001234567".into())
+    );
+    assert_eq!(
+        crate::receivables::normalize_colombian_cell("+57 300 123 4567"),
+        Ok("3001234567".into())
+    );
+    assert!(crate::receivables::normalize_colombian_cell("6012345678").is_err());
+    assert!(crate::receivables::normalize_colombian_cell("12345").is_err());
+}
+
+async fn f3_aging(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), None);
+    let c_cashier = claims(cashier, Some(tenant), None);
+
+    // Crear producto para la venta
+    let product_id = seed_product(admin, tenant, "Zapatos de Cuero", "UND", None, false).await;
+    set_base_price(admin, product_id, "50000").await;
+    seed_branch_product(admin, tenant, branch, product_id, None, None).await;
+    seed_stock(admin, tenant, branch, product_id, "10", "0").await;
+
+    // Abrir turno de caja
+    let def_reg = default_register(admin, branch).await;
+    let _session = cash::open(app, &c_cashier, branch, def_reg, dec(50000))
+        .await
+        .unwrap();
+
+    // Crear cliente con crédito y teléfono válido
+    let cust = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("1234567890".into()),
+            dv: None,
+            name: "Cliente Mora Cartera".into(),
+            phone: Some("573001234567".into()),
+            email: Some("cartera@ejemplo.com".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(1000000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Venta a crédito: $100.000 (2 unidades)
+    let sale_id = Uuid::new_v4();
+    let sale_resp = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(product_id),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(100000),
+                reference: None,
+            }],
+            quoted_total: dec(100000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let order_item_id = match sale_resp {
+        sales::Checkout::Created(ref resp) => resp.items[0].id,
+        _ => unreachable!(),
+    };
+
+    let rec_id: Uuid = sqlx::query_scalar("select id from receivables where order_id = $1")
+        .bind(sale_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+
+    // 1. [P] Los tramos de antigüedad suman total_balance, y una cuenta con 45 días de mora cae en d31_60
+    // Modificar due_date para que tenga 45 días de mora
+    sqlx::query(
+        "update receivables
+            set due_date = (now() at time zone 'America/Bogota')::date - 45
+          where id = $1",
+    )
+    .bind(rec_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let summary = crate::receivables::get_summary(app, &c_owner, None)
+        .await
+        .unwrap();
+    let sum_aging = summary.aging.al_dia
+        + summary.aging.d1_30
+        + summary.aging.d31_60
+        + summary.aging.d61_90
+        + summary.aging.d91_120
+        + summary.aging.d120_mas;
+    assert_eq!(summary.total_balance, sum_aging);
+    assert_eq!(summary.aging.d31_60, dec(100000));
+    assert_eq!(summary.overdue_balance, dec(100000));
+
+    // 4. [P] El texto de whatsapp-link de una cuenta vencida contiene "vencido desde el"
+    // 3. [P] whatsapp-link con el teléfono 573001234567 devuelve una url que empieza por https://wa.me/573001234567?text=. Con el teléfono 6012345678 (fijo): 422 CUSTOMER_NO_PHONE.
+    let wa_link = crate::receivables::get_whatsapp_link(app, &c_owner, rec_id)
+        .await
+        .unwrap();
+    assert!(wa_link.url.starts_with("https://wa.me/573001234567?text="));
+    assert!(wa_link.url.contains("vencido%20desde%20el"));
+
+    // Cambiar teléfono a número fijo
+    sqlx::query("update customers set phone = '6012345678' where id = $1")
+        .bind(cust.customer.id)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let err_fixed_phone = crate::receivables::get_whatsapp_link(app, &c_owner, rec_id).await;
+    match err_fixed_phone {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "CUSTOMER_NO_PHONE");
+        }
+        other => panic!("esperaba 422 CUSTOMER_NO_PHONE pero obtuve {:?}", other),
+    }
+
+    // 2. [P] Después de una devolución parcial de una venta a crédito, closing_balance del estado de cuenta es igual al saldo del cliente, y hay una fila DEVOLUCION con el receivable_applied
+    // Devolución parcial de 1 unidad ($50.000)
+    let refund_res = refunds::create(
+        app,
+        &c_owner,
+        refunds::RefundRequest {
+            id: Uuid::new_v4(),
+            order_id: sale_id,
+            method: refunds::RefundMethod::Original,
+            reason: "Devolucion parcial a credito".into(),
+            reversal_reference: None,
+            items: vec![refunds::RefundItemInput {
+                order_item_id,
+                qty: dec(1),
+                disposition: refunds::Disposition::Reintegrar,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    match refund_res {
+        refunds::Created::New(r) => {
+            assert_eq!(r.status, "APROBADA");
+            let applied: Decimal =
+                sqlx::query_scalar("select receivable_applied from refunds where id = $1")
+                    .bind(r.id)
+                    .fetch_one(admin)
+                    .await
+                    .unwrap();
+            assert_eq!(applied, dec(50000));
+        }
+        _ => panic!("esperaba Created::New"),
+    }
+
+    let cust_detail = customers::get(app, &c_owner, cust.customer.id)
+        .await
+        .unwrap();
+    let customer_debt = cust_detail.balance;
+    assert_eq!(customer_debt, dec(50000));
+
+    let from_date = chrono::Utc::now().date_naive() - chrono::Duration::days(60);
+    let to_date = chrono::Utc::now().date_naive();
+    let statement = crate::receivables::get_customer_statement(
+        app,
+        &c_owner,
+        cust.customer.id,
+        from_date,
+        to_date,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(statement.closing_balance, customer_debt);
+    let dev_entry = statement
+        .entries
+        .iter()
+        .find(|e| e.entry_type == "DEVOLUCION");
+    assert!(dev_entry.is_some(), "debe existir una fila DEVOLUCION");
+    let dev = dev_entry.unwrap();
+    assert_eq!(dev.credit, dec(50000));
 
     cleanup(admin, tenant, &[owner, cashier]).await;
 }

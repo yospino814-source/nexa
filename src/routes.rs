@@ -99,6 +99,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/customers/{id}/archive", post(archive_customer))
         .route("/v1/customers/{id}/unarchive", post(unarchive_customer))
         .route("/v1/customers/{id}/purchases", get(list_customer_purchases))
+        .route("/v1/customers/{id}/statement", get(get_customer_statement))
         // Tarifas y presentaciones
         .route(
             "/v1/price-tiers",
@@ -198,12 +199,17 @@ pub fn router() -> Router<AppState> {
         .route("/v1/payables/{id}", get(get_payable))
         .route("/v1/payables/{id}/payments", post(create_payable_payment))
         .route("/v1/payables/{id}/write-off", post(write_off_payable))
-        // Cuentas por cobrar (F3.3)
+        // Cuentas por cobrar (F3.3, F3.5)
         .route("/v1/receivables", get(list_receivables))
+        .route("/v1/receivables/summary", get(get_receivables_summary))
         .route("/v1/receivables/{id}", get(get_receivable))
         .route(
             "/v1/receivables/{id}/payments",
             post(create_receivable_payment),
+        )
+        .route(
+            "/v1/receivables/{id}/whatsapp-link",
+            get(get_receivable_whatsapp_link),
         )
         // Gastos (F2.14)
         .route(
@@ -1324,6 +1330,36 @@ async fn create_receivable_payment(
 ) -> ApiResult<(StatusCode, Json<receivables::ReceivablePaymentResponse>)> {
     let (status, resp) = receivables::record_payment(&state.pool, &user.claims, id, body).await?;
     Ok((status, Json(resp)))
+}
+
+async fn get_receivables_summary(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<receivables::SummaryQuery>,
+) -> ApiResult<Json<receivables::ReceivablesSummaryResponse>> {
+    let summary = receivables::get_summary(&state.pool, &user.claims, query.branch_id).await?;
+    Ok(Json(summary))
+}
+
+async fn get_customer_statement(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Query(query): Query<receivables::StatementQuery>,
+) -> ApiResult<Json<receivables::CustomerStatementResponse>> {
+    let stmt =
+        receivables::get_customer_statement(&state.pool, &user.claims, id, query.from, query.to)
+            .await?;
+    Ok(Json(stmt))
+}
+
+async fn get_receivable_whatsapp_link(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<receivables::WhatsappLinkResponse>> {
+    let link = receivables::get_whatsapp_link(&state.pool, &user.claims, id).await?;
+    Ok(Json(link))
 }
 
 // ------------------------------------------------------------------- gastos

@@ -177,9 +177,12 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | DELETE | `/v1/customers/{id}` | Archivar cliente sin saldo ni apartados pendientes (`customers:write`) |
 | POST | `/v1/customers/{id}/unarchive` | Desarchivar cliente (`customers:write`) |
 | GET | `/v1/customers/{id}/purchases?page=&page_size=` | Historial de compras del cliente con formato de ventas (`customers:read`) |
+| GET | `/v1/customers/{id}/statement?from=&to=` | Estado de cuenta cronológico con cargos, abonos y devoluciones (`customers:read`) |
 | GET | `/v1/receivables?customer_id=&status=&overdue=` | Listado de cuentas por cobrar con días de mora (`customers:read`) |
+| GET | `/v1/receivables/summary?branch_id=` | Resumen de cartera: saldos, vencido, semana, mes, antigüedad y top deudores (`customers:read`) |
 | GET | `/v1/receivables/{id}` | Detalle de cuenta por cobrar con cuotas y abonos (`customers:read`) |
 | POST | `/v1/receivables/{id}/payments` | Registrar abono con aplicación a cuotas y caja (`credit:collect`) |
+| GET | `/v1/receivables/{id}/whatsapp-link` | Enlace wa.me con mensaje de cobro formateado (`customers:read`) |
 
 ### Clientes (`/v1/customers`)
 
@@ -195,6 +198,7 @@ Módulo de gestión de clientes y posición crediticia consolidada por negocio (
 | `DELETE` | `/v1/customers/{id}` | `customers:write` | Path: `id` (UUID). Valida `customer_credit_position.balance == 0`, sin apartados activos ni saldo a favor en billetera. | 401, 403, 404, 409 (`CUSTOMER_HAS_BALANCE`) |
 | `POST` | `/v1/customers/{id}/unarchive` | `customers:write` | Path: `id` (UUID). Verifica que ningún otro cliente activo tenga el mismo `(doc_type, doc_number)`. | 401, 403, 404, 409 (`CUSTOMER_DUPLICATED`) |
 | `GET` | `/v1/customers/{id}/purchases` | `customers:read` | Path: `id` (UUID). Query: `page`, `page_size`. Devuelve historial de órdenes con formato estándar de ventas (`HistoryPage`). | 401, 403, 404 |
+| `GET` | `/v1/customers/{id}/statement` | `customers:read` | Path: `id` (UUID). Query: `from`, `to` (fechas `YYYY-MM-DD`). Retorna `opening_balance`, movimientos cronológicos (`CARGO`, `ABONO`, `DEVOLUCION` con debit/credit/balance acumulado) y `closing_balance`. | 401, 403, 404 |
 
 ### Cuentas por cobrar y abonos (`/v1/receivables`)
 
@@ -203,8 +207,10 @@ Módulo de cartera de clientes, cuotas y aplicación de abonos:
 | Método | Ruta | Permisos | Parámetros / Cuerpo | Códigos de error |
 |---|---|---|---|---|
 | `GET` | `/v1/receivables` | `customers:read` | Query: `customer_id` (UUID), `status` (`ABIERTA`, `PARCIAL`, `PAGADA`; por defecto abiertas y parciales), `overdue` (`true` filtra solo mora > 0) | 401, 403 |
+| `GET` | `/v1/receivables/summary` | `customers:read` | Query: `branch_id` (UUID, opcional). Retorna `total_balance`, `overdue_balance`, `due_this_week`, `collected_this_month`, `aging` (`al_dia`, `d1_30`, `d31_60`, `d61_90`, `d91_120`, `d120_mas`) y `top_debtors` (top 10 por saldo). | 401, 403 |
 | `GET` | `/v1/receivables/{id}` | `customers:read` | Path: `id` (UUID). Retorna datos de la cuenta, tabla de cuotas (`installments`) y pagos recibidos (`payments`). | 401, 403, 404 |
 | `POST` | `/v1/receivables/{id}/payments` | `credit:collect` | Path: `id` (UUID de la cuenta). Body JSON: `{ id, amount, method, reference }`. Aplica cuotas en cascada, valida límites, registra movimiento de caja en EFECTIVO (`ABONO_CARTERA`) y emite auditoría. | 400, 401, 403, 404, 409 (`IDEMPOTENCY_CONFLICT`, `RECEIVABLE_CLOSED`, `PAYMENT_NEEDS_OPEN_SESSION`), 422 (`PAYMENT_EXCEEDS_BALANCE`, `PAYMENT_METHOD_NOT_AVAILABLE`, `PAYMENT_REFERENCE_REQUIRED`) |
+| `GET` | `/v1/receivables/{id}/whatsapp-link` | `customers:read` | Path: `id` (UUID). Genera enlace `https://wa.me/57<telefono>?text=...` con saludo personalizado, saldo y fecha de vencimiento/mora. | 401, 403, 404, 422 (`CUSTOMER_NO_PHONE`) |
 
 ### `POST /v1/sales`
 
