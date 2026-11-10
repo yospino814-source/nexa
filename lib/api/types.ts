@@ -1164,6 +1164,96 @@ export type CustomerQuery = {
   limit?: number;
 };
 
+// ---------------------------------------------------- F3.3 Abonos y cuotas
+
+export type ReceivableStatus =
+  | "ABIERTA"
+  | "PARCIAL"
+  | "PAGADA"
+  | "CASTIGADA"
+  | "REFINANCIADA";
+
+export type ReceivablePaymentMethod =
+  | "EFECTIVO"
+  | "DATAFONO"
+  | "QR"
+  | "TRANSFERENCIA"
+  | "SALDO";
+
+export type Receivable = {
+  id: Uuid;
+  branch_id: Uuid;
+  branch_name: string;
+  customer_id: Uuid;
+  customer_name: string;
+  source: "VENTA" | "ACUERDO" | string;
+  order_id: Uuid | null;
+  receipt_number: string | null;
+  principal: Decimal;
+  amount_total: Decimal;
+  amount_paid: Decimal;
+  balance: Decimal;
+  status: ReceivableStatus | string;
+  due_date: string;
+  days_overdue: number;
+  created_at: string;
+};
+
+export type ReceivableInstallment = {
+  n: number;
+  due_date: string;
+  amount: Decimal;
+  amount_paid: Decimal;
+  paid: boolean;
+  days_overdue: number;
+};
+
+export type ReceivablePaymentAllocation = {
+  n: number;
+  amount: Decimal;
+};
+
+export type ReceivablePayment = {
+  id: Uuid;
+  amount: Decimal;
+  method: ReceivablePaymentMethod | string;
+  reference: string | null;
+  allocation: ReceivablePaymentAllocation[];
+  created_at: string;
+  created_by_name: string;
+};
+
+export type ReceivableDetail = Receivable & {
+  installments: ReceivableInstallment[];
+  payments: ReceivablePayment[];
+};
+
+export type PayReceivableInput = {
+  id: Uuid;
+  amount: Decimal;
+  method: ReceivablePaymentMethod | string;
+  reference?: string | null;
+};
+
+export type ReceivablePaymentResponse = {
+  id: Uuid;
+  receivable_id: Uuid;
+  amount: Decimal;
+  method: string;
+  reference: string | null;
+  allocation: ReceivablePaymentAllocation[];
+  created_at: string;
+  balance_before: Decimal;
+  balance_after: Decimal;
+  next_due: { n: number; due_date: string; amount_pending: Decimal } | null;
+};
+
+export type ReceivablesFilter = {
+  customer_id?: Uuid;
+  status?: ReceivableStatus | string;
+  overdue?: boolean;
+};
+
 // ---------------------------------------------------------------- PROPUESTOS
 
 /** PROPUESTO — GET /v1/reports/dashboard?branch_id=&period=today */

@@ -83,6 +83,13 @@ import {
   mockUnarchiveCustomer,
   mockGetCustomerPurchases,
 } from "./mock-customers";
+import {
+  mockReceivablesList,
+  mockReceivableGet,
+  mockReceivablePay,
+  setMockReceivablesCashContext,
+  mockCreateReceivableFromSale,
+} from "./mock-receivables";
 import type {
   AuditEntry,
   AuditFilter,
@@ -203,6 +210,11 @@ import type {
   LocationRow,
   CreateLocationInput,
   UpdateLocationInput,
+  PayReceivableInput,
+  Receivable,
+  ReceivableDetail,
+  ReceivablePaymentResponse,
+  ReceivablesFilter,
 } from "./types";
 
 export * from "./types";
@@ -472,6 +484,21 @@ const mockCashMoves: {
   reason_code?: CashMovementReasonCode | null;
   at: string;
 }[] = [];
+
+setMockReceivablesCashContext({
+  isOpen: () => mockCash !== null,
+  recordMovement: (amount, reason) => {
+    if (mockCash) {
+      mockCashMoves.push({
+        sessionId: mockCash.id,
+        kind: "ABONO_CARTERA",
+        amount,
+        reason,
+        at: new Date().toISOString(),
+      });
+    }
+  },
+});
 /** Turnos cerrados (los dos primeros son de dias anteriores, para el historial). */
 const mockClosed: CashSummary[] = seedClosedSessions();
 
@@ -959,6 +986,15 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
     const creditAmount = Number(creditLines[0].amount);
     const newBal = (Number(cust.balance || 0) + creditAmount).toFixed(2);
     cust.balance = newBal;
+    mockCreateReceivableFromSale({
+      orderId,
+      receiptNumber: `POS-${String(receiptSeq).padStart(6, "0")}`,
+      customerId: cust.id,
+      customerName: cust.name,
+      branchId: body.branch_id,
+      creditAmount,
+      creditPlan: body.credit_plan,
+    });
   }
   const response: CheckoutResponse = {
     order: {
@@ -3110,6 +3146,43 @@ export const api = {
       return request(`/v1/customers/${id}/purchases?page=${page}`);
     },
   },
+
+  receivables: {
+    /** GET /v1/receivables?customer_id=&status=&overdue= */
+    async list(filter?: ReceivablesFilter): Promise<Receivable[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockReceivablesList(filter);
+      }
+      const params = new URLSearchParams();
+      if (filter?.customer_id) params.set("customer_id", filter.customer_id);
+      if (filter?.status) params.set("status", filter.status);
+      if (filter?.overdue != null) params.set("overdue", String(filter.overdue));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/receivables${qs}`);
+    },
+
+    /** GET /v1/receivables/{id} */
+    async get(id: string): Promise<ReceivableDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockReceivableGet(id);
+      }
+      return request(`/v1/receivables/${id}`);
+    },
+
+    /** POST /v1/receivables/{id}/payments */
+    async pay(id: string, body: PayReceivableInput): Promise<ReceivablePaymentResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockReceivablePay(id, body);
+      }
+      return request(`/v1/receivables/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+  },
 };
 
 export const ERROR_MESSAGES: Record<string, string> = {
@@ -3216,9 +3289,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   LOT_EXPIRY_MISMATCH: "Ese lote ya existe con otra fecha de vencimiento.",
   LOT_ONLY_EXPIRED: "Solo quedan lotes vencidos de este producto.",
   PAYABLE_CLOSED: "La cuenta ya está pagada o castigada.",
-  PAYMENT_EXCEEDS_BALANCE: "El pago supera el saldo.",
+  PAYMENT_EXCEEDS_BALANCE: "El abono supera el saldo de la cuenta.",
   PAYMENT_REFERENCE_REQUIRED: "Escribí la referencia del pago.",
-  PAYMENT_NEEDS_OPEN_SESSION: "Abrí un turno de caja para pagar en efectivo.",
+  PAYMENT_NEEDS_OPEN_SESSION: "Para recibir un abono en efectivo, abrí la caja.",
   EXPENSE_INVALID_STATE: "El gasto no admite esa acción en su estado actual.",
   ADJUST_INVALID: "Revisá el motivo y la cantidad del ajuste.",
   ADJUST_NOT_PENDING: "El ajuste ya fue decidido.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -8,6 +8,8 @@ import {
   Archive,
   ArrowLeft,
   Check,
+  CreditCard,
+  DollarSign,
   Edit2,
   Loader2,
   Pin,
@@ -16,19 +18,43 @@ import {
 } from "lucide-react";
 
 import { CustomerFormDialog } from "./customer-form-dialog";
+import { PaymentTicketDialog } from "./payment-ticket";
+import { MoneyInput } from "@/components/caja/money-input";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   api,
+  ApiError,
   friendlyError,
   type CustomerDetail,
+  type ReceivableDetail,
+  type ReceivablePaymentResponse,
   type SaleHistoryRow,
 } from "@/lib/api";
 import { formatCOP } from "@/lib/format";
 import { useSession } from "@/lib/stores/session";
 
-type TabKey = "compras" | "datos";
+type TabKey = "cartera" | "compras" | "datos";
+
+function formatDateDMY(d: string): string {
+  const parts = d.slice(0, 10).split("-");
+  if (parts.length === 3) {
+    return `${parts[2].padStart(2, "0")}/${parts[1].padStart(2, "0")}/${parts[0]}`;
+  }
+  return d;
+}
 
 export function CustomerScreen({ customerId }: { customerId: string }) {
   const canWrite = useSession((s) => s.can("customers:write"));
+  const canRead = useSession((s) => s.can("customers:read"));
+  const canCollect = useSession((s) => s.can("credit:collect"));
+  const cashierName = useSession((s) => s.name || "Cajero");
 
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +73,53 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
   // Historial de compras
   const [purchases, setPurchases] = useState<SaleHistoryRow[]>([]);
   const [loadingPurchases, setLoadingPurchases] = useState(false);
+
+  // Cartera y cuentas por cobrar
+  const [receivables, setReceivables] = useState<ReceivableDetail[]>([]);
+  const [loadingReceivables, setLoadingReceivables] = useState(false);
+
+  // Diálogo de abono
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
+  const [selectedReceivable, setSelectedReceivable] = useState<ReceivableDetail | null>(null);
+  const [payId, setPayId] = useState("");
+  const [payAmount, setPayAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState<"EFECTIVO" | "DATAFONO" | "QR" | "TRANSFERENCIA">("EFECTIVO");
+  const [payReference, setPayReference] = useState("");
+  const [submittingPay, setSubmittingPay] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentErrorCode, setPaymentErrorCode] = useState<string | null>(null);
+
+  // Tirilla de abono
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticketPayment, setTicketPayment] = useState<ReceivablePaymentResponse | null>(null);
+  const [ticketReceivable, setTicketReceivable] = useState<ReceivableDetail | null>(null);
+
+  const reloadCustomer = useCallback(async () => {
+    if (!customerId) return;
+    try {
+      const data = await api.customers.get(customerId);
+      setCustomer(data);
+      setNoteValue(data.pinned_note || "");
+    } catch (err) {
+      console.error("Error recargando cliente:", err);
+    }
+  }, [customerId]);
+
+  const loadReceivables = useCallback(async () => {
+    if (!customerId) return;
+    setLoadingReceivables(true);
+    try {
+      const list = await api.receivables.list({ customer_id: customerId });
+      const details = await Promise.all(
+        list.map((r) => api.receivables.get(r.id).catch(() => null)),
+      );
+      setReceivables(details.filter((d): d is ReceivableDetail => d !== null));
+    } catch (err) {
+      console.error("Error cargando cartera:", err);
+    } finally {
+      setLoadingReceivables(false);
+    }
+  }, [customerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +165,75 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
       cancelled = true;
     };
   }, [activeTab, customerId]);
+
+  // Cargar cartera cuando se activa la pestaña cartera
+  useEffect(() => {
+    if (activeTab !== "cartera" || !customerId) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        void loadReceivables();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, customerId, loadReceivables]);
+
+  const handleOpenPay = (rec: ReceivableDetail) => {
+    setSelectedReceivable(rec);
+    setPayId(crypto.randomUUID());
+    setPayAmount(Number(rec.balance));
+    setPayMethod("EFECTIVO");
+    setPayReference("");
+    setPaymentError(null);
+    setPaymentErrorCode(null);
+    setPayDialogOpen(true);
+  };
+
+  const handlePaySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReceivable) return;
+
+    if (payAmount <= 0) {
+      setPaymentError("El abono debe ser mayor a cero.");
+      return;
+    }
+    if (payAmount > Number(selectedReceivable.balance)) {
+      setPaymentError("El abono supera el saldo de la cuenta.");
+      return;
+    }
+    if (payMethod !== "EFECTIVO" && (!payReference.trim() || payReference.trim().length < 3 || payReference.trim().length > 60)) {
+      setPaymentError("Se requiere una referencia válida (de 3 a 60 caracteres).");
+      return;
+    }
+
+    setSubmittingPay(true);
+    setPaymentError(null);
+    setPaymentErrorCode(null);
+    try {
+      const resp = await api.receivables.pay(selectedReceivable.id, {
+        id: payId,
+        amount: payAmount.toFixed(2),
+        method: payMethod,
+        reference: payMethod === "EFECTIVO" ? undefined : payReference.trim(),
+      });
+      setPayDialogOpen(false);
+      await Promise.all([loadReceivables(), reloadCustomer()]);
+      setTicketPayment(resp);
+      setTicketReceivable(selectedReceivable);
+      setTicketOpen(true);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        setPaymentErrorCode(err.code || null);
+        setPaymentError(friendlyError(err));
+      } else {
+        setPaymentError("Ocurrió un error inesperado al registrar el abono.");
+      }
+    } finally {
+      setSubmittingPay(false);
+    }
+  };
 
   const handleSaveNote = async () => {
     if (!customer) return;
@@ -381,10 +523,196 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
           <ShoppingBag className="size-3.5" />
           Historial de Compras
         </button>
+
+        {canRead && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("cartera")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 transition-all ${
+              activeTab === "cartera" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <CreditCard className="size-3.5" />
+            Cartera
+          </button>
+        )}
       </div>
 
       {/* Contenido de la pestaña */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs">
+        {/* Pestaña: Cartera */}
+        {activeTab === "cartera" && (
+          <div className="space-y-6">
+            {/* Encabezado: Tarjetas Saldo, Cupo disponible y Días de mora */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Saldo
+                </span>
+                <span className="text-xl font-black text-slate-900">
+                  {formatCOP(Number(customer.balance))}
+                </span>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Cupo disponible
+                </span>
+                <span className="text-xl font-black text-teal-700">
+                  {formatCOP(Math.max(0, Number(customer.credit_limit || 0) - Number(customer.balance || 0)))}
+                </span>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Días de mora
+                </span>
+                <span
+                  className={`text-xl font-black ${
+                    (customer.max_days_overdue ?? 0) > 0 ? "text-rose-600" : "text-slate-900"
+                  }`}
+                >
+                  {customer.max_days_overdue ?? 0} días
+                </span>
+              </div>
+            </div>
+
+            {/* Listado de cuentas por cobrar */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+                Cuentas por cobrar pendientes
+              </h3>
+
+              {loadingReceivables ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Loader2 className="size-5 animate-spin mx-auto mb-2 text-teal-600" />
+                  Cargando cartera...
+                </div>
+              ) : receivables.filter((r) => r.status === "ABIERTA" || r.status === "PARCIAL").length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  Este cliente no tiene cuentas por cobrar pendientes.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {receivables
+                    .filter((r) => r.status === "ABIERTA" || r.status === "PARCIAL")
+                    .map((rec) => (
+                      <div
+                        key={rec.id}
+                        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
+                      >
+                        {/* Cabecera de la cuenta */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-sm">
+                                Venta {rec.receipt_number || "Sin número"}
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  rec.status === "ABIERTA"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-teal-50 text-teal-700 border border-teal-200"
+                                }`}
+                              >
+                                {rec.status === "ABIERTA" ? "Abierta" : "Parcial"}
+                              </span>
+                            </div>
+                            <span className="text-xs text-slate-500">
+                              Emitida el {formatDateDMY(rec.created_at)}
+                            </span>
+                          </div>
+
+                          {canCollect && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenPay(rec)}
+                              className="bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs"
+                            >
+                              <DollarSign className="size-3.5 mr-1" />
+                              Abonar
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* Métricas de la cuenta */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                          <div>
+                            <span className="text-slate-400 block">Total</span>
+                            <span className="font-semibold text-slate-800">{formatCOP(Number(rec.amount_total))}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Pagado</span>
+                            <span className="font-semibold text-slate-800">{formatCOP(Number(rec.amount_paid))}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Saldo</span>
+                            <span className="font-bold text-rose-600">{formatCOP(Number(rec.balance))}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Vencimiento</span>
+                            <span className="font-semibold text-slate-800">{formatDateDMY(rec.due_date)}</span>
+                          </div>
+                        </div>
+
+                        {/* Tabla de cuotas */}
+                        {rec.installments && rec.installments.length > 0 && (
+                          <div className="rounded-xl border border-slate-100 overflow-hidden">
+                            <table className="w-full text-left text-xs">
+                              <thead>
+                                <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+                                  <th className="py-2 px-3">Cuota</th>
+                                  <th className="py-2 px-3">Vence</th>
+                                  <th className="py-2 px-3 text-right">Valor</th>
+                                  <th className="py-2 px-3 text-right">Pagado</th>
+                                  <th className="py-2 px-3 text-center">Estado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {rec.installments.map((inst) => (
+                                  <tr key={inst.n} className="hover:bg-slate-50/50">
+                                    <td className="py-2 px-3 font-medium text-slate-800">
+                                      Cuota {inst.n}
+                                    </td>
+                                    <td className="py-2 px-3 text-slate-600">
+                                      {formatDateDMY(inst.due_date)}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-medium text-slate-800">
+                                      {formatCOP(Number(inst.amount))}
+                                    </td>
+                                    <td className="py-2 px-3 text-right text-slate-600">
+                                      {formatCOP(Number(inst.amount_paid))}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {inst.paid ? (
+                                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                          Pagada
+                                        </span>
+                                      ) : inst.days_overdue > 0 ? (
+                                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-600">
+                                          Vencida ({inst.days_overdue} días)
+                                        </span>
+                                      ) : (
+                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                          Pendiente
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+
         {/* Pestaña: Datos Generales */}
         {activeTab === "datos" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -523,6 +851,140 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
         customer={customer}
         onSuccess={(updated) => setCustomer(updated)}
       />
+
+      {/* Diálogo de Registrar Abono */}
+      <Dialog open={payDialogOpen} onOpenChange={setPayDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar abono</DialogTitle>
+            {selectedReceivable && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Venta {selectedReceivable.receipt_number || "Sin número"} · Saldo pendiente:{" "}
+                <span className="font-bold text-rose-600">{formatCOP(Number(selectedReceivable.balance))}</span>
+              </p>
+            )}
+          </DialogHeader>
+
+          <form onSubmit={handlePaySubmit} className="space-y-4 py-2">
+            <div>
+              <label htmlFor="pay-amount" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Monto a abonar
+              </label>
+              <MoneyInput
+                id="pay-amount"
+                value={payAmount}
+                onChange={setPayAmount}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Método de pago
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { id: "EFECTIVO", label: "Efectivo" },
+                    { id: "DATAFONO", label: "Datáfono" },
+                    { id: "QR", label: "QR" },
+                    { id: "TRANSFERENCIA", label: "Transferencia" },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setPayMethod(m.id)}
+                    className={`rounded-xl border p-2.5 text-xs font-semibold transition-all ${
+                      payMethod === m.id
+                        ? "border-teal-700 bg-teal-50 text-teal-900 shadow-xs ring-1 ring-teal-700"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {payMethod !== "EFECTIVO" && (
+              <div>
+                <label htmlFor="pay-reference" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Referencia <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="pay-reference"
+                  type="text"
+                  required
+                  placeholder="Ej: AUT-987654"
+                  value={payReference}
+                  onChange={(e) => setPayReference(e.target.value)}
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Mínimo 3 caracteres, obligatorio para transferencias y tarjetas.
+                </p>
+              </div>
+            )}
+
+            {paymentError && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 space-y-1">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="size-4 shrink-0 text-rose-600" />
+                  <span>{paymentError}</span>
+                </div>
+                {paymentErrorCode === "PAYMENT_NEEDS_OPEN_SESSION" && (
+                  <div className="pl-6 pt-1">
+                    <Link
+                      href="/caja"
+                      className="font-bold underline text-rose-800 hover:text-rose-950"
+                    >
+                      Abrir caja
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="flex sm:justify-between gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPayDialogOpen(false)}
+                disabled={submittingPay}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={submittingPay || payAmount <= 0}
+                className="bg-teal-700 hover:bg-teal-800 text-white font-semibold"
+              >
+                {submittingPay ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin mr-1.5" />
+                    Registrando...
+                  </>
+                ) : (
+                  "Registrar abono"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tirilla de comprobante de abono */}
+      {ticketPayment && customer && (
+        <PaymentTicketDialog
+          open={ticketOpen}
+          onClose={() => setTicketOpen(false)}
+          payment={ticketPayment}
+          customer={customer}
+          receiptNumber={ticketReceivable?.receipt_number}
+          cashierName={cashierName}
+        />
+      )}
     </div>
   );
 }
