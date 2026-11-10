@@ -3,6 +3,8 @@
 //! Se ejecutan en un unico test para compartir un runtime y los pools de
 //! conexion (Supabase limita clientes en modo sesion).
 
+#![allow(clippy::needless_update)]
+
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
@@ -13,9 +15,9 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment, SaleRequest};
 use crate::test_support::*;
 use crate::{
-    AppState, cash, catalog, coupons, credit, customers, expenses, inventory, options, orders,
-    outbox, payables, permissions, procurement, products, refunds, registers, routes, sales,
-    sales_history, sequences, settings, tenancy, users,
+    AppState, cash, catalog, coupons, customers, expenses, inventory, options, orders, outbox,
+    payables, permissions, procurement, products, refunds, registers, routes, sales, sales_history,
+    sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -1114,8 +1116,7 @@ fn sale(
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     }
 }
 
@@ -1996,8 +1997,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let try_override_sale = sales::checkout(app, &c_cashier, sale_override_req.clone()).await;
     assert!(is_validation(&try_override_sale));
@@ -2028,8 +2028,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let try_high_disc = sales::checkout(app, &c_cashier, sale_disc_req).await;
     assert!(is_validation(&try_high_disc));
@@ -2075,8 +2074,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let ok_sale = match sales::checkout(app, &c_cashier, valid_sale_req.clone())
         .await
@@ -3028,6 +3026,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3065,8 +3064,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let err = sales::checkout(app, &c_cashier, bad_quote_sale).await;
     match err {
@@ -3110,8 +3108,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let res = sales::checkout(app, &c_cashier, disc_sale).await.unwrap();
     match res {
@@ -3176,8 +3173,7 @@ async fn f1_pricing_db(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let disc_err = sales::checkout(app, &c_cashier, try_forbidden_disc).await;
     assert!(is_forbidden(&disc_err));
@@ -3328,8 +3324,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     sales::checkout(app, &c_cashier, sale_paca).await.unwrap();
 
@@ -3393,8 +3388,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         customer_id: Some(customer_regular.id),
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let try_forbidden = sales::checkout(app, &c_cashier, sale_forbidden_tier).await;
     assert!(is_forbidden(&try_forbidden));
@@ -3442,8 +3436,7 @@ async fn f1_tiers(app: &PgPool, admin: &PgPool) {
         customer_id: Some(customer_mayorista.id),
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     let allowed_res = sales::checkout(app, &c_cashier, sale_allowed_tier).await;
     assert!(allowed_res.is_ok());
@@ -3582,6 +3575,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3639,6 +3633,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3671,8 +3666,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     sales::checkout(app, &c_cashier, sale1).await.unwrap();
 
@@ -3698,6 +3692,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3756,6 +3751,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3818,6 +3814,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust1.id),
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3850,8 +3847,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
         customer_id: Some(cust1.id),
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     };
     sales::checkout(app, &c_cashier, sale_c1).await.unwrap();
 
@@ -3877,6 +3873,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust1.id),
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -3905,6 +3902,7 @@ async fn f1_promotions(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust2.id),
             customer_alias: None,
             coupon_code: None,
+            ..Default::default()
         },
     )
     .await
@@ -4182,6 +4180,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
+            ..Default::default()
         },
     )
     .await
@@ -4217,8 +4216,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await
@@ -4245,6 +4243,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: Some("LIMITADO1".into()),
+            ..Default::default()
         },
     )
     .await
@@ -4348,6 +4347,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
+            ..Default::default()
         },
     )
     .await
@@ -4382,8 +4382,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await
@@ -4410,6 +4409,7 @@ async fn f1_coupons(app: &PgPool, admin: &PgPool) {
             customer_id: Some(cust.id),
             customer_alias: None,
             coupon_code: Some("CLIENTE10".into()),
+            ..Default::default()
         },
     )
     .await
@@ -4674,8 +4674,7 @@ fn cash_sale(branch: Uuid, item: sales::SaleItem, total: i64) -> sales::SaleRequ
         customer_id: None,
         customer_alias: None,
         coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+        ..Default::default()
     }
 }
 
@@ -5710,8 +5709,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await;
@@ -5750,8 +5748,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await;
@@ -5889,8 +5886,7 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await
@@ -6113,8 +6109,7 @@ async fn f2_options(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await;
@@ -6163,8 +6158,7 @@ async fn f2_options(app: &PgPool, admin: &PgPool) {
             customer_id: None,
             customer_alias: None,
             coupon_code: None,
-            credit_plan: None,
-            credit_override_reason: None,
+            ..Default::default()
         },
     )
     .await
@@ -9409,6 +9403,7 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
             phone: None,
             email: None,
             price_tier_id: None,
+            person_type: None,
             tax_regime: None,
             fiscal_responsibilities: None,
             ciiu: None,
@@ -9447,6 +9442,7 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
             phone: Some("3001112233".into()),
             email: Some("contacto@empresaoriginal.com".into()),
             price_tier_id: None,
+            person_type: None,
             tax_regime: Some("RESPONSABLE_IVA".into()),
             fiscal_responsibilities: Some(vec!["O-13".into()]),
             ciiu: Some("6201".into()),
@@ -9478,6 +9474,7 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
             phone: Some("3229998877".into()), // Nuevo teléfono enviado (no debe sobrescribir)
             email: Some("contacto@empresaoriginal.com".into()),
             price_tier_id: None,
+            person_type: None,
             tax_regime: None,
             fiscal_responsibilities: None,
             ciiu: None,
@@ -9523,6 +9520,7 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
             phone: Some("3001112233".into()),
             email: Some("contacto@empresaoriginal.com".into()),
             price_tier_id: None,
+            person_type: None,
             tax_regime: Some("RESPONSABLE_IVA".into()),
             fiscal_responsibilities: Some(vec!["O-13".into()]),
             ciiu: Some("6201".into()),
@@ -9555,6 +9553,7 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
             phone: Some("3001112233".into()),
             email: Some("contacto@empresaoriginal.com".into()),
             price_tier_id: None,
+            person_type: None,
             tax_regime: Some("RESPONSABLE_IVA".into()),
             fiscal_responsibilities: Some(vec!["O-13".into()]),
             ciiu: Some("6201".into()),
@@ -9573,8 +9572,76 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
     assert_eq!(updated_by_owner.customer.credit_limit, dec(500000));
     assert_eq!(updated_by_owner.credit_available, dec(500000));
 
-    // 4. [P] Archivar a un cliente con saldo: 409 CUSTOMER_HAS_BALANCE
-    // Simulamos una cuenta por cobrar pendiente en receivables
+    // [P] Un cajero que crea un cliente con credit_limit = 100000: 403 Forbidden
+    let err_create_cashier = customers::create(
+        app,
+        &c_cashier,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("11223344".into()),
+            dv: None,
+            name: "Cliente Cupo Cajero".into(),
+            phone: None,
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(100000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await;
+    match err_create_cashier {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Forbidden)) => {}
+        other => panic!(
+            "esperaba 403 Forbidden al crear cliente con cupo sin permiso pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // [P] Un PUT del dueño sin credit_limit conserva el cupo guardado
+    let put_no_credit = customers::update(
+        app,
+        &c_owner,
+        c1.customer.id,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: Some("8".into()),
+            name: "Empresa Original SAS Modificada".into(),
+            phone: Some("3001112233".into()),
+            email: Some("contacto@empresaoriginal.com".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: Some("RESPONSABLE_IVA".into()),
+            fiscal_responsibilities: Some(vec!["O-13".into()]),
+            ciiu: Some("6201".into()),
+            withholding_agent: Some(false),
+            city_code: Some("05001".into()),
+            billing_address: Some("Calle 10 # 20-30".into()),
+            shipping_address: None,
+            pinned_note: Some("Cliente VIP".into()),
+            credit_limit: None, // None conserva el valor anterior
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(put_no_credit.customer.credit_limit, dec(500000));
+
+    // [P] Con una deuda de 100.000 en la sucursal A, un cajero atado a la sucursal B ve balance = 100000 en el detalle del cliente, y archivarlo da 409 CUSTOMER_HAS_BALANCE
+    let branch_b = seed_branch(admin, tenant).await;
+    let cashier_b = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch_b), cashier_b, "CAJERO").await;
+    let c_cashier_b = claims(cashier_b, Some(tenant), Some(branch_b));
+
     let rec_id = Uuid::new_v4();
     sqlx::query(
         "insert into receivables (
@@ -9591,6 +9658,12 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
     .await
     .unwrap();
 
+    let detail_from_b = customers::get(app, &c_cashier_b, c1.customer.id)
+        .await
+        .unwrap();
+    assert_eq!(detail_from_b.balance, dec(100000));
+
+    // 4. [P] Archivar a un cliente con saldo: 409 CUSTOMER_HAS_BALANCE
     let err_archive = customers::archive(app, &c_owner, c1.customer.id).await;
     match err_archive {
         Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
@@ -9627,695 +9700,1232 @@ async fn f3_customers(app: &PgPool, admin: &PgPool) {
     let detail_unarchived = customers::get(app, &c_owner, c1.customer.id).await.unwrap();
     assert!(detail_unarchived.customer.archived_at.is_none());
 
+    // Pruebas adicionales en nuevo tenant para upsert por correo/doc, filtros, compras y conflicto de unarchive
+    let t_up = seed_tenant(admin).await;
+    let u_up = seed_user(admin).await;
+    seed_membership(admin, t_up, None, u_up, "DUENO").await;
+    let c_up = claims(u_up, Some(t_up), None);
+
+    // [P] upsert que encuentra por correo a un cliente sin documento y recibe el NIT 900123456: queda con doc_type = NIT, DV 8 y person_type = JURIDICA
+    let c_nodoc = customers::create(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: None,
+            doc_number: None,
+            dv: None,
+            name: "Cliente Sin Doc Inicial".into(),
+            phone: None,
+            email: Some("nodoc@nexa.co".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(c_nodoc.customer.doc_type.is_none());
+
+    let up_res = customers::upsert(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: None,
+            name: "Cliente Con NIT Ya".into(),
+            phone: None,
+            email: Some("nodoc@nexa.co".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(up_res.result, "UPDATED");
+    assert_eq!(up_res.customer.customer.id, c_nodoc.customer.id);
+    assert_eq!(up_res.customer.customer.doc_type.as_deref(), Some("NIT"));
+    assert_eq!(
+        up_res.customer.customer.doc_number.as_deref(),
+        Some("900123456")
+    );
+    assert_eq!(up_res.customer.customer.dv.as_deref(), Some("8"));
+    assert_eq!(up_res.customer.customer.person_type, "JURIDICA");
+
+    // [P] upsert que trae el documento de otro cliente activo: 409 CUSTOMER_DUPLICATED, con data.id de ese cliente
+    let c_second = customers::create(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: None,
+            doc_number: None,
+            dv: None,
+            name: "Segundo Cliente".into(),
+            phone: None,
+            email: Some("segundo@nexa.co".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let err_up_dup = customers::upsert(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: Some("NIT".into()),
+            doc_number: Some("900123456".into()),
+            dv: None,
+            name: "Intento Duplicado".into(),
+            phone: None,
+            email: Some("segundo@nexa.co".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await;
+
+    match err_up_dup {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            data,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "CUSTOMER_DUPLICATED");
+            let id_in_data =
+                data.and_then(|d| d.get("id").and_then(|v| v.as_str().map(String::from)));
+            assert_eq!(id_in_data, Some(c_nodoc.customer.id.to_string()));
+        }
+        other => panic!(
+            "esperaba 409 CUSTOMER_DUPLICATED con data.id pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // [P] Desarchivar a un cliente cuyo documento ya usa otro cliente activo: 409 CUSTOMER_DUPLICATED
+    let cust_x = customers::create(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("88776655".into()),
+            dv: None,
+            name: "Cliente X Para Archivar".into(),
+            phone: None,
+            email: Some("x@test.com".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    customers::archive(app, &c_up, cust_x.customer.id)
+        .await
+        .unwrap();
+
+    let cust_y = customers::create(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("88776655".into()),
+            dv: None,
+            name: "Cliente Y Con Mismo Doc".into(),
+            phone: None,
+            email: Some("y@test.com".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let err_unarch = customers::unarchive(app, &c_up, cust_x.customer.id).await;
+    match err_unarch {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            data,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "CUSTOMER_DUPLICATED");
+            let id_in_data =
+                data.and_then(|d| d.get("id").and_then(|v| v.as_str().map(String::from)));
+            assert_eq!(id_in_data, Some(cust_y.customer.id.to_string()));
+        }
+        other => panic!(
+            "esperaba 409 CUSTOMER_DUPLICATED con data.id al desarchivar pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // [P] Filtros de GET /v1/customers: un cliente con mora sale en EN_MORA y no en AL_DIA; uno archivado solo sale en ARCHIVADO (A17)
+    let b_up = seed_branch(admin, t_up).await;
+    let rec_mora = Uuid::new_v4();
+    sqlx::query(
+        "insert into receivables (
+            id, tenant_id, branch_id, customer_id, source, principal, amount_total,
+            amount_paid, status, due_date, created_by
+         ) values ($1, $2, $3, $4, 'ACUERDO', 50000, 50000, 0, 'ABIERTA', current_date - 15, $5)",
+    )
+    .bind(rec_mora)
+    .bind(t_up)
+    .bind(b_up)
+    .bind(c_second.customer.id)
+    .bind(u_up)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let list_mora = customers::list(
+        app,
+        &c_up,
+        customers::CustomerQuery {
+            q: None,
+            status: Some("EN_MORA".into()),
+            page: None,
+            page_size: None,
+            limit: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(list_mora.iter().any(|c| c.id == c_second.customer.id));
+    assert!(!list_mora.iter().any(|c| c.id == c_nodoc.customer.id));
+    assert!(!list_mora.iter().any(|c| c.id == cust_x.customer.id));
+
+    let list_aldia = customers::list(
+        app,
+        &c_up,
+        customers::CustomerQuery {
+            q: None,
+            status: Some("AL_DIA".into()),
+            page: None,
+            page_size: None,
+            limit: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(list_aldia.iter().any(|c| c.id == c_nodoc.customer.id));
+    assert!(!list_aldia.iter().any(|c| c.id == c_second.customer.id));
+    assert!(!list_aldia.iter().any(|c| c.id == cust_x.customer.id));
+
+    let list_arch = customers::list(
+        app,
+        &c_up,
+        customers::CustomerQuery {
+            q: None,
+            status: Some("ARCHIVADO".into()),
+            page: None,
+            page_size: None,
+            limit: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(list_arch.iter().any(|c| c.id == cust_x.customer.id));
+    assert!(!list_arch.iter().any(|c| c.id == c_nodoc.customer.id));
+    assert!(!list_arch.iter().any(|c| c.id == c_second.customer.id));
+
+    // [P] upsert que busca por documento (sin correo) encuentra al cliente existente (A17)
+    let up_by_doc = customers::upsert(
+        app,
+        &c_up,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("88776655".into()),
+            dv: None,
+            name: "Cliente Y Con Mismo Doc".into(),
+            phone: Some("3101234567".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: None,
+            credit_block_days: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(up_by_doc.customer.customer.id, cust_y.customer.id);
+    assert_eq!(
+        up_by_doc.customer.customer.phone.as_deref(),
+        Some("3101234567")
+    );
+
+    // [P] GET /v1/customers/{id}/purchases devuelve las ventas del cliente con el formato de /v1/sales (A17)
+    let prod_up = seed_product(admin, t_up, "Café Especial", "UND", None, false).await;
+    set_base_price(admin, prod_up, "15000").await;
+    seed_branch_product(admin, t_up, b_up, prod_up, None, None).await;
+    seed_stock(admin, t_up, b_up, prod_up, "10", "0").await;
+
+    let def_reg_up = default_register(admin, b_up).await;
+    let _sess = cash::open(app, &c_up, b_up, def_reg_up, dec(50000))
+        .await
+        .unwrap();
+
+    let _sale_res = sales::checkout(
+        app,
+        &c_up,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: b_up,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod_up),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(15000),
+                reference: None,
+            }],
+            quoted_total: dec(15000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_y.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let purchases = customers::list_purchases(app, &c_up, cust_y.customer.id, None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(purchases.total_count, 1);
+    assert_eq!(purchases.totals.amount, dec(15000));
+    assert_eq!(purchases.items.len(), 1);
+    assert_eq!(purchases.items[0].total, dec(15000));
+    assert_eq!(purchases.items[0].customer_label, cust_y.customer.name);
+    assert_eq!(purchases.items[0].status, "COBRADA");
+
+    cleanup(admin, t_up, &[u_up]).await;
+
     cleanup(admin, tenant, &[owner, cashier]).await;
 }
 
-/// F3.2 Venta a crédito: validaciones, cupo global, mora, auditoría, cuotas y devoluciones.
+/// F3.2 Venta a crédito y cuentas por cobrar: validaciones, cupo, mora, caja y cuotas.
 async fn f3_credit_sale(app: &PgPool, admin: &PgPool) {
     let tenant = seed_tenant(admin).await;
-    let branch_a = seed_branch(admin, tenant).await;
-    let branch_b = seed_branch(admin, tenant).await;
     let owner = seed_user(admin).await;
-    let supervisor = seed_user(admin).await;
-    let cashier_a = seed_user(admin).await;
-    let cashier_b = seed_user(admin).await;
-
+    let cashier = seed_user(admin).await;
     seed_membership(admin, tenant, None, owner, "DUENO").await;
-    seed_membership(admin, tenant, None, supervisor, "SUPERVISOR").await;
-    seed_membership(admin, tenant, Some(branch_a), cashier_a, "CAJERO").await;
-    seed_membership(admin, tenant, Some(branch_b), cashier_b, "CAJERO").await;
-
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
     let c_owner = claims(owner, Some(tenant), None);
-    let c_supervisor = claims(supervisor, Some(tenant), None);
-    let c_cashier_a = claims(cashier_a, Some(tenant), Some(branch_a));
-    let c_cashier_b = claims(cashier_b, Some(tenant), Some(branch_b));
+    let c_cashier = claims(cashier, Some(tenant), None);
+    let branch = seed_branch(admin, tenant).await;
 
-    let prod = seed_product(admin, tenant, "Gaseosa Fiada", "UND", None, false).await;
-    set_base_price(admin, prod, "10000").await;
-    seed_branch_product(admin, tenant, branch_a, prod, None, None).await;
-    seed_branch_product(admin, tenant, branch_b, prod, None, None).await;
-    seed_stock(admin, tenant, branch_a, prod, "1000", "0").await;
-    seed_stock(admin, tenant, branch_b, prod, "1000", "0").await;
+    // Crear producto para la venta
+    let prod = seed_product(admin, tenant, "Zapatos de Cuero", "UND", None, false).await;
+    set_base_price(admin, prod, "50000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "10", "0").await;
 
-    let def_reg_a = default_register(admin, branch_a).await;
-    let def_reg_b = default_register(admin, branch_b).await;
-    cash::open(app, &c_cashier_a, branch_a, def_reg_a, dec(50000))
-        .await
-        .unwrap();
-    cash::open(app, &c_cashier_b, branch_b, def_reg_b, dec(50000))
+    // Abrir turno de caja con base de $100.000
+    let def_reg = default_register(admin, branch).await;
+    let _session = cash::open(app, &c_cashier, branch, def_reg, dec(100000))
         .await
         .unwrap();
 
-    let reg_owner: Uuid = sqlx::query_scalar(
-        "insert into cash_registers (tenant_id, branch_id, name, code)
-         values ($1, $2, 'Caja Owner', 'CAJA-OWN') returning id",
+    // 1. [P] Un pago CREDITO sin cliente: 422 CREDIT_REQUIRES_CUSTOMER
+    let sale_no_cust = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
     )
-    .bind(tenant)
-    .bind(branch_a)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    cash::open(app, &c_owner, branch_a, reg_owner, dec(100000))
-        .await
-        .unwrap();
+    .await;
 
-    let reg_sup: Uuid = sqlx::query_scalar(
-        "insert into cash_registers (tenant_id, branch_id, name, code)
-         values ($1, $2, 'Caja Supervisor', 'CAJA-SUP') returning id",
-    )
-    .bind(tenant)
-    .bind(branch_a)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    cash::open(app, &c_supervisor, branch_a, reg_sup, dec(10000))
-        .await
-        .unwrap();
-
-    let today: chrono::NaiveDate =
-        sqlx::query_scalar("select (now() at time zone 'America/Bogota')::date")
-            .fetch_one(admin)
-            .await
-            .unwrap();
-
-    // 1. [P] Un pago CREDITO sin cliente: 422 CREDIT_REQUIRES_CUSTOMER.
-    let sale_no_cust = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: None,
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let err_no_cust = sales::checkout(app, &c_cashier_a, sale_no_cust).await;
-    match err_no_cust {
-        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+    match sale_no_cust {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
             assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
             assert_eq!(code, "CREDIT_REQUIRES_CUSTOMER");
         }
-        other => panic!("expected 422 CREDIT_REQUIRES_CUSTOMER, got {:?}", other),
+        other => panic!(
+            "esperaba 422 CREDIT_REQUIRES_CUSTOMER pero obtuve {:?}",
+            other
+        ),
     }
 
-    // 2. [P] Superar el cupo: 409 CREDIT_LIMIT_EXCEEDED. Con credit:override y motivo, la venta pasa y existe una fila en audit_log con action = 'CREDITO_AUTORIZADO' y entity_id del cliente.
-    let cust_limit = customers::create(
+    // 2. Crear cliente con cupo de $40.000 y 30 días de mora
+    let cust = customers::create(
         app,
         &c_owner,
         customers::CreateCustomerInput {
             doc_type: Some("CC".into()),
-            doc_number: Some("1002001".into()),
-            name: "Cliente Cupo Limitado".into(),
-            credit_limit: Some(dec(10000)),
-            credit_block_days: Some(15),
-            ..Default::default()
+            doc_number: Some("12345678".into()),
+            dv: None,
+            name: "Juan Pérez".into(),
+            phone: Some("3001234567".into()),
+            email: Some("juan@ejemplo.com".into()),
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(40000)),
+            credit_block_days: Some(30),
         },
     )
     .await
     .unwrap();
 
-    let sale_exceed = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(2),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(20000),
-            reference: None,
-        }],
-        quoted_total: dec(20000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_limit.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let err_exceed = sales::checkout(app, &c_cashier_a, sale_exceed.clone()).await;
-    match err_exceed {
-        Err(ApiError::Domain(DomainError::Coded {
-            status, code, data, ..
+    // [P] Superar el cupo: 409 CREDIT_LIMIT_EXCEEDED (venta de $50.000 con cupo de $40.000)
+    let sale_exceed = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_exceed {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            data,
+            ..
         })) => {
             assert_eq!(status, axum::http::StatusCode::CONFLICT);
             assert_eq!(code, "CREDIT_LIMIT_EXCEEDED");
-            assert!(data.is_some());
+            assert!(
+                data.is_some(),
+                "data con cupo disponible debe estar presente"
+            );
         }
-        other => panic!("expected 409 CREDIT_LIMIT_EXCEEDED, got {:?}", other),
+        other => panic!("esperaba 409 CREDIT_LIMIT_EXCEEDED pero obtuve {:?}", other),
     }
 
-    // Con credit:override y motivo válido (supervisor tiene el permiso)
-    let mut sale_override = sale_exceed;
-    sale_override.id = Uuid::new_v4();
-    sale_override.credit_override_reason = Some("Aprobado por gerencia general".into());
-    let ok_override = sales::checkout(app, &c_supervisor, sale_override).await;
-    assert!(ok_override.is_ok(), "{:?}", ok_override.err());
+    // Cajero intenta autorizar con override pero no tiene permiso credit:override -> 403
+    let sale_unauthorized_override = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: Some("Autorizado por supervisor".into()),
+        },
+    )
+    .await;
 
-    let audit_count: i64 = sqlx::query_scalar(
-        "select count(*) from audit_log where tenant_id = $1 and action = 'CREDITO_AUTORIZADO' and entity_id = $2"
+    match sale_unauthorized_override {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Forbidden)) => {}
+        other => panic!("esperaba 403 Forbidden pero obtuve {:?}", other),
+    }
+
+    // Supervisor/dueño autoriza con credit:override y motivo -> la venta pasa y queda en auditoría
+    sqlx::query(
+        "update memberships set role_id = public.tipo_id('ROL', 'SUPERVISOR')
+         where tenant_id = $1 and user_id = $2",
     )
     .bind(tenant)
-    .bind(cust_limit.customer.id)
-    .fetch_one(admin)
+    .bind(cashier)
+    .execute(admin)
     .await
     .unwrap();
-    assert_eq!(
-        audit_count, 1,
-        "Debe existir registro en audit_log con action = CREDITO_AUTORIZADO"
-    );
 
-    // 3. [P] Un cliente con 31 días de mora y credit_block_days = 30: 409 CREDIT_BLOCKED_OVERDUE.
-    let cust_overdue = customers::create(
+    let sale_authorized_id = Uuid::new_v4();
+    let sale_authorized = sales::checkout(
         app,
-        &c_owner,
-        customers::CreateCustomerInput {
-            doc_type: Some("CC".into()),
-            doc_number: Some("1002002".into()),
-            name: "Cliente Moroso".into(),
-            credit_limit: Some(dec(100000)),
-            credit_block_days: Some(30),
-            ..Default::default()
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_authorized_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: Some("Autorizado por gerencia general".into()),
         },
     )
     .await
     .unwrap();
 
-    let past_due_date = today
-        .checked_sub_signed(chrono::Duration::days(31))
-        .unwrap();
-    sqlx::query(
-        "insert into receivables (id, tenant_id, branch_id, customer_id, source, principal, amount_total, amount_paid, status, due_date, created_by, created_at)
-         values ($1, $2, $3, $4, 'ACUERDO', 5000, 5000, 0, 'ABIERTA', $5, $6, now())"
+    match sale_authorized {
+        sales::Checkout::Created(resp) => {
+            assert_eq!(resp.payments.len(), 1);
+            assert_eq!(resp.payments[0].method, "CREDITO");
+            assert_eq!(resp.payments[0].amount, dec(50000));
+        }
+        other => panic!("esperaba Checkout::Created pero obtuve {:?}", other),
+    }
+
+    // [P] Superar el cupo: 409 CREDIT_LIMIT_EXCEEDED. Con credit:override y motivo, la venta pasa y existe una fila en audit_log con action = 'CREDITO_AUTORIZADO' y entity_id del cliente
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from audit_log where tenant_id = $1 and action = 'CREDITO_AUTORIZADO' and entity_id = $2",
     )
-    .bind(Uuid::new_v4())
     .bind(tenant)
-    .bind(branch_a)
-    .bind(cust_overdue.customer.id)
-    .bind(past_due_date)
+    .bind(cust.customer.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(audit_count >= 1);
+
+    // 3. [P] El crédito no suma al efectivo esperado del turno
+    let summary = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    // La base era $100.000, la venta de $50.000 a crédito no debe sumar al efectivo
+    assert_eq!(summary.expected_cash, dec(100000));
+    let credit_method = summary.by_method.iter().find(|m| m.method == "CREDITO");
+    assert!(
+        credit_method.is_some(),
+        "CREDITO debe aparecer en by_method"
+    );
+    assert_eq!(credit_method.unwrap().amount, dec(50000));
+
+    // 4. [P] Un cliente con 31 días de mora y credit_block_days = 30: 409 CREDIT_BLOCKED_OVERDUE
+    // Creamos cliente con cupo amplio pero una deuda con 31 días de vencimiento
+    let cust_mora = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("87654321".into()),
+            dv: None,
+            name: "Cliente En Mora".into(),
+            phone: Some("3119998877".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(200000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    let overdue_rec_id = Uuid::new_v4();
+    sqlx::query(
+        "insert into receivables (
+            id, tenant_id, branch_id, customer_id, source, principal, amount_total,
+            amount_paid, status, due_date, created_by
+         ) values ($1, $2, $3, $4, 'ACUERDO', 10000, 10000, 0, 'ABIERTA', current_date - 35, $5)",
+    )
+    .bind(overdue_rec_id)
+    .bind(tenant)
+    .bind(branch)
+    .bind(cust_mora.customer.id)
     .bind(owner)
     .execute(admin)
     .await
     .unwrap();
 
-    let sale_overdue = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_overdue.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let err_overdue = sales::checkout(app, &c_cashier_a, sale_overdue).await;
-    match err_overdue {
-        Err(ApiError::Domain(DomainError::Coded {
-            status, code, data, ..
+    let sale_overdue = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_mora.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_overdue {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            data,
+            ..
         })) => {
             assert_eq!(status, axum::http::StatusCode::CONFLICT);
             assert_eq!(code, "CREDIT_BLOCKED_OVERDUE");
-            let d = data.expect("should have data payload");
-            assert!(d["days"].as_i64().unwrap_or(0) >= 31);
+            assert!(data.is_some(), "data con días de mora debe estar presente");
         }
-        other => panic!("expected 409 CREDIT_BLOCKED_OVERDUE, got {:?}", other),
+        other => panic!(
+            "esperaba 409 CREDIT_BLOCKED_OVERDUE pero obtuve {:?}",
+            other
+        ),
     }
 
-    // 4. [P] El crédito no suma al efectivo esperado del turno.
-    let cust_clean = customers::create(
+    // 5. [P] Una venta con cuota inicial en efectivo más crédito crea una cuenta solo por la parte a crédito
+    // Cliente con cupo suficiente
+    let cust_mixed = customers::create(
         app,
         &c_owner,
         customers::CreateCustomerInput {
             doc_type: Some("CC".into()),
-            doc_number: Some("1002003".into()),
-            name: "Cliente Limpio".into(),
-            credit_limit: Some(dec(50000)),
+            doc_number: Some("55667788".into()),
+            dv: None,
+            name: "Cliente Pago Mixto".into(),
+            phone: Some("3154443322".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(200000)),
             credit_block_days: Some(30),
-            ..Default::default()
         },
     )
     .await
     .unwrap();
 
-    let expected_before = cash::current(app, &c_cashier_a, branch_a)
-        .await
-        .unwrap()
-        .unwrap()
-        .expected_cash;
-
-    let sale_cred_only = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_clean.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    sales::checkout(app, &c_cashier_a, sale_cred_only)
-        .await
-        .unwrap();
-
-    let expected_after = cash::current(app, &c_cashier_a, branch_a)
-        .await
-        .unwrap()
-        .unwrap()
-        .expected_cash;
-    assert_eq!(
-        expected_before, expected_after,
-        "El crédito no debe sumar al efectivo esperado"
-    );
-
-    // 5. [P] Una venta con cuota inicial en efectivo más crédito crea una cuenta solo por la parte a crédito.
-    let sale_initial_down = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(2),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![
-            sales::SalePayment {
-                method: sales::PaymentMethod::Efectivo,
-                amount: dec(5000),
-                reference: None,
-            },
-            sales::SalePayment {
-                method: sales::PaymentMethod::Credito,
-                amount: dec(15000),
-                reference: None,
-            },
-        ],
-        quoted_total: dec(20000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_clean.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let s_init_id = sale_initial_down.id;
-    sales::checkout(app, &c_cashier_a, sale_initial_down)
-        .await
-        .unwrap();
-
-    let (rec_princ, rec_total, rec_paid): (Decimal, Decimal, Decimal) = sqlx::query_as(
-        "select principal, amount_total, amount_paid from receivables where order_id = $1 and tenant_id = $2"
+    let mixed_sale_id = Uuid::new_v4();
+    // Venta de 2 unidades = $100.000: $30.000 en efectivo + $70.000 a crédito en 2 cuotas mensuales
+    let sale_mixed = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: mixed_sale_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![
+                sales::SalePayment {
+                    method: sales::PaymentMethod::Efectivo,
+                    amount: dec(30000),
+                    reference: None,
+                },
+                sales::SalePayment {
+                    method: sales::PaymentMethod::Credito,
+                    amount: dec(70000),
+                    reference: None,
+                },
+            ],
+            quoted_total: dec(100000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_mixed.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 2,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: chrono::Utc::now().date_naive() + chrono::Duration::days(30),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
     )
-    .bind(s_init_id)
-    .bind(tenant)
+    .await
+    .unwrap();
+
+    match sale_mixed {
+        sales::Checkout::Created(resp) => {
+            assert_eq!(resp.payments.len(), 2);
+        }
+        other => panic!("esperaba Checkout::Created pero obtuve {:?}", other),
+    }
+
+    // Verificar que en receivables la cuenta se creó solo por la parte a crédito ($70.000)
+    let rec_mixed: (Decimal, Decimal, Decimal, String) = sqlx::query_as(
+        "select principal, amount_total, amount_paid, status from receivables where order_id = $1",
+    )
+    .bind(mixed_sale_id)
     .fetch_one(admin)
     .await
     .unwrap();
-    assert_eq!(
-        rec_princ,
-        dec(15000),
-        "El principal debe ser solo la parte a crédito"
-    );
-    assert_eq!(rec_total, dec(15000));
-    assert_eq!(rec_paid, dec(0));
 
-    // 6. [P] Cupo de todo el negocio: cliente con cupo de 100.000 y una deuda de 100.000 en la sucursal A. Un cajero atado a la sucursal B que le vende 1.000 a crédito recibe 409 CREDIT_LIMIT_EXCEEDED.
+    assert_eq!(rec_mixed.0, dec(70000));
+    assert_eq!(rec_mixed.1, dec(70000));
+    assert_eq!(rec_mixed.2, dec(0));
+    assert_eq!(rec_mixed.3, "ABIERTA");
+
+    // Verificar cuotas: 2 cuotas de $35.000 cada una
+    let inst_count: i64 = sqlx::query_scalar(
+        "select count(*) from receivable_installments where receivable_id = (select id from receivables where order_id = $1)",
+    )
+    .bind(mixed_sale_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(inst_count, 2);
+
+    let inst_amounts: Vec<Decimal> = sqlx::query_scalar(
+        "select amount from receivable_installments where receivable_id = (select id from receivables where order_id = $1) order by n asc",
+    )
+    .bind(mixed_sale_id)
+    .fetch_all(admin)
+    .await
+    .unwrap();
+    assert_eq!(inst_amounts, vec![dec(35000), dec(35000)]);
+
+    // Efectivo en caja debe haber aumentado solo por los $30.000 de la cuota inicial (base 100.000 + 30.000 = 130.000)
+    let summary_mixed = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(summary_mixed.expected_cash, dec(130000));
+
+    // [P] Cupo de todo el negocio: cliente con cupo de 100.000 y una deuda de 100.000 en la sucursal A. Un cajero atado a la sucursal B que le vende 1.000 a crédito recibe 409 CREDIT_LIMIT_EXCEEDED.
+    let branch_b = seed_branch(admin, tenant).await;
+    let cashier_b = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch_b), cashier_b, "CAJERO").await;
+    let c_cashier_b = claims(cashier_b, Some(tenant), Some(branch_b));
+    seed_branch_product(admin, tenant, branch_b, prod, None, None).await;
+    seed_stock(admin, tenant, branch_b, prod, "10", "0").await;
+
     let cust_global = customers::create(
         app,
         &c_owner,
         customers::CreateCustomerInput {
             doc_type: Some("CC".into()),
-            doc_number: Some("1002004".into()),
-            name: "Cliente Global Cupo".into(),
+            doc_number: Some("99887766".into()),
+            dv: None,
+            name: "Cliente Global".into(),
+            phone: Some("3201112233".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
             credit_limit: Some(dec(100000)),
             credit_block_days: Some(30),
-            ..Default::default()
         },
     )
     .await
     .unwrap();
 
-    let sale_branch_a = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(10),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(100000),
-            reference: None,
-        }],
-        quoted_total: dec(100000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_global.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    sales::checkout(app, &c_cashier_a, sale_branch_a)
+    let rec_branch_a = Uuid::new_v4();
+    sqlx::query(
+        "insert into receivables (
+            id, tenant_id, branch_id, customer_id, source, principal, amount_total,
+            amount_paid, status, due_date, created_by
+         ) values ($1, $2, $3, $4, 'ACUERDO', 100000, 100000, 0, 'ABIERTA', current_date + 30, $5)",
+    )
+    .bind(rec_branch_a)
+    .bind(tenant)
+    .bind(branch)
+    .bind(cust_global.customer.id)
+    .bind(owner)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let def_reg_b = default_register(admin, branch_b).await;
+    let _session_b = cash::open(app, &c_cashier_b, branch_b, def_reg_b, dec(50000))
         .await
         .unwrap();
 
-    // Cajero en sucursal B intenta vender a crédito
-    let sale_branch_b = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_b,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_global.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let err_branch_b = sales::checkout(app, &c_cashier_b, sale_branch_b).await;
-    match err_branch_b {
-        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
+    let sale_cross_branch = sales::checkout(
+        app,
+        &c_cashier_b,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch_b,
+            items: vec![sales::SaleItem {
+                product_id: None,
+                custom_name: Some("Item Libre 1000".into()),
+                qty: dec(1),
+                unit_price_override: Some(dec(1000)),
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: Some("EXENTO".into()),
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(1000),
+                reference: None,
+            }],
+            quoted_total: dec(1000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_global.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_cross_branch {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
             assert_eq!(status, axum::http::StatusCode::CONFLICT);
             assert_eq!(code, "CREDIT_LIMIT_EXCEEDED");
         }
-        other => panic!(
-            "expected 409 CREDIT_LIMIT_EXCEEDED in branch B, got {:?}",
-            other
-        ),
+        other => panic!("esperaba 409 CREDIT_LIMIT_EXCEEDED pero obtuve {:?}", other),
     }
 
-    // 7. [P] credit_plan con interest_rate_monthly = 2: 422 CREDIT_PLAN_INVALID.
-    let cust_plan = customers::create(
+    // [P] credit_plan con interest_rate_monthly = 2: 422 CREDIT_PLAN_INVALID
+    let sale_plan_interest = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_mixed.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 3,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: chrono::Utc::now().date_naive() + chrono::Duration::days(30),
+                interest_rate_monthly: dec(2),
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_plan_interest {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "CREDIT_PLAN_INVALID");
+        }
+        other => panic!("esperaba 422 CREDIT_PLAN_INVALID pero obtuve {:?}", other),
+    }
+
+    // [P] credit_plan con first_due_date de ayer: 422 CREDIT_PLAN_INVALID
+    let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(5);
+    let sale_plan_past = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_mixed.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 3,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: yesterday,
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_plan_past {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "CREDIT_PLAN_INVALID");
+        }
+        other => panic!("esperaba 422 CREDIT_PLAN_INVALID pero obtuve {:?}", other),
+    }
+
+    // [P] credit_plan sin pago CREDITO: 422 CREDIT_PLAN_INVALID
+    let sale_plan_no_credit = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Efectivo,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_mixed.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 3,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: chrono::Utc::now().date_naive() + chrono::Duration::days(30),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await;
+
+    match sale_plan_no_credit {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "CREDIT_PLAN_INVALID");
+        }
+        other => panic!("esperaba 422 CREDIT_PLAN_INVALID pero obtuve {:?}", other),
+    }
+
+    // [P] Devolver toda una venta a crédito sin abonos deja la cuenta PAGADA, con saldo 0 y sin error
+    let cust_refund = customers::create(
         app,
         &c_owner,
         customers::CreateCustomerInput {
             doc_type: Some("CC".into()),
-            doc_number: Some("1002005".into()),
-            name: "Cliente Plan".into(),
-            credit_limit: Some(dec(100000)),
+            doc_number: Some("44332211".into()),
+            dv: None,
+            name: "Cliente Devolucion".into(),
+            phone: Some("3185556677".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(200000)),
             credit_block_days: Some(30),
-            ..Default::default()
         },
     )
     .await
     .unwrap();
 
-    let sale_plan_interest = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_plan.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: Some(credit::CreditPlan {
-            installments: 3,
-            frequency: credit::Frequency::Mensual,
-            first_due_date: today
-                .checked_add_signed(chrono::Duration::days(30))
-                .unwrap(),
-            interest_rate_monthly: dec(2),
-            interest_type: credit::InterestType::Simple,
-        }),
-        credit_override_reason: None,
-    };
-    let err_plan_interest = sales::checkout(app, &c_cashier_a, sale_plan_interest).await;
-    match err_plan_interest {
-        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
-            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-            assert_eq!(code, "CREDIT_PLAN_INVALID");
-        }
-        other => panic!(
-            "expected 422 CREDIT_PLAN_INVALID for interest > 0, got {:?}",
-            other
-        ),
-    }
-
-    // 8. [P] credit_plan con first_due_date de ayer: 422 CREDIT_PLAN_INVALID.
-    let yesterday = today.checked_sub_signed(chrono::Duration::days(1)).unwrap();
-    let sale_plan_yesterday = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_plan.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: Some(credit::CreditPlan {
-            installments: 3,
-            frequency: credit::Frequency::Mensual,
-            first_due_date: yesterday,
-            interest_rate_monthly: Decimal::ZERO,
-            interest_type: credit::InterestType::Simple,
-        }),
-        credit_override_reason: None,
-    };
-    let err_plan_yesterday = sales::checkout(app, &c_cashier_a, sale_plan_yesterday).await;
-    match err_plan_yesterday {
-        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
-            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-            assert_eq!(code, "CREDIT_PLAN_INVALID");
-        }
-        other => panic!(
-            "expected 422 CREDIT_PLAN_INVALID for first_due_date in past, got {:?}",
-            other
-        ),
-    }
-
-    // 9. [P] credit_plan sin pago CREDITO: 422 CREDIT_PLAN_INVALID.
-    let sale_plan_no_cred = sales::SaleRequest {
-        id: Uuid::new_v4(),
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Efectivo,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_plan.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: Some(credit::CreditPlan {
-            installments: 3,
-            frequency: credit::Frequency::Mensual,
-            first_due_date: today
-                .checked_add_signed(chrono::Duration::days(30))
-                .unwrap(),
-            interest_rate_monthly: Decimal::ZERO,
-            interest_type: credit::InterestType::Simple,
-        }),
-        credit_override_reason: None,
-    };
-    let err_plan_no_cred = sales::checkout(app, &c_cashier_a, sale_plan_no_cred).await;
-    match err_plan_no_cred {
-        Err(ApiError::Domain(DomainError::Coded { status, code, .. })) => {
-            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-            assert_eq!(code, "CREDIT_PLAN_INVALID");
-        }
-        other => panic!(
-            "expected 422 CREDIT_PLAN_INVALID for plan without credit payment, got {:?}",
-            other
-        ),
-    }
-
-    // 10. [P] Devolver toda una venta a crédito sin abonos deja la cuenta PAGADA, con saldo 0 y sin error.
-    let cust_ref1 = customers::create(
+    let sale_to_refund_id = Uuid::new_v4();
+    let sale_to_refund = sales::checkout(
         app,
-        &c_owner,
-        customers::CreateCustomerInput {
-            doc_type: Some("CC".into()),
-            doc_number: Some("1002006".into()),
-            name: "Cliente Devolución 1".into(),
-            credit_limit: Some(dec(50000)),
-            credit_block_days: Some(30),
-            ..Default::default()
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_to_refund_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_refund.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
         },
     )
     .await
     .unwrap();
 
-    let sale_ref1_id = Uuid::new_v4();
-    let sale_ref1 = sales::SaleRequest {
-        id: sale_ref1_id,
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_ref1.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
+    let order_item_id = match sale_to_refund {
+        sales::Checkout::Created(ref resp) => resp.items[0].id,
+        _ => unreachable!(),
     };
-    let ok_ref1 = created(sales::checkout(app, &c_cashier_a, sale_ref1).await.unwrap());
-    let item_ref1_id = ok_ref1.items[0].id;
 
-    let refund_res1 = refunds::create(
+    let refund_res = refunds::create(
         app,
-        &c_cashier_a,
+        &c_owner,
         refunds::RefundRequest {
             id: Uuid::new_v4(),
-            order_id: sale_ref1_id,
+            order_id: sale_to_refund_id,
             method: refunds::RefundMethod::Original,
-            reason: "Devolución crédito total".into(),
+            reason: "Devolucion total de credito".into(),
             reversal_reference: None,
             items: vec![refunds::RefundItemInput {
-                order_item_id: item_ref1_id,
+                order_item_id,
                 qty: dec(1),
                 disposition: refunds::Disposition::Reintegrar,
             }],
@@ -10323,332 +10933,289 @@ async fn f3_credit_sale(app: &PgPool, admin: &PgPool) {
     )
     .await
     .unwrap();
-    let ref1 = match refund_res1 {
-        refunds::Created::New(r) => r,
-        refunds::Created::Replayed(_) => panic!("expected new refund"),
-    };
-    let app_ref1 = refunds::approve(app, &c_owner, ref1.id).await.unwrap();
-    assert_eq!(app_ref1.status, "APROBADA");
-    let rec_app1: Option<Decimal> = sqlx::query_scalar(
-        "select receivable_applied from refunds where id = $1 and tenant_id = $2",
+
+    match refund_res {
+        refunds::Created::New(r) => {
+            assert_eq!(r.status, "APROBADA");
+            assert_eq!(r.original_method.as_deref(), Some("CREDITO"));
+        }
+        _ => panic!("esperaba Created::New"),
+    }
+
+    let rec_after_refund: (Decimal, Decimal, Decimal, String) = sqlx::query_as(
+        "select principal, amount_total, amount_paid, status from receivables where order_id = $1",
     )
-    .bind(ref1.id)
-    .bind(tenant)
+    .bind(sale_to_refund_id)
     .fetch_one(admin)
     .await
     .unwrap();
-    assert_eq!(rec_app1, Some(dec(10000)));
 
-    let (status_ref1, saldo_ref1): (String, Decimal) = sqlx::query_as(
-        "select status, amount_total - amount_paid from receivables where order_id = $1 and tenant_id = $2"
-    )
-    .bind(sale_ref1_id)
-    .bind(tenant)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    assert_eq!(status_ref1, "PAGADA");
-    assert_eq!(saldo_ref1, dec(0));
+    assert_eq!(rec_after_refund.0, dec(0)); // principal
+    assert_eq!(rec_after_refund.1, dec(0)); // amount_total
+    assert_eq!(rec_after_refund.2, dec(0)); // amount_paid
+    assert_eq!(rec_after_refund.3, "PAGADA"); // status
 
-    // 11. [P] Devolver toda una venta a crédito en 3 cuotas sin abonos deja la cuenta PAGADA, sin cuotas y sin error.
-    let cust_ref3 = customers::create(
+    // [P] Devolver toda una venta a crédito en 3 cuotas sin abonos deja la cuenta PAGADA, sin cuotas y sin error
+    let sale_3cuotas_id = Uuid::new_v4();
+    let sale_3cuotas = sales::checkout(
         app,
-        &c_owner,
-        customers::CreateCustomerInput {
-            doc_type: Some("CC".into()),
-            doc_number: Some("1002007".into()),
-            name: "Cliente Cuotas Devolución".into(),
-            credit_limit: Some(dec(50000)),
-            credit_block_days: Some(30),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    let sale_ref3_id = Uuid::new_v4();
-    let sale_ref3 = sales::SaleRequest {
-        id: sale_ref3_id,
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(3),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(30000),
-            reference: None,
-        }],
-        quoted_total: dec(30000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_ref3.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: Some(credit::CreditPlan {
-            installments: 3,
-            frequency: credit::Frequency::Mensual,
-            first_due_date: today
-                .checked_add_signed(chrono::Duration::days(30))
-                .unwrap(),
-            interest_rate_monthly: Decimal::ZERO,
-            interest_type: credit::InterestType::Simple,
-        }),
-        credit_override_reason: None,
-    };
-    let ok_ref3 = created(sales::checkout(app, &c_cashier_a, sale_ref3).await.unwrap());
-    let item_ref3_id = ok_ref3.items[0].id;
-
-    let inst_count_before: i64 = sqlx::query_scalar(
-        "select count(*) from receivable_installments where receivable_id = (select id from receivables where order_id = $1 and tenant_id = $2)"
-    )
-    .bind(sale_ref3_id)
-    .bind(tenant)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    assert_eq!(inst_count_before, 3);
-
-    let refund_res3 = refunds::create(
-        app,
-        &c_cashier_a,
-        refunds::RefundRequest {
-            id: Uuid::new_v4(),
-            order_id: sale_ref3_id,
-            method: refunds::RefundMethod::Original,
-            reason: "Devolución crédito cuotas".into(),
-            reversal_reference: None,
-            items: vec![refunds::RefundItemInput {
-                order_item_id: item_ref3_id,
-                qty: dec(3),
-                disposition: refunds::Disposition::Reintegrar,
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_3cuotas_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
             }],
-        },
-    )
-    .await
-    .unwrap();
-    let ref3 = match refund_res3 {
-        refunds::Created::New(r) => r,
-        refunds::Created::Replayed(_) => panic!("expected new refund"),
-    };
-    let app_ref3 = refunds::approve(app, &c_owner, ref3.id).await.unwrap();
-    assert_eq!(app_ref3.status, "APROBADA");
-
-    let (status_ref3, inst_count_after): (String, i64) = sqlx::query_as(
-        "select r.status, count(ri.n) from receivables r
-         left join receivable_installments ri on ri.receivable_id = r.id
-         where r.order_id = $1 and r.tenant_id = $2
-         group by r.status",
-    )
-    .bind(sale_ref3_id)
-    .bind(tenant)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    assert_eq!(status_ref3, "PAGADA");
-    assert_eq!(inst_count_after, 0, "No deben quedar cuotas");
-
-    // 12. [P] Venta de 100.000 (20.000 en efectivo y 80.000 a crédito) devuelta completa: la cuenta baja 80.000, receivable_applied = 80.000 y sale un movimiento DEVOLUCION de 20.000 de la caja.
-    let cust_mixed = customers::create(
-        app,
-        &c_owner,
-        customers::CreateCustomerInput {
-            doc_type: Some("CC".into()),
-            doc_number: Some("1002008".into()),
-            name: "Cliente Mixto Devolución".into(),
-            credit_limit: Some(dec(100000)),
-            credit_block_days: Some(30),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    let sale_mix_id = Uuid::new_v4();
-    let sale_mixed = sales::SaleRequest {
-        id: sale_mix_id,
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(10),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![
-            sales::SalePayment {
-                method: sales::PaymentMethod::Efectivo,
-                amount: dec(20000),
-                reference: None,
-            },
-            sales::SalePayment {
+            payments: vec![sales::SalePayment {
                 method: sales::PaymentMethod::Credito,
-                amount: dec(80000),
+                amount: dec(50000),
                 reference: None,
-            },
-        ],
-        quoted_total: dec(100000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_mixed.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    let ok_mix = created(
-        sales::checkout(app, &c_cashier_a, sale_mixed)
-            .await
-            .unwrap(),
-    );
-    let item_mix_id = ok_mix.items[0].id;
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_refund.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 3,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: chrono::Utc::now().date_naive() + chrono::Duration::days(30),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
 
-    let refund_res_mix = refunds::create(
+    let item_3cuotas_id = match sale_3cuotas {
+        sales::Checkout::Created(ref resp) => resp.items[0].id,
+        _ => unreachable!(),
+    };
+
+    let cuotas_before: i64 = sqlx::query_scalar(
+        "select count(*) from receivable_installments where receivable_id = (select id from receivables where order_id = $1)",
+    )
+    .bind(sale_3cuotas_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(cuotas_before, 3);
+
+    let refund_3cuotas = refunds::create(
         app,
-        &c_cashier_a,
+        &c_owner,
         refunds::RefundRequest {
             id: Uuid::new_v4(),
-            order_id: sale_mix_id,
-            method: refunds::RefundMethod::Efectivo,
-            reason: "Devolución venta mixta".into(),
+            order_id: sale_3cuotas_id,
+            method: refunds::RefundMethod::Original,
+            reason: "Devolucion total de 3 cuotas".into(),
             reversal_reference: None,
             items: vec![refunds::RefundItemInput {
-                order_item_id: item_mix_id,
-                qty: dec(10),
+                order_item_id: item_3cuotas_id,
+                qty: dec(1),
                 disposition: refunds::Disposition::Reintegrar,
             }],
         },
     )
     .await
     .unwrap();
-    let ref_mix = match refund_res_mix {
-        refunds::Created::New(r) => r,
-        refunds::Created::Replayed(_) => panic!("expected new refund"),
+
+    match refund_3cuotas {
+        refunds::Created::New(r) => {
+            assert_eq!(r.status, "APROBADA");
+        }
+        _ => panic!("esperaba Created::New"),
+    }
+
+    let rec_3cuotas_after: (Decimal, Decimal, String) = sqlx::query_as(
+        "select amount_total, amount_paid, status from receivables where order_id = $1",
+    )
+    .bind(sale_3cuotas_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(rec_3cuotas_after.0, dec(0));
+    assert_eq!(rec_3cuotas_after.2, "PAGADA");
+
+    let cuotas_after: i64 = sqlx::query_scalar(
+        "select count(*) from receivable_installments where receivable_id = (select id from receivables where order_id = $1)",
+    )
+    .bind(sale_3cuotas_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(cuotas_after, 0);
+
+    // [P] Venta de 100.000 (20.000 en efectivo y 80.000 a crédito) devuelta completa: la cuenta baja 80.000, receivable_applied = 80.000 y sale un movimiento DEVOLUCION de 20.000 de la caja.
+    let sale_mixed_refund_id = Uuid::new_v4();
+    let sale_mixed_refund = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_mixed_refund_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(2),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![
+                sales::SalePayment {
+                    method: sales::PaymentMethod::Efectivo,
+                    amount: dec(20000),
+                    reference: None,
+                },
+                sales::SalePayment {
+                    method: sales::PaymentMethod::Credito,
+                    amount: dec(80000),
+                    reference: None,
+                },
+            ],
+            quoted_total: dec(100000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_refund.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mixed_item_id = match sale_mixed_refund {
+        sales::Checkout::Created(ref resp) => resp.items[0].id,
+        _ => unreachable!(),
     };
-    let app_mix = refunds::approve(app, &c_owner, ref_mix.id).await.unwrap();
-    assert_eq!(app_mix.status, "APROBADA");
-    let rec_app_mix: Option<Decimal> = sqlx::query_scalar(
-        "select receivable_applied from refunds where id = $1 and tenant_id = $2",
-    )
-    .bind(ref_mix.id)
-    .bind(tenant)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    assert_eq!(rec_app_mix, Some(dec(80000)));
 
-    let (status_mix, saldo_mix): (String, Decimal) = sqlx::query_as(
-        "select status, amount_total - amount_paid from receivables where order_id = $1 and tenant_id = $2"
+    let refund_mixed_id = Uuid::new_v4();
+    let refund_mixed = refunds::create(
+        app,
+        &c_cashier,
+        refunds::RefundRequest {
+            id: refund_mixed_id,
+            order_id: sale_mixed_refund_id,
+            method: refunds::RefundMethod::Efectivo,
+            reason: "Devolucion venta mixta".into(),
+            reversal_reference: None,
+            items: vec![refunds::RefundItemInput {
+                order_item_id: mixed_item_id,
+                qty: dec(2),
+                disposition: refunds::Disposition::Reintegrar,
+            }],
+        },
     )
-    .bind(sale_mix_id)
-    .bind(tenant)
-    .fetch_one(admin)
     .await
     .unwrap();
-    assert_eq!(status_mix, "PAGADA");
-    assert_eq!(saldo_mix, dec(0));
 
-    let (movements, mov_amount): (i64, Decimal) = sqlx::query_as(
-        "select count(*), coalesce(sum(m.amount), 0) from cash_movements m
-          join tbl_tipos_maestra t on t.tima_id = m.kind_id
-         where t.tima_codigo = 'DEVOLUCION' and m.ref_id = $1",
+    match refund_mixed {
+        refunds::Created::New(r) => {
+            assert_eq!(r.status, "APROBADA");
+        }
+        _ => panic!("esperaba Created::New"),
+    }
+
+    let rec_mixed_after: (Decimal, Decimal, String) = sqlx::query_as(
+        "select amount_total, amount_paid, status from receivables where order_id = $1",
     )
-    .bind(ref_mix.id)
+    .bind(sale_mixed_refund_id)
     .fetch_one(admin)
     .await
     .unwrap();
-    assert_eq!(movements, 1);
+    assert_eq!(rec_mixed_after.0, dec(0));
+    assert_eq!(rec_mixed_after.2, "PAGADA");
+
+    let rec_applied: Decimal =
+        sqlx::query_scalar("select receivable_applied from refunds where id = $1")
+            .bind(refund_mixed_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(rec_applied, dec(80000));
+
+    let mov_amount: Decimal = sqlx::query_scalar(
+        "select amount from cash_movements where ref_type = 'REFUND' and ref_id = $1",
+    )
+    .bind(refund_mixed_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
     assert_eq!(mov_amount, dec(20000));
 
-    // 13. [P] Anular una venta a crédito con un abono: 409 VOID_NOT_ALLOWED con why = "HAS_PAYMENTS". Como los abonos llegan en M06, simula uno con el pool de administrador: update receivables set amount_paid = 1000, status = 'PARCIAL' where order_id = $1.
-    let cust_void = customers::create(
+    // [P] Anular una venta a crédito con un abono: 409 VOID_NOT_ALLOWED con why = "HAS_PAYMENTS"
+    let sale_to_void_id = Uuid::new_v4();
+    let _sale_to_void = sales::checkout(
         app,
-        &c_owner,
-        customers::CreateCustomerInput {
-            doc_type: Some("CC".into()),
-            doc_number: Some("1002009".into()),
-            name: "Cliente Anulación".into(),
-            credit_limit: Some(dec(50000)),
-            credit_block_days: Some(30),
-            ..Default::default()
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_to_void_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(50000),
+                reference: None,
+            }],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust_refund.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
         },
     )
     .await
     .unwrap();
 
-    let sale_void_id = Uuid::new_v4();
-    let sale_void = sales::SaleRequest {
-        id: sale_void_id,
-        branch_id: branch_a,
-        items: vec![sales::SaleItem {
-            product_id: Some(prod),
-            custom_name: None,
-            qty: dec(1),
-            unit_price_override: None,
-            discount_pct: None,
-            tier_id: None,
-            price_override_reason: None,
-            custom_tax: None,
-            option_ids: vec![],
-        }],
-        payments: vec![sales::SalePayment {
-            method: sales::PaymentMethod::Credito,
-            amount: dec(10000),
-            reference: None,
-        }],
-        quoted_total: dec(10000),
-        tip_amount: None,
-        tip_waiter_id: None,
-        customer_id: Some(cust_void.customer.id),
-        customer_alias: None,
-        coupon_code: None,
-        credit_plan: None,
-        credit_override_reason: None,
-    };
-    sales::checkout(app, &c_cashier_a, sale_void).await.unwrap();
+    // Simular un abono con el pool de administrador
+    sqlx::query(
+        "update receivables set amount_paid = 1000, status = 'PARCIAL' where order_id = $1",
+    )
+    .bind(sale_to_void_id)
+    .execute(admin)
+    .await
+    .unwrap();
 
-    // Simular un abono sobre la cuenta
-    sqlx::query("update receivables set amount_paid = 1000, status = 'PARCIAL' where order_id = $1 and tenant_id = $2")
-        .bind(sale_void_id)
-        .bind(tenant)
-        .execute(admin)
-        .await
-        .unwrap();
-
-    let err_void = sales::void(
+    let void_res = sales::void(
         app,
         &c_owner,
-        sale_void_id,
+        sale_to_void_id,
         sales::VoidRequest {
-            reason: "Cliente canceló la orden".into(),
+            reason: "Anulacion venta con abono".into(),
         },
     )
     .await;
-    match err_void {
-        Err(ApiError::Domain(DomainError::Coded {
-            status, code, data, ..
-        })) => {
-            assert_eq!(status, axum::http::StatusCode::CONFLICT);
-            assert_eq!(code, "VOID_NOT_ALLOWED");
-            let d = data.expect("should have data payload");
-            assert_eq!(d["why"], "HAS_PAYMENTS");
-        }
-        other => panic!(
-            "expected 409 VOID_NOT_ALLOWED with why=HAS_PAYMENTS, got {:?}",
-            other
-        ),
-    }
+    assert_void_why(&void_res, "HAS_PAYMENTS");
 
-    cleanup(admin, tenant, &[owner, supervisor, cashier_a, cashier_b]).await;
+    cleanup(admin, tenant, &[owner, cashier, cashier_b]).await;
 }

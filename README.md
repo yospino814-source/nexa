@@ -169,6 +169,29 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | PUT | `/v1/products/{id}` | Actualizar producto (`inventory:adjust`) |
 | POST | `/v1/products/{id}/variants` | Crear variante de producto (`inventory:adjust`) |
 | PUT | `/v1/branch-products/{product_id}` | Actualizar precio y disponibilidad por sucursal (`inventory:adjust`) |
+| GET | `/v1/customers?q=&status=&page=&page_size=` | Listado de clientes con saldo consolidado y mora (`customers:read`) |
+| GET | `/v1/customers/{id}` | Detalle de cliente con cupo, saldo y mora (`customers:read`) |
+| POST | `/v1/customers` | Crear cliente (`customers:write`; cupo != 0 exige `credit:override`) |
+| PUT | `/v1/customers/{id}` | Actualizar cliente (`customers:write`; cambio de cupo exige `credit:override`) |
+| POST | `/v1/customers/upsert` | Crear o completar cliente existente por email/documento (`customers:write`) |
+| DELETE | `/v1/customers/{id}` | Archivar cliente sin saldo ni apartados pendientes (`customers:write`) |
+| POST | `/v1/customers/{id}/unarchive` | Desarchivar cliente (`customers:write`) |
+| GET | `/v1/customers/{id}/purchases?page=&page_size=` | Historial de compras del cliente con formato de ventas (`customers:read`) |
+
+### Clientes (`/v1/customers`)
+
+Módulo de gestión de clientes y posición crediticia consolidada por negocio (`tenancy`):
+
+| Método | Ruta | Permisos | Parámetros / Cuerpo | Códigos de error |
+|---|---|---|---|---|
+| `GET` | `/v1/customers` | `customers:read` | Query: `q` (búsqueda), `status` (`TODOS`, `AL_DIA`, `EN_MORA`, `ARCHIVADO`), `page`, `page_size`, `limit` | 401, 403 |
+| `GET` | `/v1/customers/{id}` | `customers:read` | Path: `id` (UUID) | 401, 403, 404 |
+| `POST` | `/v1/customers` | `customers:write`<br>*(+ `credit:override` si `credit_limit != 0` o `credit_block_days != 30`)* | Body JSON: `name` (obligatorio), `doc_type`, `doc_number`, `dv`, `person_type`, `phone`, `email`, `tax_regime`, `fiscal_responsibilities`, `ciiu`, `withholding_agent`, `city_code`, `billing_address`, `shipping_address`, `pinned_note`, `credit_limit`, `credit_block_days` | 400, 401, 403, 409 (`CUSTOMER_DUPLICATED`), 422 (`CUSTOMER_INVALID`, `NIT_DV_INVALID`, `CUSTOMER_DV_CONFLICT`) |
+| `PUT` | `/v1/customers/{id}` | `customers:write`<br>*(+ `credit:override` si cambia `credit_limit` o `credit_block_days`)* | Path: `id` (UUID). Body JSON: campos a modificar (campos omitidos conservan su valor guardado) | 400, 401, 403, 404, 409 (`CUSTOMER_DUPLICATED`), 422 |
+| `POST` | `/v1/customers/upsert` | `customers:write`<br>*(+ `credit:override` si `credit_limit != 0` o `credit_block_days != 30`)* | Body JSON: igual a `POST /v1/customers`. Busca por `email` y luego por `(doc_type, doc_number)`. Si existe, solo llena campos vacíos y copia el documento como bloque atómico. Respuesta: `{ customer, result: "CREATED" \| "UPDATED" \| "UNCHANGED" }` | 400, 401, 403, 409 (`CUSTOMER_DUPLICATED`), 422 |
+| `DELETE` | `/v1/customers/{id}` | `customers:write` | Path: `id` (UUID). Valida `customer_credit_position.balance == 0`, sin apartados activos ni saldo a favor en billetera. | 401, 403, 404, 409 (`CUSTOMER_HAS_BALANCE`) |
+| `POST` | `/v1/customers/{id}/unarchive` | `customers:write` | Path: `id` (UUID). Verifica que ningún otro cliente activo tenga el mismo `(doc_type, doc_number)`. | 401, 403, 404, 409 (`CUSTOMER_DUPLICATED`) |
+| `GET` | `/v1/customers/{id}/purchases` | `customers:read` | Path: `id` (UUID). Query: `page`, `page_size`. Devuelve historial de órdenes con formato estándar de ventas (`HistoryPage`). | 401, 403, 404 |
 
 ### `POST /v1/sales`
 

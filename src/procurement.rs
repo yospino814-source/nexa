@@ -363,7 +363,17 @@ pub async fn create_supplier_tx(
         .person_type
         .map(|p| p.trim().to_uppercase())
         .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "JURIDICA".to_string());
+        .unwrap_or_else(|| {
+            if doc_type.as_str() == "NIT" {
+                tax_id
+                    .as_deref()
+                    .map(crate::customers::default_person_type)
+                    .unwrap_or("JURIDICA")
+                    .to_string()
+            } else {
+                "NATURAL".to_string()
+            }
+        });
     if !matches!(person_type.as_str(), "NATURAL" | "JURIDICA") {
         return Err(validation("person_type must be NATURAL or JURIDICA"));
     }
@@ -539,7 +549,17 @@ pub async fn update_supplier_tx(
         .person_type
         .map(|p| p.trim().to_uppercase())
         .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "JURIDICA".to_string());
+        .unwrap_or_else(|| {
+            if doc_type.as_str() == "NIT" {
+                tax_id
+                    .as_deref()
+                    .map(crate::customers::default_person_type)
+                    .unwrap_or("JURIDICA")
+                    .to_string()
+            } else {
+                "NATURAL".to_string()
+            }
+        });
     if !matches!(person_type.as_str(), "NATURAL" | "JURIDICA") {
         return Err(validation("person_type must be NATURAL or JURIDICA"));
     }
