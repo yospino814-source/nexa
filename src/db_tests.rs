@@ -6540,6 +6540,116 @@ async fn f2_import(app: &PgPool, admin: &PgPool) {
     .unwrap();
     assert_eq!(stock_solo, dec(10), "gorra debe tener 10 de stock inicial");
 
+    // 4. [P] Importar un producto con cantidad inicial 10 y costo 2.500 deja on_hand = 10, avg_cost = 2500 y un movimiento AJUSTE_ENTRADA con ref_type = 'IMPORT' y cause = 'Carga inicial'
+    let csv_with_cost = "sku,codigo_barras,nombre,categoria,unidad,impuesto,costo,precio,cantidad_inicial,sku_padre,atributos\n\
+        PROD-COST,7701234567892,Producto Con Costo,General,UND,IVA19,2500,5000,10,,\n";
+
+    let resp_cost = crate::csv_import::analyze_csv(app, &c_owner, branch, csv_with_cost.as_bytes())
+        .await
+        .unwrap();
+    assert_eq!(resp_cost.summary.errors, 0);
+
+    let commit_cost = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_cost.session_id,
+            offset: 0,
+            limit: 10,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(commit_cost.done);
+
+    let prod_cost_id: Uuid =
+        sqlx::query_scalar("select id from products where tenant_id = $1 and sku = 'PROD-COST'")
+            .bind(tenant)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let (cost_on_hand, cost_avg): (Decimal, Decimal) = sqlx::query_as(
+        "select on_hand, avg_cost from stock where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(prod_cost_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(cost_on_hand, dec(10));
+    assert_eq!(cost_avg, dec(2500));
+
+    let mov_cost: (String, String) = sqlx::query_as(
+        "select ref_type, cause from inventory_movements where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(prod_cost_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mov_cost.0, "IMPORT");
+    assert_eq!(mov_cost.1, "Carga inicial");
+
+    // 5. [P] Importar un producto nuevo con cantidad inicial 5 y sin costo deja on_hand = 5, avg_cost = 0, products.cost_price sin cambio (null) y un movimiento AJUSTE_ENTRADA con unit_cost = 0
+    let csv_no_cost = "sku,codigo_barras,nombre,categoria,unidad,impuesto,costo,precio,cantidad_inicial,sku_padre,atributos\n\
+        PROD-NO-COST,7701234567893,Producto Sin Costo,General,UND,IVA19,,5000,5,,\n";
+
+    let resp_no_cost =
+        crate::csv_import::analyze_csv(app, &c_owner, branch, csv_no_cost.as_bytes())
+            .await
+            .unwrap();
+    assert_eq!(resp_no_cost.summary.errors, 0);
+
+    let commit_no_cost = crate::csv_import::commit_import(
+        app,
+        &c_owner,
+        crate::csv_import::CommitRequest {
+            session_id: resp_no_cost.session_id,
+            offset: 0,
+            limit: 10,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(commit_no_cost.done);
+
+    let prod_no_cost_id: Uuid =
+        sqlx::query_scalar("select id from products where tenant_id = $1 and sku = 'PROD-NO-COST'")
+            .bind(tenant)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let (no_cost_on_hand, no_cost_avg): (Decimal, Decimal) = sqlx::query_as(
+        "select on_hand, avg_cost from stock where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(prod_no_cost_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(no_cost_on_hand, dec(5));
+    assert_eq!(no_cost_avg, dec(0));
+
+    let prod_cost_price: Option<Decimal> =
+        sqlx::query_scalar("select cost_price from products where id = $1")
+            .bind(prod_no_cost_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert!(prod_cost_price.is_none());
+
+    let mov_unit_cost: Decimal = sqlx::query_scalar(
+        "select unit_cost from inventory_movements where branch_id = $1 and product_id = $2",
+    )
+    .bind(branch)
+    .bind(prod_no_cost_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mov_unit_cost, dec(0));
+
     cleanup(admin, tenant, &[owner]).await;
 }
 

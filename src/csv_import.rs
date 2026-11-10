@@ -670,7 +670,7 @@ pub async fn commit_import(
                     sku: data.sku.clone(),
                     barcode: data.codigo_barras.clone(),
                     attrs: data.atributos.clone(),
-                    price: data.precio.unwrap_or(Decimal::ZERO),
+                    price: data.precio.unwrap_or_default(),
                     cost_price: data.costo,
                 };
                 let variant_id =
@@ -698,7 +698,8 @@ pub async fn commit_import(
                             branch_id,
                             variant_id,
                             init_q,
-                            data.costo.unwrap_or(Decimal::ZERO),
+                            data.costo,
+                            req.session_id,
                         )
                         .await?;
                     }
@@ -802,7 +803,8 @@ pub async fn commit_import(
                             branch_id,
                             product_id,
                             init_q,
-                            data.costo.unwrap_or(Decimal::ZERO),
+                            data.costo,
+                            req.session_id,
                         )
                         .await?;
                     }
@@ -837,51 +839,55 @@ async fn apply_initial_stock(
     branch_id: Uuid,
     product_id: Uuid,
     qty: Decimal,
-    cost: Decimal,
+    cost: Option<Decimal>,
+    session_id: Uuid,
 ) -> Result<(), ApiError> {
-    let loc_id: Uuid =
+    let loc_opt: Option<Uuid> =
         sqlx::query_scalar("select id from locations where branch_id = $1 and is_default = true")
             .bind(branch_id)
-            .fetch_one(&mut **tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
-    sqlx::query(
-        "insert into stock (tenant_id, branch_id, location_id, product_id, on_hand, reserved)
-         values ($1, $2, $3, $4, $5, 0)
-         on conflict (location_id, product_id)
-         do update set on_hand = stock.on_hand + excluded.on_hand, updated_at = now()",
+    let loc_id = match loc_opt {
+        Some(id) => id,
+        None => {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "IMPORT_NO_DEFAULT_LOCATION",
+                "La sucursal no tiene una bodega principal",
+                None,
+            ));
+        }
+    };
+
+    crate::inventory::apply_delta_tx(
+        tx,
+        scope,
+        crate::inventory::StockDelta {
+            branch_id,
+            location_id: loc_id,
+            product_id,
+            delta: qty,
+            movement: "AJUSTE_ENTRADA",
+            unit_cost: cost,
+            lot_id: None,
+            ref_type: "IMPORT",
+            ref_id: session_id,
+            cause: Some("Carga inicial".to_string()),
+        },
     )
-    .bind(scope.tenant)
-    .bind(branch_id)
-    .bind(loc_id)
-    .bind(product_id)
-    .bind(qty)
-    .execute(&mut **tx)
     .await?;
 
-    sqlx::query(
-        "insert into inventory_movements
-           (tenant_id, branch_id, location_id, product_id, movement_type_id, qty, cause, ref_type, ref_id, created_by)
-         values ($1, $2, $3, $4, public.tipo_id('MOV', 'AJUSTE_ENTRADA'), $5, 'Carga inicial', 'IMPORT', $4, $6)",
-    )
-    .bind(scope.tenant)
-    .bind(branch_id)
-    .bind(loc_id)
-    .bind(product_id)
-    .bind(qty)
-    .bind(scope.user)
-    .execute(&mut **tx)
-    .await?;
-
-    // Actualizar costo de referencia si no tenía
-    sqlx::query(
-        "update products set cost_price = coalesce(cost_price, $1) where tenant_id = $2 and id = $3",
-    )
-    .bind(cost)
-    .bind(scope.tenant)
-    .bind(product_id)
-    .execute(&mut **tx)
-    .await?;
+    if let Some(c) = cost {
+        sqlx::query(
+            "update products set cost_price = coalesce(cost_price, $1) where tenant_id = $2 and id = $3",
+        )
+        .bind(c)
+        .bind(scope.tenant)
+        .bind(product_id)
+        .execute(&mut **tx)
+        .await?;
+    }
 
     Ok(())
 }
