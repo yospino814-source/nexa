@@ -801,6 +801,7 @@ async fn database_integration() {
     f2_suggestions(&app, &admin).await;
     f3_customers(&app, &admin).await;
     f3_credit_sale(&app, &admin).await;
+    f3_payments(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -11218,4 +11219,401 @@ async fn f3_credit_sale(app: &PgPool, admin: &PgPool) {
     assert_void_why(&void_res, "HAS_PAYMENTS");
 
     cleanup(admin, tenant, &[owner, cashier, cashier_b]).await;
+}
+
+/// F3.3 Abonos y cuotas: validaciones, aplicación a cuotas, caja, idempotencia y estados.
+async fn f3_payments(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, None, cashier, "CAJERO").await;
+    let c_owner = claims(owner, Some(tenant), None);
+    let c_cashier = claims(cashier, Some(tenant), None);
+    let branch = seed_branch(admin, tenant).await;
+
+    // Crear producto para la venta
+    let prod = seed_product(admin, tenant, "Televisor 55", "UND", None, false).await;
+    set_base_price(admin, prod, "100000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "10", "0").await;
+
+    // Abrir turno de caja para cashier con base de $100.000
+    let def_reg = default_register(admin, branch).await;
+    let _session = cash::open(app, &c_cashier, branch, def_reg, dec(100000))
+        .await
+        .unwrap();
+
+    // Crear cliente con cupo amplio
+    let cust = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("10203040".into()),
+            dv: None,
+            name: "Carlos Abonos".into(),
+            phone: Some("3001234567".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(500000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    let today = chrono::Utc::now().date_naive();
+    let sale_id = Uuid::new_v4();
+    let _sale = sales::checkout(
+        app,
+        &c_cashier,
+        sales::SaleRequest {
+            id: sale_id,
+            branch_id: branch,
+            items: vec![sales::SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![sales::SalePayment {
+                method: sales::PaymentMethod::Credito,
+                amount: dec(100000),
+                reference: None,
+            }],
+            quoted_total: dec(100000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 3,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: today + chrono::Duration::days(30),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let rec_id: Uuid = sqlx::query_scalar("select id from receivables where order_id = $1")
+        .bind(sale_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+
+    // 1. [P] Un abono de 50.000 sobre cuotas de 33.333,33, 33.333,33 y 33.333,34 paga completa la cuota 1 y abona 16.666,67 a la cuota 2. allocation = [{n:1, amount: 33333.33}, {n:2, amount: 16666.67}], y el due_date de la cuenta pasa al de la cuota 2.
+    let pay1_id = Uuid::new_v4();
+    let (status1, resp1) = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: pay1_id,
+            amount: dec(50000),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("TRF-12345".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(status1, axum::http::StatusCode::CREATED);
+    assert_eq!(resp1.amount, dec(50000));
+    assert_eq!(resp1.allocation.len(), 2);
+    assert_eq!(resp1.allocation[0].n, 1);
+    assert_eq!(resp1.allocation[0].amount, Decimal::new(3333333, 2));
+    assert_eq!(resp1.allocation[1].n, 2);
+    assert_eq!(resp1.allocation[1].amount, Decimal::new(1666667, 2));
+
+    let inst2_due: chrono::NaiveDate = sqlx::query_scalar(
+        "select due_date from receivable_installments where receivable_id = $1 and n = 2",
+    )
+    .bind(rec_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    let rec_row1: (Decimal, Decimal, String, chrono::NaiveDate) = sqlx::query_as(
+        "select amount_total, amount_paid, status, due_date from receivables where id = $1",
+    )
+    .bind(rec_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    assert_eq!(rec_row1.1, dec(50000));
+    assert_eq!(rec_row1.2, "PARCIAL");
+    assert_eq!(rec_row1.3, inst2_due);
+
+    // 2. [P] Un abono mayor que el saldo: 422 PAYMENT_EXCEEDS_BALANCE
+    let err_excess = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(60000),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("TRF-EXCESS".into()),
+        },
+    )
+    .await;
+
+    match err_excess {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            data,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "PAYMENT_EXCEEDS_BALANCE");
+            assert_eq!(
+                data.as_ref().and_then(|d| d.get("balance")),
+                Some(&serde_json::json!("50000.00"))
+            );
+        }
+        other => panic!(
+            "esperaba 422 PAYMENT_EXCEEDS_BALANCE pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // 3. [P] Un abono en efectivo crea un movimiento ABONO_CARTERA y sube el efectivo esperado del turno en el monto del abono
+    let pay_cash_id = Uuid::new_v4();
+    let (status_cash, resp_cash) = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: pay_cash_id,
+            amount: dec(10000),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(status_cash, axum::http::StatusCode::CREATED);
+    assert_eq!(resp_cash.balance_after, dec(40000));
+
+    // Turno de caja: base de 100.000 + abono en efectivo de 10.000 = 110.000
+    let summary_cash = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(summary_cash.expected_cash, dec(110000));
+
+    let mov_exists: (Decimal, String) = sqlx::query_as(
+        "select cm.amount, tm.tima_codigo
+           from cash_movements cm
+           join tbl_tipos_maestra tm on tm.tima_id = cm.kind_id
+          where cm.ref_type = 'RECEIVABLE' and cm.ref_id = $1",
+    )
+    .bind(rec_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mov_exists.0, dec(10000));
+    assert_eq!(mov_exists.1, "ABONO_CARTERA");
+
+    // 4. [P] Un abono en efectivo sin turno abierto: 409 PAYMENT_NEEDS_OPEN_SESSION, y la cuenta no cambia
+    let err_no_session = crate::receivables::record_payment(
+        app,
+        &c_owner, // El dueño no abrió turno de caja en la sucursal
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(10000),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await;
+
+    match err_no_session {
+        Err(crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            code,
+            status,
+            ..
+        })) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "PAYMENT_NEEDS_OPEN_SESSION");
+        }
+        other => panic!(
+            "esperaba 409 PAYMENT_NEEDS_OPEN_SESSION pero obtuve {:?}",
+            other
+        ),
+    }
+
+    // La cuenta sigue en 60.000 pagados (50.000 + 10.000)
+    let paid_after_fail: Decimal =
+        sqlx::query_scalar("select amount_paid from receivables where id = $1")
+            .bind(rec_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(paid_after_fail, dec(60000));
+
+    // 5. [P] Un reintento idéntico (mismo id y mismo cuerpo) no abona dos veces. Con el mismo id y otro monto: 409 IDEMPOTENCY_CONFLICT
+    let (status_replay, resp_replay) = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: pay_cash_id,
+            amount: dec(10000),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(status_replay, axum::http::StatusCode::OK);
+    assert_eq!(resp_replay.id, pay_cash_id);
+    assert_eq!(resp_replay.amount, dec(10000));
+
+    // No debe haber abonado dos veces
+    let paid_after_replay: Decimal =
+        sqlx::query_scalar("select amount_paid from receivables where id = $1")
+            .bind(rec_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(paid_after_replay, dec(60000));
+
+    let err_conflict = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: pay_cash_id,
+            amount: dec(5000), // Monto diferente con el mismo id
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await;
+    assert_eq!(err_code(&err_conflict), Some("IDEMPOTENCY_CONFLICT"));
+
+    // 6. [P] method = "SALDO": 422 PAYMENT_METHOD_NOT_AVAILABLE
+    let err_saldo = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(5000),
+            method: "SALDO".into(),
+            reference: None,
+        },
+    )
+    .await;
+    assert_eq!(err_code(&err_saldo), Some("PAYMENT_METHOD_NOT_AVAILABLE"));
+
+    // 7. [P] method = "DATAFONO" sin referencia: 422 PAYMENT_REFERENCE_REQUIRED
+    let err_ref = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(5000),
+            method: "DATAFONO".into(),
+            reference: None,
+        },
+    )
+    .await;
+    assert_eq!(err_code(&err_ref), Some("PAYMENT_REFERENCE_REQUIRED"));
+
+    // 8. [P] Abonar el saldo completo deja la cuenta PAGADA. Un abono más: 409 RECEIVABLE_CLOSED
+    let pay_full_id = Uuid::new_v4();
+    let (status_full, resp_full) = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: pay_full_id,
+            amount: dec(40000),
+            method: "DATAFONO".into(),
+            reference: Some("AUTH-45678".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(status_full, axum::http::StatusCode::CREATED);
+    assert_eq!(resp_full.balance_after, dec(0));
+    assert!(resp_full.next_due.is_none());
+
+    let rec_final: (Decimal, Decimal, String) =
+        sqlx::query_as("select amount_total, amount_paid, status from receivables where id = $1")
+            .bind(rec_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(rec_final.1, dec(100000));
+    assert_eq!(rec_final.2, "PAGADA");
+
+    // Intento de abono a cuenta ya cerrada
+    let err_closed = crate::receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        crate::receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(1000),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("TRF-EXTRA".into()),
+        },
+    )
+    .await;
+    assert_eq!(err_code(&err_closed), Some("RECEIVABLE_CLOSED"));
+
+    // Verificar list y get_detail
+    let (scope, mut tx) = tenancy::begin(app, &c_owner).await.unwrap();
+    let detail = crate::receivables::get_receivable_detail_tx(&mut tx, &scope, rec_id)
+        .await
+        .unwrap();
+    assert_eq!(detail.status, "PAGADA");
+    assert_eq!(detail.installments.len(), 3);
+    assert!(detail.installments.iter().all(|i| i.paid));
+    assert_eq!(detail.payments.len(), 3);
+
+    let list_all = crate::receivables::list_receivables_tx(
+        &mut tx,
+        &scope,
+        crate::receivables::ReceivablesFilter {
+            customer_id: Some(cust.customer.id),
+            status: Some("PAGADA".into()),
+            overdue: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(list_all.len(), 1);
+    assert_eq!(list_all[0].id, rec_id);
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
 }

@@ -21,6 +21,7 @@ pub mod pricing;
 mod procurement;
 pub mod products;
 pub mod promotions;
+pub mod receivables;
 pub mod refunds;
 pub mod registers;
 pub mod routes;

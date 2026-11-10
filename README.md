@@ -177,6 +177,9 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | DELETE | `/v1/customers/{id}` | Archivar cliente sin saldo ni apartados pendientes (`customers:write`) |
 | POST | `/v1/customers/{id}/unarchive` | Desarchivar cliente (`customers:write`) |
 | GET | `/v1/customers/{id}/purchases?page=&page_size=` | Historial de compras del cliente con formato de ventas (`customers:read`) |
+| GET | `/v1/receivables?customer_id=&status=&overdue=` | Listado de cuentas por cobrar con días de mora (`customers:read`) |
+| GET | `/v1/receivables/{id}` | Detalle de cuenta por cobrar con cuotas y abonos (`customers:read`) |
+| POST | `/v1/receivables/{id}/payments` | Registrar abono con aplicación a cuotas y caja (`credit:collect`) |
 
 ### Clientes (`/v1/customers`)
 
@@ -192,6 +195,16 @@ Módulo de gestión de clientes y posición crediticia consolidada por negocio (
 | `DELETE` | `/v1/customers/{id}` | `customers:write` | Path: `id` (UUID). Valida `customer_credit_position.balance == 0`, sin apartados activos ni saldo a favor en billetera. | 401, 403, 404, 409 (`CUSTOMER_HAS_BALANCE`) |
 | `POST` | `/v1/customers/{id}/unarchive` | `customers:write` | Path: `id` (UUID). Verifica que ningún otro cliente activo tenga el mismo `(doc_type, doc_number)`. | 401, 403, 404, 409 (`CUSTOMER_DUPLICATED`) |
 | `GET` | `/v1/customers/{id}/purchases` | `customers:read` | Path: `id` (UUID). Query: `page`, `page_size`. Devuelve historial de órdenes con formato estándar de ventas (`HistoryPage`). | 401, 403, 404 |
+
+### Cuentas por cobrar y abonos (`/v1/receivables`)
+
+Módulo de cartera de clientes, cuotas y aplicación de abonos:
+
+| Método | Ruta | Permisos | Parámetros / Cuerpo | Códigos de error |
+|---|---|---|---|---|
+| `GET` | `/v1/receivables` | `customers:read` | Query: `customer_id` (UUID), `status` (`ABIERTA`, `PARCIAL`, `PAGADA`; por defecto abiertas y parciales), `overdue` (`true` filtra solo mora > 0) | 401, 403 |
+| `GET` | `/v1/receivables/{id}` | `customers:read` | Path: `id` (UUID). Retorna datos de la cuenta, tabla de cuotas (`installments`) y pagos recibidos (`payments`). | 401, 403, 404 |
+| `POST` | `/v1/receivables/{id}/payments` | `credit:collect` | Path: `id` (UUID de la cuenta). Body JSON: `{ id, amount, method, reference }`. Aplica cuotas en cascada, valida límites, registra movimiento de caja en EFECTIVO (`ABONO_CARTERA`) y emite auditoría. | 400, 401, 403, 404, 409 (`IDEMPOTENCY_CONFLICT`, `RECEIVABLE_CLOSED`, `PAYMENT_NEEDS_OPEN_SESSION`), 422 (`PAYMENT_EXCEEDS_BALANCE`, `PAYMENT_METHOD_NOT_AVAILABLE`, `PAYMENT_REFERENCE_REQUIRED`) |
 
 ### `POST /v1/sales`
 

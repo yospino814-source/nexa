@@ -17,8 +17,8 @@ use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
     AppState, audit, cash, catalog, customers, expenses, inventory, locations, options, orders,
-    payables, permissions, procurement, products, refunds, registers, sales, sales_history,
-    settings, tenancy, users,
+    payables, permissions, procurement, products, receivables, refunds, registers, sales,
+    sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -198,6 +198,13 @@ pub fn router() -> Router<AppState> {
         .route("/v1/payables/{id}", get(get_payable))
         .route("/v1/payables/{id}/payments", post(create_payable_payment))
         .route("/v1/payables/{id}/write-off", post(write_off_payable))
+        // Cuentas por cobrar (F3.3)
+        .route("/v1/receivables", get(list_receivables))
+        .route("/v1/receivables/{id}", get(get_receivable))
+        .route(
+            "/v1/receivables/{id}/payments",
+            post(create_receivable_payment),
+        )
         // Gastos (F2.14)
         .route(
             "/v1/expense-categories",
@@ -1283,6 +1290,40 @@ async fn write_off_payable(
     let detail = payables::write_off_tx(&mut tx, &scope, id, body).await?;
     tx.commit().await?;
     Ok(Json(detail))
+}
+
+// ----------------------------------------------------------- cuentas por cobrar (F3.3)
+
+async fn list_receivables(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(filter): Query<receivables::ReceivablesFilter>,
+) -> ApiResult<Json<Vec<receivables::ReceivableRow>>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let rows = receivables::list_receivables_tx(&mut tx, &scope, filter).await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+async fn get_receivable(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<receivables::ReceivableDetail>> {
+    let (scope, mut tx) = tenancy::begin(&state.pool, &user.claims).await?;
+    let detail = receivables::get_receivable_detail_tx(&mut tx, &scope, id).await?;
+    tx.commit().await?;
+    Ok(Json(detail))
+}
+
+async fn create_receivable_payment(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(body): Body<receivables::CreateReceivablePaymentRequest>,
+) -> ApiResult<(StatusCode, Json<receivables::ReceivablePaymentResponse>)> {
+    let (status, resp) = receivables::record_payment(&state.pool, &user.claims, id, body).await?;
+    Ok((status, Json(resp)))
 }
 
 // ------------------------------------------------------------------- gastos
