@@ -446,12 +446,7 @@ export function UsersScreen() {
                       </span>
                     </td>
                     <td className="px-4 py-4 text-slate-600">
-                      {inv.branch_name ??
-                        (inv.branch_id
-                          ? branches.find((b) => b.id === inv.branch_id)?.name ?? "Sucursal"
-                          : inv.branch_ids && inv.branch_ids.length < branches.length
-                            ? branches.filter((b) => inv.branch_ids?.includes(b.id)).map((b) => b.name).join(", ")
-                            : "Todas las sucursales")}
+                      {inv.branch_name ?? "Todas las sucursales"}
                     </td>
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
@@ -466,7 +461,7 @@ export function UsersScreen() {
                           onClick={() => {
                             const origin = typeof window !== "undefined" ? window.location.origin : "";
                             const roleLabel = ROLE_LABELS[inv.role] ?? inv.role;
-                            const msg = `Hola, te invité a ${businessName} en Nexa POS como ${roleLabel}. Para entrar, creá tu cuenta con este correo: ${inv.email}, en ${origin}/registro?correo=${encodeURIComponent(inv.email)}. Si ya tenés cuenta, solo iniciá sesión.`;
+                            const msg = `Hola${inv.full_name ? " " + inv.full_name : ""}, te invité a ${businessName} en Nexa POS como ${roleLabel}. Para entrar, creá tu cuenta con este correo: ${inv.email}, en ${origin}/registro?correo=${encodeURIComponent(inv.email)}. Si ya tenés cuenta, solo iniciá sesión.`;
                             navigator.clipboard.writeText(msg);
                             notify("Mensaje copiado");
                           }}
@@ -504,7 +499,7 @@ export function UsersScreen() {
         <div className="space-y-8">
           {/* Grid of Roles */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {(Object.keys(ROLE_LABELS) as Role[]).map((r) => {
+            {ASSIGNABLE_ROLES.map((r) => {
               const isSelected = selectedRoleForPerms === r;
               return (
                 <button
@@ -811,7 +806,7 @@ export function UsersScreen() {
 
             <div className="mt-5 space-y-2">
               <label className="block text-xs font-semibold text-slate-700">Seleccionar nuevo rol</label>
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+              {availableRoles.map((r) => (
                 <button
                   key={r}
                   onClick={() => handleChangeRole(changeRoleUser, r)}

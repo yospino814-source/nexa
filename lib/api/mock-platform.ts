@@ -118,8 +118,10 @@ const mockInvitationsData: Invitation[] = [
   {
     id: "i1111111-1111-4111-8111-111111111111",
     email: "stella.duque@gmail.com",
+    full_name: "Stella Duque",
     role: "CAJERO",
-    branch_ids: [BRANCH_CENTRO],
+    branch_id: BRANCH_CENTRO,
+    branch_name: "Sede Centro",
     status: "PENDIENTE",
     created_at: "2026-03-01T16:20:00Z",
   },
@@ -302,8 +304,10 @@ export function mockInviteUser(input: InviteUserInput): Invitation {
   const inv: Invitation = {
     id: "inv-" + Date.now(),
     email: input.email,
+    full_name: input.full_name,
     role: input.role,
-    branch_ids: input.branch_id ? [input.branch_id] : [],
+    branch_id: input.branch_id ?? null,
+    branch_name: input.branch_id ? "Sede Centro" : null,
     status: "PENDIENTE",
     created_at: new Date().toISOString(),
   };

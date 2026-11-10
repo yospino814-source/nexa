@@ -1072,7 +1072,6 @@ export type Invitation = {
   role_name?: string | null;
   branch_id?: Uuid | null;
   branch_name?: string | null;
-  branch_ids?: Uuid[];
   status: "PENDIENTE" | "ACEPTADA" | "REVOCADA" | "CANCELADA";
   created_at: string;
 };
