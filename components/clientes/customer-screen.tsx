@@ -8,14 +8,11 @@ import {
   Archive,
   ArrowLeft,
   Check,
-  CreditCard,
   Edit2,
   Loader2,
-  Package,
   Pin,
   ShoppingBag,
   User,
-  Wallet,
 } from "lucide-react";
 
 import { CustomerFormDialog } from "./customer-form-dialog";
@@ -28,7 +25,7 @@ import {
 import { formatCOP } from "@/lib/format";
 import { useSession } from "@/lib/stores/session";
 
-type TabKey = "compras" | "cartera" | "separados" | "saldo" | "datos";
+type TabKey = "compras" | "datos";
 
 export function CustomerScreen({ customerId }: { customerId: string }) {
   const canWrite = useSession((s) => s.can("customers:write"));
@@ -328,7 +325,7 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
                 rows={2}
                 value={noteValue}
                 onChange={(e) => setNoteValue(e.target.value)}
-                placeholder="Escribe instrucciones o recordatorios sobre este cliente..."
+                placeholder="Escribí instrucciones o recordatorios sobre este cliente..."
                 className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden"
               />
               <div className="flex items-center justify-end gap-2">
@@ -355,7 +352,7 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
             </div>
           ) : (
             <p className="text-slate-700 italic">
-              {customer.pinned_note || "Sin nota fijada. Haz clic en 'Editar nota' para agregar una."}
+              {customer.pinned_note || "Sin nota fijada. Hacé clic en 'Editar nota' para agregar una."}
             </p>
           )}
         </div>
@@ -383,39 +380,6 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
         >
           <ShoppingBag className="size-3.5" />
           Historial de Compras
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("cartera")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 transition-all ${
-            activeTab === "cartera" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <CreditCard className="size-3.5" />
-          Cartera (Fiado)
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("separados")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 transition-all ${
-            activeTab === "separados" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Package className="size-3.5" />
-          Separados
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("saldo")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 transition-all ${
-            activeTab === "saldo" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Wallet className="size-3.5" />
-          Saldo a Favor
         </button>
       </div>
 
@@ -548,67 +512,6 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
                 </tbody>
               </table>
             )}
-          </div>
-        )}
-
-        {/* Pestaña: Cartera */}
-        {activeTab === "cartera" && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Estado de Cuentas por Cobrar
-              </h3>
-              <span className="text-xs font-medium text-slate-500">
-                Saldo pendiente: <strong className="text-rose-600">{formatCOP(Number(customer.balance || 0))}</strong>
-              </span>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-8 text-center text-slate-500 text-xs">
-              <CreditCard className="size-8 mx-auto mb-2 opacity-30 text-teal-700" />
-              <p className="font-medium text-slate-700">Módulo de gestión de cuentas por cobrar (F3.2 - F3.5)</p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Los abonos, cuotas, acuerdos y cobro por WhatsApp estarán disponibles en las siguientes tareas.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Pestaña: Separados */}
-        {activeTab === "separados" && (
-          <div className="flex flex-col gap-4">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Separados Activos y Vencidos
-            </h3>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-8 text-center text-slate-500 text-xs">
-              <Package className="size-8 mx-auto mb-2 opacity-30 text-teal-700" />
-              <p className="font-medium text-slate-700">Módulo de separados (F3.7)</p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                La creación de órdenes de separado y registro de cuotas iniciales se habilitará en F3.7.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Pestaña: Saldo a favor */}
-        {activeTab === "saldo" && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Billetera de Saldo a Favor
-              </h3>
-              <span className="text-xs font-medium text-slate-500">
-                Saldo disponible:{" "}
-                <strong className="text-teal-700 font-black">
-                  {formatCOP(Number(customer.wallet_balance || 0))}
-                </strong>
-              </span>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-8 text-center text-slate-500 text-xs">
-              <Wallet className="size-8 mx-auto mb-2 opacity-30 text-teal-700" />
-              <p className="font-medium text-slate-700">Módulo de saldo a favor (F3.6)</p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Las recargas, reembolsos a billetera y movimientos se habilitarán en F3.6.
-              </p>
-            </div>
           </div>
         )}
       </div>

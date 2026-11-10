@@ -20,6 +20,7 @@ import {
   type CustomerDetail,
   type DocType,
 } from "@/lib/api";
+import { defaultPersonType, type PersonType } from "@/lib/customers";
 import { useSession } from "@/lib/stores/session";
 
 const DOC_TYPES: { code: DocType | "NONE"; label: string }[] = [
@@ -59,6 +60,8 @@ export function CustomerFormDialog({
   const [docType, setDocType] = useState<DocType | "NONE">("CC");
   const [docNumber, setDocNumber] = useState("");
   const [dv, setDv] = useState("");
+  const [personType, setPersonType] = useState<PersonType>("NATURAL");
+  const [personTypeTouched, setPersonTypeTouched] = useState(false);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [taxRegime, setTaxRegime] = useState<"NO_RESPONSABLE" | "RESPONSABLE_IVA">("NO_RESPONSABLE");
@@ -83,9 +86,13 @@ export function CustomerFormDialog({
       setError(null);
       if (customer) {
         setName(customer.name || "");
-        setDocType((customer.doc_type as DocType) || "NONE");
-        setDocNumber(customer.doc_number || "");
+        const dt = (customer.doc_type as DocType) || "NONE";
+        setDocType(dt);
+        const dn = customer.doc_number || "";
+        setDocNumber(dn);
         setDv(customer.dv || "");
+        setPersonType(customer.person_type === "JURIDICA" ? "JURIDICA" : "NATURAL");
+        setPersonTypeTouched(Boolean(customer.person_type));
         setPhone(customer.phone || "");
         setEmail(customer.email || "");
         setTaxRegime(customer.tax_regime === "RESPONSABLE_IVA" ? "RESPONSABLE_IVA" : "NO_RESPONSABLE");
@@ -103,6 +110,8 @@ export function CustomerFormDialog({
         setDocType("CC");
         setDocNumber("");
         setDv("");
+        setPersonType("NATURAL");
+        setPersonTypeTouched(false);
         setPhone("");
         setEmail("");
         setTaxRegime("NO_RESPONSABLE");
@@ -137,11 +146,13 @@ export function CustomerFormDialog({
       return;
     }
 
+    const nBlockDays = parseInt(creditBlockDays, 10);
     const payload: CreateCustomerInput = {
       name: trimmedName,
       doc_type: docType === "NONE" ? null : docType,
       doc_number: docType === "NONE" || !docNumber.trim() ? null : docNumber.trim(),
       dv: docType === "NIT" && dv.trim() ? dv.trim() : null,
+      person_type: docType === "NIT" ? personType : "NATURAL",
       phone: phone.trim() ? phone.trim() : null,
       email: email.trim() ? email.trim() : null,
       tax_regime: taxRegime,
@@ -153,7 +164,7 @@ export function CustomerFormDialog({
       shipping_address: shippingAddress.trim() ? shippingAddress.trim() : null,
       pinned_note: pinnedNote.trim() ? pinnedNote.trim() : null,
       credit_limit: creditLimit.trim() ? creditLimit.trim() : "0.00",
-      credit_block_days: parseInt(creditBlockDays, 10) || 30,
+      credit_block_days: Number.isNaN(nBlockDays) ? 30 : nBlockDays,
     };
 
     setSaving(true);
@@ -205,14 +216,20 @@ export function CustomerFormDialog({
 
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-5">
           {/* Identificación y Nombre */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className={`grid grid-cols-1 ${docType === "NIT" ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3`}>
             <div className="md:col-span-1">
               <label className="mb-1 block text-xs font-semibold text-slate-700">
                 Tipo de documento
               </label>
               <select
                 value={docType}
-                onChange={(e) => setDocType(e.target.value as DocType | "NONE")}
+                onChange={(e) => {
+                  const newType = e.target.value as DocType | "NONE";
+                  setDocType(newType);
+                  if (!personTypeTouched) {
+                    setPersonType(defaultPersonType(newType, docNumber));
+                  }
+                }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-hidden"
               >
                 {DOC_TYPES.map((dt) => (
@@ -231,39 +248,64 @@ export function CustomerFormDialog({
                 type="text"
                 disabled={docType === "NONE"}
                 value={docNumber}
-                onChange={(e) => setDocNumber(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDocNumber(val);
+                  if (!personTypeTouched && docType === "NIT") {
+                    setPersonType(defaultPersonType("NIT", val));
+                  }
+                }}
                 placeholder={docType === "NONE" ? "No aplica" : "Ej: 900123456"}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden disabled:bg-slate-50"
               />
             </div>
 
             {docType === "NIT" && (
-              <div className="md:col-span-1">
-                <label className="mb-1 block text-xs font-semibold text-slate-700">
-                  Dígito (DV)
-                </label>
-                <input
-                  type="text"
-                  maxLength={1}
-                  value={dv}
-                  onChange={(e) => setDv(e.target.value)}
-                  placeholder="Auto"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-800 text-center placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden"
-                />
-              </div>
+              <>
+                <div className="md:col-span-1">
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                    Dígito (DV)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={1}
+                    value={dv}
+                    onChange={(e) => setDv(e.target.value)}
+                    placeholder="Auto"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-800 text-center placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="md:col-span-1">
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                    Tipo de persona
+                  </label>
+                  <select
+                    value={personType}
+                    onChange={(e) => {
+                      setPersonType(e.target.value as PersonType);
+                      setPersonTypeTouched(true);
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-hidden"
+                  >
+                    <option value="NATURAL">Persona Natural</option>
+                    <option value="JURIDICA">Persona Jurídica</option>
+                  </select>
+                </div>
+              </>
             )}
           </div>
 
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-700">
-              Nombre o Razón Social <span className="text-rose-500">*</span>
+              {docType === "NIT" && personType === "JURIDICA" ? "Razón social" : "Nombre completo"} <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ej: Distribuidora El Triunfo SAS"
+              placeholder={docType === "NIT" && personType === "JURIDICA" ? "Ej: Distribuidora El Triunfo SAS" : "Ej: Juan Pérez"}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden"
             />
           </div>
@@ -422,11 +464,6 @@ export function CustomerFormDialog({
               <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 Condiciones de Crédito (Fiado)
               </h4>
-              {!canOverrideCredit && (
-                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
-                  Requiere permiso credit:override para editar
-                </span>
-              )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -437,7 +474,7 @@ export function CustomerFormDialog({
                   type="number"
                   min={0}
                   step={1000}
-                  disabled={!canOverrideCredit && Boolean(customer)}
+                  disabled={!canOverrideCredit}
                   value={creditLimit}
                   onChange={(e) => setCreditLimit(e.target.value)}
                   placeholder="0"
@@ -453,7 +490,7 @@ export function CustomerFormDialog({
                   type="number"
                   min={0}
                   max={365}
-                  disabled={!canOverrideCredit && Boolean(customer)}
+                  disabled={!canOverrideCredit}
                   value={creditBlockDays}
                   onChange={(e) => setCreditBlockDays(e.target.value)}
                   placeholder="30"
@@ -461,6 +498,11 @@ export function CustomerFormDialog({
                 />
               </div>
             </div>
+            {!canOverrideCredit && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Solo un administrador puede cambiar el cupo.
+              </p>
+            )}
           </div>
 
           <div>

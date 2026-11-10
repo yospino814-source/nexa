@@ -5,6 +5,7 @@ import { Building2, Loader2 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api, friendlyError, type Supplier } from "@/lib/api";
+import { defaultPersonType } from "@/lib/customers";
 
 export function SupplierDialog({
   supplier,
@@ -22,7 +23,8 @@ export function SupplierDialog({
   const [docType, setDocType] = useState<"NIT" | "CC" | "CE">("NIT");
   const [taxId, setTaxId] = useState("");
   const [dv, setDv] = useState("");
-  const [personType, setPersonType] = useState<"NATURAL" | "JURIDICA">("JURIDICA");
+  const [personType, setPersonType] = useState<"NATURAL" | "JURIDICA">("NATURAL");
+  const [personTypeTouched, setPersonTypeTouched] = useState(false);
   const [ivaResponsible, setIvaResponsible] = useState(true);
   const [selfWithholding, setSelfWithholding] = useState(false);
   const [paymentTerms, setPaymentTerms] = useState<"CONTADO" | "CREDITO">("CONTADO");
@@ -47,10 +49,13 @@ export function SupplierDialog({
     setLastKey(openKey);
     if (supplier) {
       setName(supplier.name);
-      setDocType(supplier.doc_type ?? "NIT");
-      setTaxId(supplier.tax_id ?? "");
+      const sDocType = supplier.doc_type ?? "NIT";
+      const sTaxId = supplier.tax_id ?? "";
+      setDocType(sDocType);
+      setTaxId(sTaxId);
       setDv(supplier.dv ?? "");
-      setPersonType(supplier.person_type ?? "JURIDICA");
+      setPersonType(supplier.person_type ?? defaultPersonType(sDocType, sTaxId));
+      setPersonTypeTouched(Boolean(supplier.person_type));
       setIvaResponsible(supplier.iva_responsible ?? true);
       setSelfWithholding(supplier.self_withholding ?? false);
       setPaymentTerms(supplier.payment_terms ?? "CONTADO");
@@ -71,7 +76,8 @@ export function SupplierDialog({
       setDocType("NIT");
       setTaxId("");
       setDv("");
-      setPersonType("JURIDICA");
+      setPersonType(defaultPersonType("NIT", ""));
+      setPersonTypeTouched(false);
       setIvaResponsible(true);
       setSelfWithholding(false);
       setPaymentTerms("CONTADO");
@@ -191,7 +197,13 @@ export function SupplierDialog({
               </label>
               <select
                 value={docType}
-                onChange={(e) => setDocType(e.target.value as "NIT" | "CC" | "CE")}
+                onChange={(e) => {
+                  const newDt = e.target.value as "NIT" | "CC" | "CE";
+                  setDocType(newDt);
+                  if (!personTypeTouched) {
+                    setPersonType(defaultPersonType(newDt, taxId));
+                  }
+                }}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20"
               >
                 <option value="NIT">NIT</option>
@@ -207,7 +219,13 @@ export function SupplierDialog({
                 type="text"
                 placeholder="Ej. 900123456"
                 value={taxId}
-                onChange={(e) => setTaxId(e.target.value)}
+                onChange={(e) => {
+                  const newTaxId = e.target.value;
+                  setTaxId(newTaxId);
+                  if (!personTypeTouched) {
+                    setPersonType(defaultPersonType(docType, newTaxId));
+                  }
+                }}
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20"
               />
             </div>
@@ -235,7 +253,10 @@ export function SupplierDialog({
               </label>
               <select
                 value={personType}
-                onChange={(e) => setPersonType(e.target.value as "NATURAL" | "JURIDICA")}
+                onChange={(e) => {
+                  setPersonType(e.target.value as "NATURAL" | "JURIDICA");
+                  setPersonTypeTouched(true);
+                }}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20"
               >
                 <option value="JURIDICA">Persona Jurídica</option>

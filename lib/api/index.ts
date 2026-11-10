@@ -71,6 +71,17 @@ import {
   mockRecordLoginAttempt,
   PERMISSION_CATALOG,
 } from "./mock-platform";
+import {
+  mockCustomers,
+  mockListCustomers,
+  mockGetCustomer,
+  mockCreateCustomer,
+  mockUpdateCustomer,
+  mockUpsertCustomer,
+  mockArchiveCustomer,
+  mockUnarchiveCustomer,
+  mockGetCustomerPurchases,
+} from "./mock-customers";
 import type {
   AuditEntry,
   AuditFilter,
@@ -115,7 +126,6 @@ import type {
   CustomerUpsertResponse,
   DashboardSummary,
   Decimal,
-  DocType,
   Invitation,
   InviteUserInput,
   LoginAttemptInput,
@@ -502,70 +512,6 @@ function seedClosedSessions(): CashSummary[] {
     };
   });
 }
-
-
-const mockCustomers: Customer[] = [
-  {
-    id: "c0000000-0000-0000-0000-000000000001",
-    doc_type: "NIT",
-    doc_number: "900123456",
-    dv: "1",
-    name: "Distribuidora El Triunfo SAS",
-    phone: "3104567890",
-    email: "contacto@eltriunfo.com.co",
-    price_tier_id: null,
-  },
-  {
-    id: "c0000000-0000-0000-0000-000000000002",
-    doc_type: "CC",
-    doc_number: "1020304050",
-    dv: null,
-    name: "Juan Carlos Pérez",
-    phone: "3001234567",
-    email: "juan.perez@gmail.com",
-    price_tier_id: "t0000000-0000-0000-0000-000000000001",
-  },
-  {
-    id: "c0000000-0000-0000-0000-000000000003",
-    doc_type: "CC",
-    doc_number: "52987654",
-    dv: null,
-    name: "María Fernanda Gómez",
-    phone: "3159876543",
-    email: "mafe.gomez@hotmail.com",
-    price_tier_id: null,
-  },
-  {
-    id: "c0000000-0000-0000-0000-000000000004",
-    doc_type: "CC",
-    doc_number: "80123456",
-    dv: null,
-    name: "Carlos Alberto Rodríguez",
-    phone: "3201122334",
-    email: "carlos.rodriguez@outlook.com",
-    price_tier_id: null,
-  },
-  {
-    id: "c0000000-0000-0000-0000-000000000005",
-    doc_type: "CC",
-    doc_number: "1032456789",
-    dv: null,
-    name: "Laura Camila Restrepo",
-    phone: "3118899001",
-    email: "laura.restrepo@yahoo.es",
-    price_tier_id: null,
-  },
-  {
-    id: "c0000000-0000-0000-0000-000000000006",
-    doc_type: "CC",
-    doc_number: "79654321",
-    dv: null,
-    name: "Andrés Felipe Morales",
-    phone: "3187766554",
-    email: "andres.morales@empresa.co",
-    price_tier_id: null,
-  },
-];
 
 function newMockSession(
   opening: number,
@@ -2989,29 +2935,7 @@ export const api = {
     async list(query?: CustomerQuery): Promise<Customer[]> {
       if (USE_MOCKS) {
         await delay();
-        const q = query?.q?.trim().toLowerCase() || "";
-        const limit = query?.page_size || query?.limit || 50;
-        let filtered = mockCustomers;
-        if (query?.status && query.status !== "TODOS") {
-          if (query.status === "ARCHIVADO") {
-            filtered = filtered.filter((c) => Boolean(c.archived_at));
-          } else if (query.status === "EN_MORA") {
-            filtered = filtered.filter((c) => !c.archived_at && (c.max_days_overdue ?? 0) > 0);
-          } else if (query.status === "AL_DIA") {
-            filtered = filtered.filter((c) => !c.archived_at && (c.max_days_overdue ?? 0) === 0);
-          }
-        } else {
-          filtered = filtered.filter((c) => !c.archived_at);
-        }
-        if (q) {
-          filtered = filtered.filter(
-            (c) =>
-              c.name.toLowerCase().includes(q) ||
-              (c.doc_number && c.doc_number.toLowerCase().startsWith(q)) ||
-              (c.phone && c.phone.startsWith(q)),
-          );
-        }
-        return structuredClone(filtered.slice(0, limit));
+        return mockListCustomers(query);
       }
       const params = new URLSearchParams();
       if (query?.q) params.set("q", query.q);
@@ -3032,16 +2956,7 @@ export const api = {
     async get(id: string): Promise<CustomerDetail> {
       if (USE_MOCKS) {
         await delay();
-        const found = mockCustomers.find((c) => c.id === id);
-        if (!found) throw new ApiError(404, "Cliente no encontrado");
-        const detail: CustomerDetail = {
-          ...found,
-          balance: found.balance ?? "0.00",
-          credit_available: dec(Math.max(0, Number(found.credit_limit ?? 0) - Number(found.balance ?? 0))),
-          wallet_balance: "0.00",
-          missing_fiscal: [],
-        };
-        return structuredClone(detail);
+        return mockGetCustomer(id);
       }
       return request(`/v1/customers/${id}`);
     },
@@ -3050,79 +2965,7 @@ export const api = {
     async create(input: CreateCustomerInput): Promise<CustomerDetail> {
       if (USE_MOCKS) {
         await delay();
-        const name = input.name.trim().replace(/\s+/g, " ");
-        if (!name || name.length > 120) {
-          throw new ApiError(422, "El nombre debe tener entre 1 y 120 caracteres", "CUSTOMER_INVALID");
-        }
-        let doc_number = input.doc_number ? input.doc_number.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : null;
-        let doc_type = input.doc_type ? (input.doc_type.trim().toUpperCase() as DocType) : null;
-        if (!doc_number) doc_number = null;
-        if (!doc_type) doc_type = null;
-        if ((doc_number === null) !== (doc_type === null)) {
-          throw new ApiError(422, "Tipo y número de documento deben proporcionarse juntos", "CUSTOMER_INVALID");
-        }
-        let dv = input.dv ? input.dv.replace(/[^0-9]/g, "") : null;
-        if (!dv) dv = null;
-        if (dv && doc_type !== "NIT") {
-          throw new ApiError(422, "El dígito de verificación (DV) solo aplica para NIT", "CUSTOMER_INVALID");
-        }
-        if (dv && dv.length !== 1) {
-          throw new ApiError(422, "El DV debe ser un único dígito", "CUSTOMER_INVALID");
-        }
-        let phone = input.phone ? input.phone.replace(/[^0-9]/g, "") : null;
-        if (!phone) phone = null;
-        if (phone && (phone.length < 7 || phone.length > 15)) {
-          throw new ApiError(422, "El teléfono debe tener entre 7 y 15 dígitos", "CUSTOMER_INVALID");
-        }
-        let email = input.email ? input.email.trim().toLowerCase() : null;
-        if (!email) email = null;
-        if (email) {
-          const atCount = (email.match(/@/g) || []).length;
-          if (atCount !== 1 || email.startsWith("@") || email.endsWith("@") || email.length < 3) {
-            throw new ApiError(422, "El correo electrónico no es válido", "CUSTOMER_INVALID");
-          }
-        }
-        if (doc_number && doc_type) {
-          const dup = mockCustomers.find(
-            (c) => c.doc_type === doc_type && c.doc_number?.toUpperCase() === doc_number?.toUpperCase(),
-          );
-          if (dup) {
-            throw new ApiError(409, "Ya existe un cliente con ese documento.", "CUSTOMER_DUPLICATED", { id: dup.id });
-          }
-        }
-        const newCust: Customer = {
-          id: `c0000000-0000-0000-0000-${String(mockCustomers.length + 1).padStart(12, "0")}`,
-          name,
-          doc_type,
-          doc_number,
-          dv,
-          phone,
-          email,
-          price_tier_id: input.price_tier_id ?? null,
-          person_type: doc_type === "NIT" ? "JURIDICA" : "NATURAL",
-          tax_regime: input.tax_regime ?? "NO_RESPONSABLE",
-          fiscal_responsibilities: input.fiscal_responsibilities ?? ["R-99-PN"],
-          ciiu: input.ciiu ?? null,
-          withholding_agent: input.withholding_agent ?? false,
-          city_code: input.city_code ?? null,
-          billing_address: input.billing_address ?? null,
-          shipping_address: input.shipping_address ?? null,
-          pinned_note: input.pinned_note ?? null,
-          credit_limit: input.credit_limit ?? "0.00",
-          credit_block_days: input.credit_block_days ?? 30,
-          archived_at: null,
-          balance: "0.00",
-          max_days_overdue: 0,
-        };
-        mockCustomers.push(newCust);
-        const detail: CustomerDetail = {
-          ...newCust,
-          balance: "0.00",
-          credit_available: newCust.credit_limit ?? "0.00",
-          wallet_balance: "0.00",
-          missing_fiscal: [],
-        };
-        return structuredClone(detail);
+        return mockCreateCustomer(input);
       }
       return request("/v1/customers", {
         method: "POST",
@@ -3134,13 +2977,7 @@ export const api = {
     async update(id: string, input: CreateCustomerInput): Promise<CustomerDetail> {
       if (USE_MOCKS) {
         await delay();
-        const idx = mockCustomers.findIndex((c) => c.id === id);
-        if (idx === -1) throw new ApiError(404, "Cliente no encontrado");
-        mockCustomers[idx] = {
-          ...mockCustomers[idx],
-          ...input,
-        };
-        return this.get(id);
+        return mockUpdateCustomer(id, input);
       }
       return request(`/v1/customers/${id}`, {
         method: "PUT",
@@ -3152,23 +2989,7 @@ export const api = {
     async upsert(input: CreateCustomerInput): Promise<CustomerUpsertResponse> {
       if (USE_MOCKS) {
         await delay();
-        const existing = mockCustomers.find(
-          (c) =>
-            (input.email && c.email?.toLowerCase() === input.email.toLowerCase()) ||
-            (input.doc_number && c.doc_number === input.doc_number && c.doc_type === input.doc_type),
-        );
-        if (existing) {
-          const detail = await this.get(existing.id);
-          return {
-            customer: detail,
-            result: "UPDATED",
-          };
-        }
-        const created = await this.create(input);
-        return {
-          customer: created,
-          result: "CREATED",
-        };
+        return mockUpsertCustomer(input);
       }
       return request("/v1/customers/upsert", {
         method: "POST",
@@ -3180,9 +3001,7 @@ export const api = {
     async archive(id: string): Promise<void> {
       if (USE_MOCKS) {
         await delay();
-        const found = mockCustomers.find((c) => c.id === id);
-        if (found) found.archived_at = new Date().toISOString();
-        return;
+        return mockArchiveCustomer(id);
       }
       return request(`/v1/customers/${id}/archive`, {
         method: "POST",
@@ -3193,9 +3012,7 @@ export const api = {
     async unarchive(id: string): Promise<void> {
       if (USE_MOCKS) {
         await delay();
-        const found = mockCustomers.find((c) => c.id === id);
-        if (found) found.archived_at = null;
-        return;
+        return mockUnarchiveCustomer(id);
       }
       return request(`/v1/customers/${id}/unarchive`, {
         method: "POST",
@@ -3206,11 +3023,7 @@ export const api = {
     async getPurchases(id: string, page = 1): Promise<SaleHistoryPage> {
       if (USE_MOCKS) {
         await delay();
-        return {
-          items: [],
-          total_count: 0,
-          totals: { count: 0, amount: "0.00" },
-        };
+        return mockGetCustomerPurchases(id, page);
       }
       return request(`/v1/customers/${id}/purchases?page=${page}`);
     },

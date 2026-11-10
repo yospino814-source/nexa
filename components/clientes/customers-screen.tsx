@@ -16,19 +16,21 @@ export function CustomersScreen() {
 
   const [tab, setTab] = useState<CustomerTab>("TODOS");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const fetchCustomers = async (statusTab: CustomerTab, qStr: string) => {
+  const fetchCustomers = async (statusTab: CustomerTab, qStr: string, pageNum: number) => {
     setLoading(true);
     setError(null);
     try {
       const res = await api.customers.list({
         status: statusTab,
         q: qStr.trim() || undefined,
+        page: pageNum,
         page_size: 50,
       });
       setCustomers(res);
@@ -41,10 +43,20 @@ export function CustomersScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchCustomers(tab, query);
+      fetchCustomers(tab, query, page);
     }, 250);
     return () => clearTimeout(timer);
-  }, [tab, query]);
+  }, [tab, query, page]);
+
+  const handleTabChange = (newTab: CustomerTab) => {
+    setTab(newTab);
+    setPage(1);
+  };
+
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+    setPage(1);
+  };
 
   const handleCustomerCreated = (newCust: CustomerDetail) => {
     setCustomers((prev) => [newCust, ...prev]);
@@ -80,7 +92,7 @@ export function CustomersScreen() {
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
             placeholder="Buscar por nombre, documento o teléfono..."
             className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-teal-600 focus:outline-hidden"
           />
@@ -90,7 +102,7 @@ export function CustomersScreen() {
         <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold">
           <button
             type="button"
-            onClick={() => setTab("TODOS")}
+            onClick={() => handleTabChange("TODOS")}
             className={`rounded-lg px-3.5 py-1.5 transition-all ${
               tab === "TODOS" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
@@ -99,7 +111,7 @@ export function CustomersScreen() {
           </button>
           <button
             type="button"
-            onClick={() => setTab("AL_DIA")}
+            onClick={() => handleTabChange("AL_DIA")}
             className={`rounded-lg px-3.5 py-1.5 transition-all ${
               tab === "AL_DIA" ? "bg-white text-teal-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
@@ -108,7 +120,7 @@ export function CustomersScreen() {
           </button>
           <button
             type="button"
-            onClick={() => setTab("EN_MORA")}
+            onClick={() => handleTabChange("EN_MORA")}
             className={`rounded-lg px-3.5 py-1.5 transition-all ${
               tab === "EN_MORA" ? "bg-white text-rose-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
@@ -117,7 +129,7 @@ export function CustomersScreen() {
           </button>
           <button
             type="button"
-            onClick={() => setTab("ARCHIVADO")}
+            onClick={() => handleTabChange("ARCHIVADO")}
             className={`rounded-lg px-3.5 py-1.5 transition-all ${
               tab === "ARCHIVADO" ? "bg-white text-slate-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
@@ -248,6 +260,27 @@ export function CustomersScreen() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Paginación */}
+      <div className="flex items-center justify-between text-xs text-slate-600 px-1">
+        <button
+          type="button"
+          disabled={page <= 1 || loading}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Anterior
+        </button>
+        <span className="font-semibold text-slate-700">Página {page}</span>
+        <button
+          type="button"
+          disabled={customers.length < 50 || loading}
+          onClick={() => setPage((p) => p + 1)}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Siguiente
+        </button>
       </div>
 
       {/* Diálogo de nuevo cliente */}

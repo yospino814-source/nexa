@@ -1104,6 +1104,7 @@ export type CreateCustomerInput = {
   doc_type?: DocType | null;
   doc_number?: string | null;
   dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA" | null;
   phone?: string | null;
   email?: string | null;
   price_tier_id?: Uuid | null;

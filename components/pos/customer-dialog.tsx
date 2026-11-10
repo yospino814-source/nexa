@@ -131,13 +131,18 @@ export function CustomerDialog({
     setSaving(true);
     try {
       const res = await api.customers.upsert(payload);
-      const msg = res.result === "CREATED" ? "Cliente creado" : "Cliente actualizado con los datos nuevos";
-      setSuccessMsg(msg);
-      setTimeout(() => {
+      if (res.result === "UNCHANGED") {
         onSelectCustomer(res.customer);
         onOpenChange(false);
-        setSuccessMsg(null);
-      }, 500);
+      } else {
+        const msg = res.result === "CREATED" ? "Cliente creado" : "Cliente actualizado con los datos nuevos";
+        setSuccessMsg(msg);
+        setTimeout(() => {
+          onSelectCustomer(res.customer);
+          onOpenChange(false);
+          setSuccessMsg(null);
+        }, 500);
+      }
     } catch (err) {
       if (err instanceof ApiError && err.code === "CUSTOMER_DUPLICATED") {
         const dupId = (err.data as { id?: string })?.id;
