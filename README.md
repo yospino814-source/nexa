@@ -161,6 +161,9 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/business` | Nombre, razón social, NIT y DV del negocio, para la tirilla (cualquier miembro) |
 | GET | `/v1/waiters?branch_id=` | Meseros activos de la sucursal, para la propina del POS (`pos:sell`) |
 | POST | `/v1/users/invite` | Invitar usuario por email con rol y sucursales asignadas |
+| POST | `/v1/users/invitations/{id}/revoke` | Revocar invitación pendiente (`users:manage`) |
+| GET | `/v1/invitations/mine` | Invitaciones pendientes del usuario autenticado |
+| POST | `/v1/invitations/{id}/accept` | Aceptar invitación y crear membresía activa |
 | PUT | `/v1/users/{id}/role` | Modificar rol de usuario (protege al dueño de auto-degradarse) |
 | PUT | `/v1/users/{id}/status` | Activar o desactivar acceso de un usuario |
 | POST | `/v1/auth/login-attempt` | Registrar o verificar intento de login; tras 5 fallos en 15 min responde 429 |

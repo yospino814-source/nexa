@@ -16,9 +16,9 @@ use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, expenses, inventory, locations, onboarding, options,
-    orders, payables, permissions, procurement, products, receivables, refunds, registers, sales,
-    sales_history, settings, tenancy, users,
+    AppState, audit, cash, catalog, customers, expenses, inventory, invitations, locations,
+    onboarding, options, orders, payables, permissions, procurement, products, receivables,
+    refunds, registers, sales, sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -239,6 +239,12 @@ pub fn router() -> Router<AppState> {
         .route("/v1/waiters", get(list_waiters))
         .route("/v1/business", get(business_info))
         .route("/v1/users/invite", post(invite_user))
+        .route(
+            "/v1/users/invitations/{id}/revoke",
+            post(revoke_user_invitation),
+        )
+        .route("/v1/invitations/mine", get(get_my_invitations))
+        .route("/v1/invitations/{id}/accept", post(accept_user_invitation))
         .route("/v1/users/{id}/role", put(update_user_role))
         .route("/v1/users/{id}/status", put(update_user_status))
         // Auth / seguridad
@@ -2053,4 +2059,30 @@ async fn onboarding_create_business(
 ) -> ApiResult<(StatusCode, Json<onboarding::OnboardingResponse>)> {
     let res = onboarding::create_business(&state.pool, &user.claims, req).await?;
     Ok((StatusCode::CREATED, Json(res)))
+}
+
+async fn revoke_user_invitation(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    users::revoke_invitation(&state.pool, &user.claims, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_my_invitations(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<invitations::MyInvitation>>> {
+    let res = invitations::my_invitations(&state.pool, &user.claims).await?;
+    Ok(Json(res))
+}
+
+async fn accept_user_invitation(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<invitations::AcceptInvitationResponse>> {
+    let res = invitations::accept_invitation(&state.pool, &user.claims, id).await?;
+    Ok(Json(res))
 }

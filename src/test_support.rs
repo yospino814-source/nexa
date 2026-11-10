@@ -45,14 +45,16 @@ pub async fn seed_branch(pool: &PgPool, tenant: Uuid) -> Uuid {
 
 pub async fn seed_user(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("insert into auth.users (id, email) values ($1, $2)")
+    let email = format!("{id}@itest.local");
+    sqlx::query("insert into auth.users (id, email, email_confirmed_at) values ($1, $2, now())")
         .bind(id)
-        .bind(format!("{id}@itest.local"))
+        .bind(&email)
         .execute(pool)
         .await
         .expect("seed auth user");
-    sqlx::query("insert into users (id, full_name) values ($1, 'Test')")
+    sqlx::query("insert into users (id, full_name, email) values ($1, 'Test', $2)")
         .bind(id)
+        .bind(&email)
         .execute(pool)
         .await
         .expect("seed user profile");

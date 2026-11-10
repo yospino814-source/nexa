@@ -804,6 +804,7 @@ async fn database_integration() {
     f3_payments(&app, &admin).await;
     f3_aging(&app, &admin).await;
     s1_onboarding(&app, &admin).await;
+    s2_invitations(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -1847,7 +1848,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         users::InviteUserRequest {
             email: "nuevo.empleado@ejemplo.com".into(),
             full_name: "Nuevo Empleado".into(),
-            role: "MESERO".into(),
+            role: "SUPERVISOR".into(),
             branch_id: Some(branch),
         },
     )
@@ -12213,4 +12214,316 @@ async fn s1_onboarding(app: &PgPool, admin: &PgPool) {
 
     cleanup(admin, resp.tenant_id, &[user1]).await;
     cleanup(admin, other_tenant, &[other_user, other_owner]).await;
+}
+
+async fn s2_invitations(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    sqlx::query("update auth.users set email_confirmed_at = now() where id = $1")
+        .bind(owner)
+        .execute(admin)
+        .await
+        .unwrap();
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let owner_c = claims(owner, Some(tenant), Some(branch));
+
+    // [P] Invitar con role = "MESERO": 422 ROLE_NOT_AVAILABLE.
+    let err_mesero = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: "mesero@test.com".into(),
+            full_name: "Juan Mesero".into(),
+            role: "MESERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_mesero {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "ROLE_NOT_AVAILABLE");
+        }
+        other => panic!("esperaba 422 ROLE_NOT_AVAILABLE, obtuve: {:?}", other),
+    }
+
+    // [P] Invitar a un correo que ya tiene una membresía activa en el negocio: 409 USER_ALREADY_MEMBER.
+    let owner_email: String = sqlx::query_scalar("select email from users where id = $1")
+        .bind(owner)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    let err_already = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: owner_email,
+            full_name: "Dueño Mismo".into(),
+            role: "CAJERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_already {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "USER_ALREADY_MEMBER");
+        }
+        other => panic!("esperaba 409 USER_ALREADY_MEMBER, obtuve: {:?}", other),
+    }
+
+    // [P] Un usuario con el correo confirmado ve la invitación en my_invitations, la acepta y queda con una membresía activa del rol y la sucursal invitados. La invitación queda ACEPTADA.
+    let invitee = seed_user(admin).await;
+    let invitee_email = format!("cajero_{}@itest.local", invitee);
+    sqlx::query("update auth.users set email = $1, email_confirmed_at = now() where id = $2")
+        .bind(&invitee_email)
+        .bind(invitee)
+        .execute(admin)
+        .await
+        .unwrap();
+    sqlx::query("update users set email = $1 where id = $2")
+        .bind(&invitee_email)
+        .bind(invitee)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let inv = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: invitee_email.clone(),
+            full_name: "Cajero Test".into(),
+            role: "CAJERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .expect("invitar cajero");
+
+    let invitee_c = claims(invitee, None, None);
+    let my_invs = crate::invitations::my_invitations(app, &invitee_c)
+        .await
+        .expect("listar mis invitaciones");
+    assert!(my_invs.iter().any(|i| i.id == inv.id));
+
+    let accept_res = crate::invitations::accept_invitation(app, &invitee_c, inv.id)
+        .await
+        .expect("aceptar invitacion");
+    assert_eq!(accept_res.tenant_id, tenant);
+    assert_eq!(accept_res.branch_id, Some(branch));
+    assert_eq!(accept_res.role, "CAJERO");
+
+    // Verificar en BD que membership está activa
+    let (mem_role, mem_active): (String, bool) = sqlx::query_as(
+        "select t.tima_codigo, m.active
+         from memberships m
+         join tbl_tipos_maestra t on t.tima_id = m.role_id
+         where m.tenant_id = $1 and m.user_id = $2 and m.branch_id = $3",
+    )
+    .bind(tenant)
+    .bind(invitee)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mem_role, "CAJERO");
+    assert!(mem_active);
+
+    // Verificar status ACEPTADA
+    let inv_status: String = sqlx::query_scalar("select status from invitations where id = $1")
+        .bind(inv.id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert_eq!(inv_status, "ACEPTADA");
+
+    // [P] Aceptar dos veces: la segunda da 409 INVITATION_NOT_PENDING.
+    let err_second = crate::invitations::accept_invitation(app, &invitee_c, inv.id)
+        .await
+        .unwrap_err();
+    match err_second {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "INVITATION_NOT_PENDING");
+        }
+        other => panic!("esperaba 409 INVITATION_NOT_PENDING, obtuve: {:?}", other),
+    }
+
+    // [P] Un usuario con otro correo que intenta aceptar: 404 INVITATION_NOT_FOUND, y no se crea membresía.
+    let stranger = seed_user(admin).await;
+    sqlx::query("update auth.users set email_confirmed_at = now() where id = $1")
+        .bind(stranger)
+        .execute(admin)
+        .await
+        .unwrap();
+    let stranger_c = claims(stranger, None, None);
+
+    let inv2 = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: format!("cajero2_{}@itest.local", Uuid::new_v4()),
+            full_name: "Cajero Dos".into(),
+            role: "CAJERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .expect("crear inv2");
+
+    let err_stranger = crate::invitations::accept_invitation(app, &stranger_c, inv2.id)
+        .await
+        .unwrap_err();
+    match err_stranger {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+            assert_eq!(code, "INVITATION_NOT_FOUND");
+        }
+        other => panic!("esperaba 404 INVITATION_NOT_FOUND, obtuve: {:?}", other),
+    }
+
+    let stranger_has_mem: bool = sqlx::query_scalar(
+        "select exists(select 1 from memberships where user_id = $1 and tenant_id = $2)",
+    )
+    .bind(stranger)
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(!stranger_has_mem);
+
+    // [P] Un usuario con el correo sin confirmar no la ve en my_invitations, y aceptar da 404.
+    let unconfirmed_user = seed_user(admin).await;
+    let unconfirmed_email = format!("unconf_{}@itest.local", unconfirmed_user);
+    sqlx::query("update auth.users set email = $1, email_confirmed_at = null where id = $2")
+        .bind(&unconfirmed_email)
+        .bind(unconfirmed_user)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let inv3 = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: unconfirmed_email,
+            full_name: "Unconfirmed User".into(),
+            role: "CAJERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .expect("crear inv3");
+
+    let unconf_c = claims(unconfirmed_user, None, None);
+    let unconf_invs = crate::invitations::my_invitations(app, &unconf_c)
+        .await
+        .unwrap();
+    assert!(!unconf_invs.iter().any(|i| i.id == inv3.id));
+
+    let err_unconf = crate::invitations::accept_invitation(app, &unconf_c, inv3.id)
+        .await
+        .unwrap_err();
+    match err_unconf {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+            assert_eq!(code, "INVITATION_NOT_FOUND");
+        }
+        other => panic!("esperaba 404 INVITATION_NOT_FOUND, obtuve: {:?}", other),
+    }
+
+    // [P] Una invitación revocada no se puede aceptar: 409 INVITATION_NOT_PENDING.
+    let user_for_revoked = seed_user(admin).await;
+    let email_for_revoked = format!("rev_{}@itest.local", user_for_revoked);
+    sqlx::query("update auth.users set email = $1, email_confirmed_at = now() where id = $2")
+        .bind(&email_for_revoked)
+        .bind(user_for_revoked)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let inv4 = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: email_for_revoked,
+            full_name: "Revokee".into(),
+            role: "CAJERO".into(),
+            branch_id: Some(branch),
+        },
+    )
+    .await
+    .expect("crear inv4");
+
+    crate::users::revoke_invitation(app, &owner_c, inv4.id)
+        .await
+        .expect("revocar invitacion");
+
+    let rev_c = claims(user_for_revoked, None, None);
+    let err_revoked = crate::invitations::accept_invitation(app, &rev_c, inv4.id)
+        .await
+        .unwrap_err();
+    match err_revoked {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "INVITATION_NOT_PENDING");
+        }
+        other => panic!("esperaba 409 INVITATION_NOT_PENDING, obtuve: {:?}", other),
+    }
+
+    // [P] ADMIN_CAJA no puede revocar una invitación de rol DUENO: 403.
+    let admin_caja_user = seed_user(admin).await;
+    seed_membership(admin, tenant, None, admin_caja_user, "ADMIN_CAJA").await;
+    let admin_caja_c = claims(admin_caja_user, Some(tenant), Some(branch));
+
+    let inv_owner = crate::users::invite_user(
+        app,
+        &owner_c,
+        crate::users::InviteUserRequest {
+            email: format!("coowner_{}@itest.local", Uuid::new_v4()),
+            full_name: "Co Dueño".into(),
+            role: "DUENO".into(),
+            branch_id: None,
+        },
+    )
+    .await
+    .expect("invitar co-dueno");
+
+    let err_admin_caja = crate::users::revoke_invitation(app, &admin_caja_c, inv_owner.id)
+        .await
+        .unwrap_err();
+    match err_admin_caja {
+        crate::error::ApiError::Domain(crate::error::DomainError::Forbidden) => {}
+        other => panic!("esperaba 403 Forbidden, obtuve: {:?}", other),
+    }
+
+    cleanup(
+        admin,
+        tenant,
+        &[
+            owner,
+            invitee,
+            stranger,
+            unconfirmed_user,
+            user_for_revoked,
+            admin_caja_user,
+        ],
+    )
+    .await;
 }

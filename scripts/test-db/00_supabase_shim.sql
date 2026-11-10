@@ -5,7 +5,7 @@ create role service_role nologin bypassrls;
 create role supabase_auth_admin nologin;
 create schema auth;
 grant usage on schema auth to authenticated, anon, supabase_auth_admin;
-create table auth.users (id uuid primary key, email text);
+create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz);
 create or replace function auth.uid() returns uuid language sql stable as $$
   select coalesce(
     nullif(current_setting('request.jwt.claim.sub', true), ''),

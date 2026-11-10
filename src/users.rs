@@ -1,5 +1,6 @@
 //! Gestión de usuarios, membresías e invitaciones (F0.2).
 
+use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -8,6 +9,8 @@ use uuid::Uuid;
 use crate::auth::Claims;
 use crate::error::{ApiError, DomainError, state, validation};
 use crate::tenancy;
+
+pub const ASSIGNABLE_ROLES: &[&str] = &["ADMIN_CAJA", "SUPERVISOR", "CAJERO", "BODEGA"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TenantUser {
@@ -109,8 +112,9 @@ pub async fn invite_user(
     if email.is_empty() || !email.contains('@') {
         return Err(validation("invalid email"));
     }
-    if name.is_empty() {
-        return Err(validation("full_name cannot be empty"));
+    let name_len = name.chars().count();
+    if !(2..=80).contains(&name_len) {
+        return Err(validation("full_name must be between 2 and 80 characters"));
     }
 
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
@@ -118,6 +122,35 @@ pub async fn invite_user(
 
     if req.role == "DUENO" && scope.role != "DUENO" {
         return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+    if req.role != "DUENO" && !ASSIGNABLE_ROLES.contains(&req.role.as_str()) {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ROLE_NOT_AVAILABLE",
+            "Ese rol todavía no está disponible.",
+            None,
+        ));
+    }
+
+    let already_member: bool = sqlx::query_scalar(
+        "select exists (
+           select 1 from memberships m
+           join users u on u.id = m.user_id
+           where m.tenant_id = $1 and m.active and lower(u.email) = $2
+         )",
+    )
+    .bind(scope.tenant)
+    .bind(&email)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if already_member {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "USER_ALREADY_MEMBER",
+            "Esa persona ya trabaja en tu negocio.",
+            None,
+        ));
     }
 
     let role_id: Option<i32> = sqlx::query_scalar(
@@ -152,6 +185,22 @@ pub async fn invite_user(
     .fetch_one(&mut *tx)
     .await?;
 
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "USUARIO_INVITADO",
+        "invitations",
+        inv_id,
+        None,
+        Some(serde_json::json!({
+            "email": email,
+            "role": req.role,
+            "branch_id": req.branch_id,
+        })),
+        None,
+    )
+    .await?;
+
     let inv = sqlx::query_as::<_, Invitation>(
         "select i.id, i.email, i.full_name, i.branch_id, b.name as branch_name,
                 t.tima_codigo as role, t.tima_nombre as role_name, i.status, i.created_at
@@ -178,6 +227,18 @@ pub async fn update_user_role(
 ) -> Result<(), ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     scope.require_permission("users:manage")?;
+
+    if req.role == "DUENO" && scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+    if req.role != "DUENO" && !ASSIGNABLE_ROLES.contains(&req.role.as_str()) {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ROLE_NOT_AVAILABLE",
+            "Ese rol todavía no está disponible.",
+            None,
+        ));
+    }
 
     let target: Option<(Uuid, String)> = sqlx::query_as(
         "select m.user_id, t.tima_codigo
@@ -315,4 +376,61 @@ pub async fn list_waiters(
     .await?;
     tx.commit().await?;
     Ok(rows)
+}
+
+/// Revoca una invitación pendiente.
+pub async fn revoke_invitation(
+    pool: &PgPool,
+    claims: &Claims,
+    invitation_id: Uuid,
+) -> Result<(), ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("users:manage")?;
+
+    let row: Option<(String, String)> = sqlx::query_as(
+        "select i.status, t.tima_codigo as role_code
+           from invitations i
+           join tbl_tipos_maestra t on t.tima_id = i.role_id
+          where i.id = $1 and i.tenant_id = $2
+          for update of i",
+    )
+    .bind(invitation_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (status, role_code) = row.ok_or_else(|| ApiError::Domain(DomainError::NotFound))?;
+
+    if role_code == "DUENO" && scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+
+    if status != "PENDIENTE" {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "INVITATION_NOT_PENDING",
+            "Esa invitación ya no está vigente.",
+            None,
+        ));
+    }
+
+    sqlx::query("update invitations set status = 'REVOCADA' where id = $1")
+        .bind(invitation_id)
+        .execute(&mut *tx)
+        .await?;
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "INVITACION_REVOCADA",
+        "invitations",
+        invitation_id,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
 }

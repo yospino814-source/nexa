@@ -10,6 +10,7 @@ mod db;
 mod error;
 pub mod expenses;
 mod inventory;
+pub mod invitations;
 pub mod locations;
 pub mod money;
 pub mod onboarding;
