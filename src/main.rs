@@ -12,6 +12,7 @@ pub mod expenses;
 mod inventory;
 pub mod locations;
 pub mod money;
+pub mod onboarding;
 pub mod options;
 mod orders;
 pub mod outbox;

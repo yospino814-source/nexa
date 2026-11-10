@@ -22,7 +22,7 @@ cargo run                     # escucha en :8080 (PORT para cambiarlo)
 1. **Claves de firma asimétricas.** En *Project Settings → JWT Keys*, el proyecto debe usar *JWT Signing Keys* (ES256/RS256). El backend valida los tokens contra el JWKS y rechaza `HS256`. Un proyecto que firma con el *JWT secret* legacy recibe 401 en todo.
 2. **Backend:** en `nexa-backend/.env` van `SUPABASE_URL` (`https://<ref>.supabase.co`) y `DATABASE_URL` (*Connect → Session pooler*).
 3. **Frontend:** en `nexa-frontend/.env.local` van `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Solo la clave pública, nunca la `service_role`.
-4. **Usuario:** créalo en *Authentication → Users* y dale acceso a un negocio. Sin membresía, el login muestra "Tu usuario no tiene un negocio asignado". Ejecuta esto en el SQL editor:
+4. **Usuario:** créalo en *Authentication → Users* y dale acceso a un negocio. Desde la fase S, el dueño crea su negocio en `/registro`. Este SQL queda solo para pruebas. Sin membresía, el login muestra "Tu usuario no tiene un negocio asignado". Ejecuta esto en el SQL editor:
 
 ```sql
 -- Reemplaza el email. Crea negocio y sucursal de prueba y da rol DUENO.
@@ -156,6 +156,7 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/settings?branch_id=` | Ajustes operativos de sucursal (POS, caja, inventario, propinas, impresión) |
 | PUT | `/v1/settings?branch_id=` | Modificar ajustes operativos de sucursal |
 | GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
+| POST | `/v1/onboarding` | Alta de negocio y sucursal principal con rol DUENO (requiere sesión autenticada) |
 | GET | `/v1/users` | Lista de usuarios y membresías del negocio |
 | GET | `/v1/business` | Nombre, razón social, NIT y DV del negocio, para la tirilla (cualquier miembro) |
 | GET | `/v1/waiters?branch_id=` | Meseros activos de la sucursal, para la propina del POS (`pos:sell`) |
@@ -183,6 +184,14 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/receivables/{id}` | Detalle de cuenta por cobrar con cuotas y abonos (`customers:read`) |
 | POST | `/v1/receivables/{id}/payments` | Registrar abono con aplicación a cuotas y caja (`credit:collect`) |
 | GET | `/v1/receivables/{id}/whatsapp-link` | Enlace wa.me con mensaje de cobro formateado (`customers:read`) |
+
+### Onboarding (`/v1/onboarding`)
+
+Alta inicial de negocio y sucursal para nuevos usuarios registrados:
+
+| Método | Ruta | Permisos | Parámetros / Cuerpo | Códigos de error |
+|---|---|---|---|---|
+| `POST` | `/v1/onboarding` | Ninguno (solo sesión `AuthUser`) | Body JSON: `{ business_name, branch_name, full_name }`. Retorna `{ tenant_id, branch_id }` con status 201 Created. | 400, 401, 409 (`ONBOARDING_ALREADY_MEMBER`), 422 (`ONBOARDING_INVALID`) |
 
 ### Clientes (`/v1/customers`)
 

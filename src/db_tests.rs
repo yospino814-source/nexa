@@ -803,6 +803,7 @@ async fn database_integration() {
     f3_credit_sale(&app, &admin).await;
     f3_payments(&app, &admin).await;
     f3_aging(&app, &admin).await;
+    s1_onboarding(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -11957,4 +11958,259 @@ async fn f3_aging(app: &PgPool, admin: &PgPool) {
     assert_eq!(dev.credit, dec(50000));
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+}
+
+async fn s1_onboarding(app: &PgPool, admin: &PgPool) {
+    // [P] Un usuario sin membresía crea su negocio. Quedan un tenant, una branch, una membresía DUENO con branch_id nulo y active = true, una location "Principal" con is_default = true, una cash_register CAJA-1 y la fila NEGOCIO_CREADO en audit_log.
+    let user1 = seed_user(admin).await;
+    let u1_claims = claims(user1, None, None);
+    let resp = crate::onboarding::create_business(
+        app,
+        &u1_claims,
+        crate::onboarding::CreateBusinessRequest {
+            business_name: "Licorera Central".into(),
+            branch_name: "Sede Centro".into(),
+            full_name: "Pedro Perez".into(),
+        },
+    )
+    .await
+    .expect("crear negocio");
+
+    // Verificar tenant
+    let tenant_name: String = sqlx::query_scalar("select name from tenants where id = $1")
+        .bind(resp.tenant_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert_eq!(tenant_name, "Licorera Central");
+
+    // Verificar branch
+    let branch_name: String =
+        sqlx::query_scalar("select name from branches where tenant_id = $1 and id = $2")
+            .bind(resp.tenant_id)
+            .bind(resp.branch_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(branch_name, "Sede Centro");
+
+    // Verificar membresía DUENO con branch_id nulo y active = true
+    let (role_code, branch_id_opt, is_active): (String, Option<Uuid>, bool) = sqlx::query_as(
+        "select t.tima_codigo, m.branch_id, m.active
+         from memberships m
+         join tbl_tipos_maestra t on t.tima_id = m.role_id
+         where m.tenant_id = $1 and m.user_id = $2",
+    )
+    .bind(resp.tenant_id)
+    .bind(user1)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(role_code, "DUENO");
+    assert!(branch_id_opt.is_none());
+    assert!(is_active);
+
+    // Verificar location "Principal" con is_default = true
+    let (loc_name, loc_default): (String, bool) = sqlx::query_as(
+        "select name, is_default from locations where tenant_id = $1 and branch_id = $2",
+    )
+    .bind(resp.tenant_id)
+    .bind(resp.branch_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(loc_name, "Principal");
+    assert!(loc_default);
+
+    // Verificar cash_register "Caja 1" (código "CAJA-1")
+    let (reg_name, reg_code): (String, String) = sqlx::query_as(
+        "select name, code from cash_registers where tenant_id = $1 and branch_id = $2",
+    )
+    .bind(resp.tenant_id)
+    .bind(resp.branch_id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(reg_name, "Caja 1");
+    assert_eq!(reg_code, "CAJA-1");
+
+    // Verificar audit_log NEGOCIO_CREADO
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from audit_log where tenant_id = $1 and action = 'NEGOCIO_CREADO' and entity = 'tenants' and entity_id = $1 and user_id = $2",
+    )
+    .bind(resp.tenant_id)
+    .bind(user1)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1);
+
+    // [P] Después del alta, tenancy::begin con ese usuario funciona y su rol es DUENO.
+    let owner_claims = claims(user1, Some(resp.tenant_id), Some(resp.branch_id));
+    let (scope, tx_begin) = crate::tenancy::begin(app, &owner_claims)
+        .await
+        .expect("tenancy begin debe funcionar");
+    assert_eq!(scope.role, "DUENO");
+    assert_eq!(scope.tenant, resp.tenant_id);
+    tx_begin.rollback().await.unwrap();
+
+    // [P] La segunda llamada del mismo usuario: 409 ONBOARDING_ALREADY_MEMBER. Sigue habiendo un solo negocio de ese usuario.
+    let err_dup = crate::onboarding::create_business(
+        app,
+        &u1_claims,
+        crate::onboarding::CreateBusinessRequest {
+            business_name: "Otro Negocio".into(),
+            branch_name: "Principal".into(),
+            full_name: "Pedro Perez".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_dup {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "ONBOARDING_ALREADY_MEMBER");
+        }
+        other => panic!(
+            "esperaba 409 ONBOARDING_ALREADY_MEMBER, obtuve: {:?}",
+            other
+        ),
+    }
+    let tenants_for_user: i64 = sqlx::query_scalar(
+        "select count(distinct tenant_id) from memberships where user_id = $1 and active",
+    )
+    .bind(user1)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(tenants_for_user, 1);
+
+    // [P] Un usuario con una membresía CAJERO activa en otro negocio: 409 ONBOARDING_ALREADY_MEMBER.
+    let other_user = seed_user(admin).await;
+    let other_tenant = seed_tenant(admin).await;
+    let other_branch = seed_branch(admin, other_tenant).await;
+    seed_membership(
+        admin,
+        other_tenant,
+        Some(other_branch),
+        other_user,
+        "CAJERO",
+    )
+    .await;
+    let other_claims = claims(other_user, None, None);
+    let err_cashier = crate::onboarding::create_business(
+        app,
+        &other_claims,
+        crate::onboarding::CreateBusinessRequest {
+            business_name: "Negocio Dos".into(),
+            branch_name: "Principal".into(),
+            full_name: "Otro Usuario".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_cashier {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status, code, ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "ONBOARDING_ALREADY_MEMBER");
+        }
+        other => panic!(
+            "esperaba 409 ONBOARDING_ALREADY_MEMBER, obtuve: {:?}",
+            other
+        ),
+    }
+
+    // [P] business_name = " a ": 422 ONBOARDING_INVALID, con field = "business_name".
+    let user3 = seed_user(admin).await;
+    let u3_claims = claims(user3, None, None);
+    let err_short = crate::onboarding::create_business(
+        app,
+        &u3_claims,
+        crate::onboarding::CreateBusinessRequest {
+            business_name: " a ".into(),
+            branch_name: "Principal".into(),
+            full_name: "Carlos Lopez".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_short {
+        crate::error::ApiError::Domain(crate::error::DomainError::Coded {
+            status,
+            code,
+            data,
+            ..
+        }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "ONBOARDING_INVALID");
+            let field = data.and_then(|d| {
+                d.get("field")
+                    .and_then(|f| f.as_str())
+                    .map(|s| s.to_string())
+            });
+            assert_eq!(field.as_deref(), Some("business_name"));
+        }
+        other => panic!(
+            "esperaba 422 ONBOARDING_INVALID con field business_name, obtuve: {:?}",
+            other
+        ),
+    }
+
+    // [P] El rol anon no puede ejecutar public.create_business (error de permiso).
+    let mut tx_anon = app.begin().await.unwrap();
+    sqlx::query("set local role anon")
+        .execute(&mut *tx_anon)
+        .await
+        .unwrap();
+    let res_anon = sqlx::query("select * from public.create_business('X', 'Y', 'Z')")
+        .execute(&mut *tx_anon)
+        .await;
+    assert!(
+        res_anon.is_err(),
+        "anon no debe poder ejecutar create_business"
+    );
+    tx_anon.rollback().await.unwrap();
+
+    // [P] El negocio creado no ve datos de otro negocio: un GET /v1/customers con el dueño nuevo devuelve 0 filas aunque otro negocio tenga clientes.
+    let other_owner = seed_user(admin).await;
+    seed_membership(admin, other_tenant, None, other_owner, "DUENO").await;
+    let other_owner_claims = claims(other_owner, Some(other_tenant), Some(other_branch));
+    let _cust = crate::customers::create(
+        app,
+        &other_owner_claims,
+        crate::customers::CreateCustomerInput {
+            name: "Cliente De Otro Negocio".into(),
+            doc_type: Some("CC".into()),
+            doc_number: Some("123456789".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("crear cliente en otro negocio");
+
+    let customers_list = crate::customers::list(
+        app,
+        &owner_claims,
+        crate::customers::CustomerQuery {
+            q: None,
+            status: None,
+            page: None,
+            page_size: None,
+            limit: None,
+        },
+    )
+    .await
+    .expect("listar clientes");
+    assert_eq!(
+        customers_list.len(),
+        0,
+        "el negocio nuevo debe ver 0 clientes"
+    );
+
+    cleanup(admin, resp.tenant_id, &[user1]).await;
+    cleanup(admin, other_tenant, &[other_user, other_owner]).await;
 }

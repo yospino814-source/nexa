@@ -16,8 +16,8 @@ use crate::error::{self, ApiError, DomainError};
 use crate::orders::OrderStatus;
 use crate::sales::{Checkout, SaleRequest};
 use crate::{
-    AppState, audit, cash, catalog, customers, expenses, inventory, locations, options, orders,
-    payables, permissions, procurement, products, receivables, refunds, registers, sales,
+    AppState, audit, cash, catalog, customers, expenses, inventory, locations, onboarding, options,
+    orders, payables, permissions, procurement, products, receivables, refunds, registers, sales,
     sales_history, settings, tenancy, users,
 };
 
@@ -234,6 +234,7 @@ pub fn router() -> Router<AppState> {
         // Auditoria
         .route("/v1/audit", get(list_audit))
         // Usuarios y roles
+        .route("/v1/onboarding", post(onboarding_create_business))
         .route("/v1/users", get(list_users))
         .route("/v1/waiters", get(list_waiters))
         .route("/v1/business", get(business_info))
@@ -2043,4 +2044,13 @@ async fn import_commit(
 ) -> ApiResult<Json<crate::csv_import::CommitResponse>> {
     let res = crate::csv_import::commit_import(&state.pool, &user.claims, req).await?;
     Ok(Json(res))
+}
+
+async fn onboarding_create_business(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<onboarding::CreateBusinessRequest>,
+) -> ApiResult<(StatusCode, Json<onboarding::OnboardingResponse>)> {
+    let res = onboarding::create_business(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(res)))
 }
