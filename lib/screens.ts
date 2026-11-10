@@ -96,6 +96,7 @@ export const screens: Screen[] = [
   s("06", "gastos", "Gastos", "/gastos", "ventas", "admin", "react"),
   // Clientes y mayorista
   s("07", "clientes", "Clientes", "/clientes", "clientes", "admin", "react"),
+  s("44", "cartera", "Cartera", "/cartera", "clientes", "admin", "react"),
   s("26", "rutas", "Rutas", "/rutas", "clientes", "admin"),
   s("27", "pedido-mayorista", "Pedido mayorista", "/mayorista/pedido", "clientes", "operacion"),
   s("28", "app-del-repartidor", "App del repartidor", "/repartidor", "clientes", "operacion"),

@@ -11,7 +11,9 @@ import {
   CreditCard,
   DollarSign,
   Edit2,
+  FileText,
   Loader2,
+  MessageSquare,
   Pin,
   ShoppingBag,
   User,
@@ -19,6 +21,7 @@ import {
 
 import { CustomerFormDialog } from "./customer-form-dialog";
 import { PaymentTicketDialog } from "./payment-ticket";
+import { StatementDialog } from "@/components/cartera/statement-dialog";
 import { MoneyInput } from "@/components/caja/money-input";
 import { Button } from "@/components/ui/button";
 import {
@@ -93,6 +96,10 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
   const [ticketOpen, setTicketOpen] = useState(false);
   const [ticketPayment, setTicketPayment] = useState<ReceivablePaymentResponse | null>(null);
   const [ticketReceivable, setTicketReceivable] = useState<ReceivableDetail | null>(null);
+
+  // Estado de cuenta y WhatsApp (F3.5)
+  const [statementDialogOpen, setStatementDialogOpen] = useState(false);
+  const [whatsAppError, setWhatsAppError] = useState<string | null>(null);
 
   const reloadCustomer = useCallback(async () => {
     if (!customerId) return;
@@ -179,6 +186,20 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
       cancelled = true;
     };
   }, [activeTab, customerId, loadReceivables]);
+
+  const handleWhatsApp = async (recId: string) => {
+    setWhatsAppError(null);
+    try {
+      const res = await api.receivables.whatsappLink(recId);
+      window.open(res.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "CUSTOMER_NO_PHONE") {
+        setWhatsAppError("El cliente no tiene un celular válido para WhatsApp.");
+      } else {
+        setWhatsAppError(friendlyError(err));
+      }
+    }
+  };
 
   const handleOpenPay = (rec: ReceivableDetail) => {
     setSelectedReceivable(rec);
@@ -543,6 +564,22 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
         {/* Pestaña: Cartera */}
         {activeTab === "cartera" && (
           <div className="space-y-6">
+            {whatsAppError && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="size-4 shrink-0 text-amber-600" />
+                  <span>{whatsAppError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWhatsAppError(null)}
+                  className="text-amber-700 hover:text-amber-900 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Encabezado: Tarjetas Saldo, Cupo disponible y Días de mora */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -579,9 +616,21 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
 
             {/* Listado de cuentas por cobrar */}
             <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-                Cuentas por cobrar pendientes
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Cuentas por cobrar pendientes
+                </h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStatementDialogOpen(true)}
+                  className="text-xs font-semibold text-teal-800 border-teal-200 hover:bg-teal-50 gap-1.5"
+                >
+                  <FileText className="size-3.5" />
+                  Estado de cuenta
+                </Button>
+              </div>
 
               {loadingReceivables ? (
                 <div className="py-12 text-center text-slate-400">
@@ -623,16 +672,29 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
                             </span>
                           </div>
 
-                          {canCollect && (
+                          <div className="flex items-center gap-2">
                             <Button
+                              type="button"
                               size="sm"
-                              onClick={() => handleOpenPay(rec)}
-                              className="bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs"
+                              variant="outline"
+                              onClick={() => handleWhatsApp(rec.id)}
+                              className="border-emerald-200 text-emerald-800 hover:bg-emerald-50 font-semibold text-xs"
+                              title="Cobrar por WhatsApp"
                             >
-                              <DollarSign className="size-3.5 mr-1" />
-                              Abonar
+                              <MessageSquare className="size-3.5 mr-1" />
+                              Cobrar por WhatsApp
                             </Button>
-                          )}
+                            {canCollect && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenPay(rec)}
+                                className="bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs"
+                              >
+                                <DollarSign className="size-3.5 mr-1" />
+                                Abonar
+                              </Button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Métricas de la cuenta */}
@@ -983,6 +1045,17 @@ export function CustomerScreen({ customerId }: { customerId: string }) {
           customer={customer}
           receiptNumber={ticketReceivable?.receipt_number}
           cashierName={cashierName}
+        />
+      )}
+
+      {/* Estado de cuenta */}
+      {customer && (
+        <StatementDialog
+          open={statementDialogOpen}
+          onClose={() => setStatementDialogOpen(false)}
+          customerId={customer.id}
+          customerName={customer.name}
+          customerDoc={customer.doc_number ? `${customer.doc_type || ""} ${customer.doc_number}` : null}
         />
       )}
     </div>

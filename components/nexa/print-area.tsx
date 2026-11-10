@@ -10,13 +10,21 @@ import { createPortal } from "react-dom";
 export function PrintArea({
   children,
   width = 80,
+  className,
 }: {
   children: React.ReactNode;
   /** Ancho del rollo en mm (ajuste `print.ticket_width_mm`): 80 o 58. */
   width?: 80 | 58;
+  className?: string;
 }) {
+  const cls = [
+    "print-ticket",
+    width === 58 ? "w58" : "",
+    className || "",
+  ].filter(Boolean).join(" ");
+
   return createPortal(
-    <div className={width === 58 ? "print-ticket w58" : "print-ticket"} aria-hidden>
+    <div className={cls} aria-hidden>
       {children}
     </div>,
     document.body,

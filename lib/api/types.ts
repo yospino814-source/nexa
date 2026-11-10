@@ -1254,6 +1254,50 @@ export type ReceivablesFilter = {
   overdue?: boolean;
 };
 
+export type AgingSummary = {
+  al_dia: Decimal;
+  d1_30: Decimal;
+  d31_60: Decimal;
+  d61_90: Decimal;
+  d91_120: Decimal;
+  d120_mas: Decimal;
+};
+
+export type TopDebtor = {
+  customer_id: Uuid;
+  name: string;
+  balance: Decimal;
+  max_days_overdue: number;
+};
+
+export type ReceivablesSummaryResponse = {
+  total_balance: Decimal;
+  overdue_balance: Decimal;
+  due_this_week: Decimal;
+  collected_this_month: Decimal;
+  aging: AgingSummary;
+  top_debtors: TopDebtor[];
+};
+
+export type StatementEntry = {
+  date: string;
+  type: "CARGO" | "ABONO" | "DEVOLUCION";
+  reference: string;
+  debit: Decimal;
+  credit: Decimal;
+  balance: Decimal;
+};
+
+export type CustomerStatementResponse = {
+  opening_balance: Decimal;
+  entries: StatementEntry[];
+  closing_balance: Decimal;
+};
+
+export type WhatsappLinkResponse = {
+  url: string;
+};
+
 // ---------------------------------------------------------------- PROPUESTOS
 
 /** PROPUESTO — GET /v1/reports/dashboard?branch_id=&period=today */

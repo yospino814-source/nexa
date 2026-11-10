@@ -15,6 +15,7 @@ import {
   Truck,
   Users,
   UtensilsCrossed,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ const navItems: NavItem[] = [
   { href: "/compras", label: "Compras", icon: ShoppingCart },
   { href: "/ordenes", label: "Ventas y órdenes", icon: BarChart3, match: ["/ventas", "/ordenes", "/gastos"], permission: "cash:history" },
   { href: "/clientes", label: "Clientes", icon: Users },
+  { href: "/cartera", label: "Cartera", icon: Wallet, permission: "customers:read" },
   { href: "/mesas", label: "Restaurante", icon: UtensilsCrossed, match: ["/mesas", "/comanda", "/cocina"] },
   { href: "/rutas", label: "Rutas y mayorista", icon: Truck, match: ["/rutas", "/mayorista", "/repartidor"] },
   { href: "/marketing/promociones", label: "Marketing", icon: Sparkles, match: ["/marketing"], permission: "settings:write" },
@@ -62,11 +64,11 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 
 function isAllowedForRole(href: string, userRole: Role): boolean {
   if (userRole === "DUENO" || userRole === "ADMIN_CAJA") return true;
-  if (userRole === "CAJERO") return ["/pos", "/panel", "/clientes"].includes(href);
+  if (userRole === "CAJERO") return ["/pos", "/panel", "/clientes", "/cartera"].includes(href);
   if (userRole === "MESERO") return href === "/mesas";
   if (userRole === "COCINA") return href === "/mesas";
   if (userRole === "SUPERVISOR")
-    return ["/panel", "/pos", "/inventario", "/ventas", "/clientes", "/mesas"].includes(href);
+    return ["/panel", "/pos", "/inventario", "/ventas", "/clientes", "/mesas", "/cartera"].includes(href);
   if (userRole === "BODEGA") return ["/inventario", "/compras"].includes(href);
   if (userRole === "REPARTIDOR") return href === "/rutas";
   return true;

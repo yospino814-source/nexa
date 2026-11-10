@@ -87,6 +87,9 @@ import {
   mockReceivablesList,
   mockReceivableGet,
   mockReceivablePay,
+  mockReceivablesSummary,
+  mockCustomerStatement,
+  mockReceivableWhatsappLink,
   setMockReceivablesCashContext,
   mockCreateReceivableFromSale,
 } from "./mock-receivables";
@@ -210,11 +213,13 @@ import type {
   LocationRow,
   CreateLocationInput,
   UpdateLocationInput,
+  CustomerStatementResponse,
   PayReceivableInput,
   Receivable,
   ReceivableDetail,
   ReceivablePaymentResponse,
   ReceivablesFilter,
+  ReceivablesSummaryResponse,
 } from "./types";
 
 export * from "./types";
@@ -3145,9 +3150,28 @@ export const api = {
       }
       return request(`/v1/customers/${id}/purchases?page=${page}`);
     },
+
+    /** GET /v1/customers/{id}/statement?from=&to= */
+    async statement(id: string, from: string, to: string): Promise<CustomerStatementResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockCustomerStatement(id, from, to);
+      }
+      return request(`/v1/customers/${id}/statement?from=${from}&to=${to}`);
+    },
   },
 
   receivables: {
+    /** GET /v1/receivables/summary?branch_id= */
+    async summary(branchId?: string): Promise<ReceivablesSummaryResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockReceivablesSummary(branchId);
+      }
+      const qs = branchId ? `?branch_id=${branchId}` : "";
+      return request(`/v1/receivables/summary${qs}`);
+    },
+
     /** GET /v1/receivables?customer_id=&status=&overdue= */
     async list(filter?: ReceivablesFilter): Promise<Receivable[]> {
       if (USE_MOCKS) {
@@ -3182,6 +3206,15 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
+
+    /** GET /v1/receivables/{id}/whatsapp-link */
+    async whatsappLink(id: string): Promise<{ url: string }> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockReceivableWhatsappLink(id);
+      }
+      return request(`/v1/receivables/${id}/whatsapp-link`);
+    },
   },
 };
 
@@ -3199,7 +3232,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   CUSTOMER_DUPLICATED: "Ya existe un cliente con ese documento.",
   CUSTOMER_DV_CONFLICT: "El dígito de verificación no coincide.",
   CUSTOMER_HAS_BALANCE: "El cliente tiene saldos pendientes.",
-  CUSTOMER_NO_PHONE: "El cliente no tiene teléfono.",
+  CUSTOMER_NO_PHONE: "El cliente no tiene un celular válido para WhatsApp.",
   CREDIT_PLAN_INVALID: "Revisá el plan de cuotas.",
   CREDIT_OVERRIDE_REASON_INVALID: "El motivo debe tener entre 3 y 200 caracteres.",
   PAYMENT_METHOD_NOT_AVAILABLE: "Ese método no está disponible para abonos.",
