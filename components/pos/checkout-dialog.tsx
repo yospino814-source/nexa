@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Banknote, Check, CheckCircle2, Loader2, PlusCircle, Printer, ShoppingBag } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Banknote, Check, CheckCircle2, Loader2, PlusCircle, Printer, ShoppingBag, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { api, ApiError, friendlyError, type CheckoutResponse, type PaymentMethod, type QuoteResponse, type Waiter } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  friendlyError,
+  type CheckoutRequest,
+  type CheckoutResponse,
+  type CreditFrequency,
+  type CreditPlan,
+  type CustomerDetail,
+  type PaymentMethod,
+  type QuoteResponse,
+  type SchedulePreview,
+  type Waiter,
+} from "@/lib/api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP } from "@/lib/format";
 import { toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
-
-import { MoneyInput } from "@/components/caja/money-input";
 
 import { PAYMENT_METHODS } from "./payment-methods";
 import { PrintTicket, ticketFromSale, type TicketMeta } from "./print-ticket";
@@ -22,15 +33,35 @@ import { useBusinessInfo } from "@/lib/api/use-business";
  * de menor a mayor.
  */
 export function quickAmounts(total: number): number[] {
+  if (total <= 0) return [0];
   const rounded = [1_000, 5_000, 10_000, 20_000, 50_000]
     .map((d) => Math.ceil(total / d) * d)
     .filter((amount) => amount > total);
   return [total, ...[...new Set(rounded)].sort((a, b) => a - b)];
 }
 
-type Receipt = { response: CheckoutResponse; lines: CartLine[]; received: number; method: PaymentMethod };
+function formatDecimalCOP(amount: number): string {
+  return new Intl.NumberFormat("es-CO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
 
-/** Pantalla 14: modal de cobro rapido + comprobante. */
+type PaymentLine = {
+  id: string;
+  method: PaymentMethod;
+  amount: number;
+};
+
+type Receipt = {
+  response: CheckoutResponse;
+  lines: CartLine[];
+  received: number;
+  method: PaymentMethod;
+  creditPlan?: CreditPlan | null;
+};
+
+/** Pantalla 14: modal de cobro rápido + comprobante + crédito (F3.2). */
 export function CheckoutDialog({
   open,
   onOpenChange,
@@ -58,11 +89,12 @@ export function CheckoutDialog({
   registerName?: string | null;
   onCompleted: () => void;
 }) {
-  const [method, setMethod] = useState(initialMethod);
+  const [payments, setPayments] = useState<PaymentLine[]>([]);
   const [received, setReceived] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+
   // Clave de idempotencia: la del carrito. Se reusa en cada reintento (y al
   // retomar una venta en espera) para que nada se cobre dos veces.
   const saleId = useCart((s) => s.saleId);
@@ -72,10 +104,40 @@ export function CheckoutDialog({
   const customer = useCart((s) => s.customer);
   const customerAlias = useCart((s) => s.customerAlias);
   const couponCode = useCart((s) => s.couponCode);
+
+  const can = useSession((s) => s.can);
+  const canCreditSell = can("credit:sell");
+  const canCreditOverride = can("credit:override");
+  const hasCustomer = Boolean(customer?.id);
+
+  const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
+
+  // Propina y mesero
   const [tipMode, setTipMode] = useState<"NONE" | "SUGGESTED" | "CUSTOM">("NONE");
   const [customTip, setCustomTip] = useState(0);
   const [waiterId, setWaiterId] = useState<string | null>(null);
   const [waiters, setWaiters] = useState<Waiter[]>([]);
+
+  const defaultDueDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  // En cuotas
+  const [hasInstallments, setHasInstallments] = useState(false);
+  const [installments, setInstallments] = useState(1);
+  const [frequency, setFrequency] = useState<CreditFrequency>("MENSUAL");
+  const [firstDueDate, setFirstDueDate] = useState(defaultDueDate);
+  const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
+
+  // Autorización (override)
+  const [creditErrorData, setCreditErrorData] = useState<{ code: string; data?: unknown } | null>(null);
+  const [showOverrideForm, setShowOverrideForm] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
     if (!open || !tipsEnabled) return;
@@ -89,27 +151,27 @@ export function CheckoutDialog({
     };
   }, [open, tipsEnabled, branchId]);
 
-  // Al abrir el modal se reinicia con el metodo elegido en el carrito.
-  const [lastOpen, setLastOpen] = useState(open);
-  if (open !== lastOpen) {
-    setLastOpen(open);
-    if (open) {
-      setMethod(initialMethod);
-      setReceived(null);
-      setError(null);
-      setReceipt(null);
-      setTipMode("NONE");
-      setCustomTip(0);
-      setWaiterId(null);
-    }
-  }
+  // Cargar cliente para datos de cupo
+  useEffect(() => {
+    if (!open || !customer?.id) return;
+    let alive = true;
+    api.customers
+      .get(customer.id)
+      .then((c) => {
+        if (alive) setCustomerDetail(c);
+      })
+      .catch(() => {
+        if (alive) setCustomerDetail(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, customer?.id]);
 
-  // Totales de la última cotización del servidor (F1.14). La propina va
-  // después del impuesto y no cambia nada más, así que se suma aquí.
+  // Totales de la última cotización
   const saleTotal = Number(quote?.total ?? 0);
   const subtotal = Number(quote?.subtotal ?? 0);
   const units = lines.reduce((s, l) => s + l.qty, 0);
-  // Propina sin impuesto, sumada después del IVA (F1.10).
   const suggestedTip = Math.round((subtotal * suggestedTipPct) / 100);
   const tip = !tipsEnabled
     ? 0
@@ -119,36 +181,208 @@ export function CheckoutDialog({
         ? customTip
         : 0;
   const total = saleTotal + tip;
-  const isCash = method === "EFECTIVO";
-  const paid = isCash ? (received ?? total) : total;
-  const change = Math.max(paid - total, 0);
-  const canConfirm = !submitting && paid >= total && total > 0;
 
-  async function confirm() {
-    if (!canConfirm) return;
+  // Al abrir el modal se reinicia con el método elegido en el carrito.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) {
+      const allowedInit =
+        initialMethod === "CREDITO" && (!hasCustomer || !canCreditSell) ? "EFECTIVO" : initialMethod;
+      setPayments([{ id: crypto.randomUUID(), method: allowedInit, amount: total }]);
+      setReceived(null);
+      setError(null);
+      setReceipt(null);
+      setTipMode("NONE");
+      setCustomTip(0);
+      setWaiterId(null);
+      setHasInstallments(false);
+      setInstallments(1);
+      setFrequency("MENSUAL");
+      setFirstDueDate(defaultDueDate);
+      setSchedulePreview(null);
+      setCreditErrorData(null);
+      setShowOverrideForm(false);
+      setOverrideReason("");
+      setOverrideError(null);
+    }
+  }
+
+  // Si solo hay una línea y el total cambia por propina/cotización, sincronizar
+  const [lastTotal, setLastTotal] = useState(total);
+  if (total !== lastTotal) {
+    setLastTotal(total);
+    if (payments.length === 1 && payments[0].amount !== total) {
+      setPayments([{ ...payments[0], amount: total }]);
+    }
+  }
+
+  // Recalcular vista previa de cronograma (400 ms debounce)
+  useEffect(() => {
+    const creditLine = payments.find((p) => p.method === "CREDITO");
+    if (!hasInstallments || !creditLine || creditLine.amount <= 0) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      api.credit
+        .schedulePreview({
+          principal: String(creditLine.amount),
+          installments,
+          frequency,
+          first_due_date: firstDueDate,
+          interest_rate_monthly: "0",
+          interest_type: "SIMPLE",
+        })
+        .then(setSchedulePreview)
+        .catch(() => setSchedulePreview(null));
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [hasInstallments, installments, frequency, firstDueDate, payments]);
+
+  const creditLine = payments.find((p) => p.method === "CREDITO");
+  const activeCustomerDetail = open && customer?.id ? customerDetail : null;
+  const creditLimit = Number(activeCustomerDetail?.credit_limit ?? 0);
+  const creditAvailable = Number(activeCustomerDetail?.credit_available ?? 0);
+  const activeSchedulePreview = hasInstallments && creditLine && creditLine.amount > 0 ? schedulePreview : null;
+
+  // Lista de métodos disponibles
+  const availablePaymentMethods = PAYMENT_METHODS.filter((m) => {
+    if (m.id === "CREDITO") {
+      return hasCustomer && canCreditSell;
+    }
+    return true;
+  });
+
+  const coveredAmount = payments.reduce((acc, p) => acc + p.amount, 0);
+  const remainingToCover = total - coveredAmount;
+  const cashLine = payments.find((p) => p.method === "EFECTIVO");
+
+  const cashAmount = cashLine ? cashLine.amount : 0;
+  const cashReceived = cashLine ? (received ?? cashAmount) : 0;
+  const cashChange = Math.max(0, cashReceived - cashAmount);
+
+  const canConfirm =
+    !submitting &&
+    total > 0 &&
+    coveredAmount === total &&
+    payments.every((p) => p.amount > 0) &&
+    (!cashLine || (cashReceived >= cashAmount && cashAmount > 0)) &&
+    (!creditLine || (creditLimit > 0 && creditLine.amount > 0));
+
+  function selectOrAddMethod(m: PaymentMethod) {
+    setError(null);
+    setCreditErrorData(null);
+    setShowOverrideForm(false);
+
+    if (payments.length === 1 && payments[0].amount === total) {
+      setPayments([{ ...payments[0], method: m }]);
+      return;
+    }
+
+    if (m === "CREDITO" && payments.some((p) => p.method === "CREDITO")) {
+      return;
+    }
+
+    const remaining = Math.max(0, remainingToCover);
+    setPayments((prev) => [...prev, { id: crypto.randomUUID(), method: m, amount: remaining }]);
+  }
+
+  function removePaymentLine(id: string) {
+    if (payments.length <= 1) return;
+    setPayments((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  function updatePaymentAmount(id: string, newAmount: number) {
+    setError(null);
+    setCreditErrorData(null);
+    setShowOverrideForm(false);
+    setPayments((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, amount: Math.max(0, newAmount) } : p)),
+    );
+  }
+
+  async function confirm(overrideReasonParam?: string) {
+    if (!overrideReasonParam && !canConfirm) return;
     setSubmitting(true);
     setError(null);
+    setOverrideError(null);
+
+    const creditPlanPayload: CreditPlan | null =
+      creditLine && hasInstallments
+        ? {
+            installments,
+            frequency,
+            first_due_date: firstDueDate,
+            interest_rate_monthly: "0",
+            interest_type: "SIMPLE",
+          }
+        : null;
+
+    const requestBody: CheckoutRequest = {
+      id: saleId,
+      branch_id: branchId,
+      items: toSaleItems(lines),
+      payments: payments.map((p) => ({
+        method: p.method,
+        amount: p.method === "EFECTIVO" ? String(cashReceived) : String(p.amount),
+      })),
+      quoted_total: String(total),
+      tip_amount: tip > 0 ? String(tip) : null,
+      tip_waiter_id: tip > 0 ? waiterId : null,
+      customer_id: customer?.id ?? null,
+      customer_alias: customerAlias ?? null,
+      coupon_code: couponCode ?? null,
+      credit_plan: creditPlanPayload,
+      credit_override_reason: overrideReasonParam ?? null,
+    };
+
     try {
-      const response = await api.sales.checkout({
-        id: saleId,
-        branch_id: branchId,
-        items: toSaleItems(lines),
-        payments: [{ method, amount: String(paid) }],
-        quoted_total: String(total),
-        tip_amount: tip > 0 ? String(tip) : null,
-        tip_waiter_id: tip > 0 ? waiterId : null,
-        customer_id: customer?.id ?? null,
-        customer_alias: customerAlias ?? null,
-        coupon_code: couponCode ?? null,
+      const response = await api.sales.checkout(requestBody);
+      const primaryMethod = payments[0]?.method ?? initialMethod;
+      setReceipt({
+        response,
+        lines,
+        received: cashLine ? cashReceived : total,
+        method: primaryMethod,
+        creditPlan: creditPlanPayload,
       });
-      setReceipt({ response, lines, received: paid, method });
+      setCreditErrorData(null);
+      setShowOverrideForm(false);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "PRICE_CHANGED" && e.data) {
-        // El servidor manda la cotización correcta: se actualiza y el diálogo sigue abierto.
-        const fresh = e.data as QuoteResponse;
-        setQuote({ ...fresh, total: String(Number(fresh.total) - Number(fresh.tip_amount ?? 0)) });
+      if (e instanceof ApiError) {
+        if (e.code === "PRICE_CHANGED" && e.data) {
+          const fresh = e.data as QuoteResponse;
+          setQuote({ ...fresh, total: String(Number(fresh.total) - Number(fresh.tip_amount ?? 0)) });
+        }
+        let msg = friendlyError(e);
+        if (
+          e.code === "CREDIT_LIMIT_EXCEEDED" &&
+          e.data &&
+          (e.data as { available?: string | number }).available != null
+        ) {
+          const avail = Number((e.data as { available: string | number }).available);
+          msg += ` Disponible: ${formatCOP(avail)}`;
+          setCreditErrorData({ code: e.code, data: e.data });
+        } else if (
+          e.code === "CREDIT_BLOCKED_OVERDUE" &&
+          e.data &&
+          (e.data as { days?: number }).days != null
+        ) {
+          const days = (e.data as { days: number }).days;
+          msg += ` Días de mora: ${days}`;
+          setCreditErrorData({ code: e.code, data: e.data });
+        } else {
+          setCreditErrorData(null);
+          setShowOverrideForm(false);
+        }
+        setError(msg);
+      } else {
+        setError(friendlyError(e));
+        setCreditErrorData(null);
+        setShowOverrideForm(false);
       }
-      setError(friendlyError(e));
     } finally {
       setSubmitting(false);
     }
@@ -165,10 +399,9 @@ export function CheckoutDialog({
         className="max-h-[95vh] gap-0 overflow-y-auto rounded-3xl p-6 sm:max-w-lg sm:p-8"
         onKeyDown={(e) => {
           if (e.key === "F10") {
-            // F1.14: efectivo exacto.
             e.preventDefault();
             if (!receipt) {
-              setMethod("EFECTIVO");
+              setPayments([{ id: crypto.randomUUID(), method: "EFECTIVO", amount: total }]);
               setReceived(total);
             }
             return;
@@ -176,7 +409,7 @@ export function CheckoutDialog({
           if (e.key !== "Enter") return;
           e.preventDefault();
           if (receipt) finish();
-          else confirm();
+          else if (!showOverrideForm) confirm();
         }}
       >
         {receipt ? (
@@ -187,6 +420,7 @@ export function CheckoutDialog({
               register: registerName,
               customer: customerLabel(customer, customerAlias),
               waiter: waiters.find((w) => w.user_id === waiterId)?.full_name ?? null,
+              creditPlan: receipt.creditPlan,
             }}
             widthMm={ticketWidth}
             onNewSale={finish}
@@ -206,21 +440,46 @@ export function CheckoutDialog({
             </div>
 
             <div>
-              <p className="mb-2 text-xs font-semibold tracking-wider text-slate-500 uppercase">Método de pago</p>
-              <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_METHODS.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => setMethod(id)}
-                    className={cn(
-                      "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-sm font-medium",
-                      method === id ? "border-2 border-brand bg-teal-50 text-brand" : "border-slate-200 hover:bg-slate-50",
-                    )}
-                  >
-                    <Icon className="size-6" />
-                    {label}
-                  </button>
-                ))}
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
+                  {payments.length > 1 ? "Agregar método" : "Método de pago"}
+                </p>
+                {remainingToCover > 0 && (
+                  <span className="text-xs font-bold text-amber-600">
+                    Faltan {formatCOP(remainingToCover)}
+                  </span>
+                )}
+              </div>
+              <div
+                className={cn(
+                  "grid gap-2",
+                  availablePaymentMethods.length === 4 ? "grid-cols-4" : "grid-cols-3",
+                )}
+              >
+                {availablePaymentMethods.map(({ id, label, icon: Icon }) => {
+                  const hasThisCredit = id === "CREDITO" && payments.some((p) => p.method === "CREDITO");
+                  const isDisabled = hasThisCredit && payments.length > 1;
+                  const isSelected = payments.some((p) => p.method === id);
+
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => selectOrAddMethod(id)}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-sm font-medium transition-colors",
+                        isSelected
+                          ? "border-2 border-brand bg-teal-50 text-brand font-bold"
+                          : "border-slate-200 hover:bg-slate-50",
+                        isDisabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+                      )}
+                    >
+                      <Icon className="size-6" />
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -248,7 +507,22 @@ export function CheckoutDialog({
                     </button>
                   ))}
                 </div>
-                {tipMode === "CUSTOM" && <MoneyInput value={customTip} onChange={setCustomTip} />}
+                {tipMode === "CUSTOM" && (
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2">
+                    <span className="font-bold text-slate-400">$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={customTip ? customTip.toLocaleString("es-CO") : ""}
+                      placeholder="0"
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "");
+                        setCustomTip(digits ? Number(digits) : 0);
+                      }}
+                      className="w-full font-bold tabular-nums outline-none"
+                    />
+                  </div>
+                )}
                 {tip > 0 && (
                   <div className="flex items-center justify-between gap-3 text-sm">
                     <span className="text-slate-500">Propina {formatCOP(tip)} · Mesero</span>
@@ -269,62 +543,324 @@ export function CheckoutDialog({
               </div>
             )}
 
-            {isCash && (
-              <div className="space-y-3 rounded-2xl border border-slate-200/60 bg-slate-50 p-4">
-                <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Monto recibido</p>
-                <label className="flex items-center gap-2 rounded-2xl border-2 border-brand bg-white px-4 py-3">
-                  <span className="text-2xl font-bold text-slate-400">$</span>
-                  <input
-                    autoFocus
-                    inputMode="numeric"
-                    value={received == null ? "" : received.toLocaleString("es-CO")}
-                    placeholder={total.toLocaleString("es-CO")}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, "");
-                      setReceived(digits ? Number(digits) : null);
-                    }}
-                    className="w-full bg-transparent text-3xl font-bold tabular-nums outline-none"
-                  />
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {quickAmounts(total).map((amount, i) => (
-                    <button
-                      key={amount}
-                      onClick={() => setReceived(amount)}
-                      className={cn(
-                        "h-11 rounded-full border text-sm font-semibold",
-                        paid === amount ? "border-brand bg-brand text-white" : "border-slate-200 bg-white hover:bg-slate-100",
+            {/* Líneas de pago */}
+            <div className="space-y-4">
+              {payments.map((p) => {
+                const isCred = p.method === "CREDITO";
+                const isCash = p.method === "EFECTIVO";
+                const methodMeta = PAYMENT_METHODS.find((m) => m.id === p.method);
+
+                return (
+                  <div key={p.id} className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-semibold text-slate-700">
+                        {methodMeta?.icon && <methodMeta.icon className="size-4 text-brand" />}
+                        <span>{methodMeta?.label ?? p.method}</span>
+                      </div>
+                      {payments.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removePaymentLine(p.id)}
+                          className="flex size-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                          title="Eliminar método"
+                        >
+                          <X className="size-4" />
+                        </button>
                       )}
-                    >
-                      {i === 0 ? "Exacto" : formatCOP(amount)}
-                    </button>
-                  ))}
-                </div>
+                    </div>
+
+                    {isCred ? (
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-slate-500 uppercase">Monto a crédito</label>
+                          <label
+                            className={cn(
+                              "flex items-center gap-2 rounded-2xl border-2 bg-white px-4 py-3",
+                              creditLimit === 0
+                                ? "border-slate-200 opacity-60 cursor-not-allowed"
+                                : "border-brand",
+                            )}
+                          >
+                            <span className="text-2xl font-bold text-slate-400">$</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              disabled={creditLimit === 0}
+                              value={p.amount ? p.amount.toLocaleString("es-CO") : ""}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "");
+                                updatePaymentAmount(p.id, digits ? Number(digits) : 0);
+                              }}
+                              className="w-full bg-transparent text-3xl font-bold tabular-nums outline-none disabled:cursor-not-allowed"
+                            />
+                          </label>
+                          <div>
+                            {creditLimit === 0 ? (
+                              <p className="text-xs font-medium text-rose-600">
+                                Este cliente no tiene cupo de crédito.
+                              </p>
+                            ) : (
+                              <p className="text-xs text-slate-500">
+                                Cupo disponible: {formatCOP(creditAvailable)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Interruptor En cuotas */}
+                        {creditLimit > 0 && (
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-bold text-slate-800">En cuotas</span>
+                              <label className="relative inline-flex cursor-pointer items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={hasInstallments}
+                                  onChange={(e) => setHasInstallments(e.target.checked)}
+                                  className="peer sr-only"
+                                />
+                                <div className="peer h-6 w-11 rounded-full bg-slate-200 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand peer-checked:after:translate-x-full peer-checked:after:border-white" />
+                              </label>
+                            </div>
+
+                            {hasInstallments && (
+                              <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                                <div className="grid grid-cols-3 gap-3">
+                                  <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Cuotas</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={60}
+                                      value={installments}
+                                      onChange={(e) => {
+                                        const v = parseInt(e.target.value, 10);
+                                        setInstallments(Number.isNaN(v) ? 1 : Math.max(1, Math.min(60, v)));
+                                      }}
+                                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Frecuencia</label>
+                                    <select
+                                      value={frequency}
+                                      onChange={(e) => setFrequency(e.target.value as CreditFrequency)}
+                                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold"
+                                    >
+                                      <option value="SEMANAL">Semanal</option>
+                                      <option value="QUINCENAL">Quincenal</option>
+                                      <option value="MENSUAL">Mensual</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">
+                                      Primera cuota
+                                    </label>
+                                    <input
+                                      type="date"
+                                      min={todayStr}
+                                      value={firstDueDate}
+                                      onChange={(e) => setFirstDueDate(e.target.value)}
+                                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm font-semibold"
+                                    />
+                                  </div>
+                                </div>
+
+                                {activeSchedulePreview && activeSchedulePreview.installments.length > 0 && (
+                                  <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="sticky top-0 border-b border-slate-100 bg-slate-50 font-semibold text-slate-600">
+                                        <tr>
+                                          <th className="px-3 py-2">Cuota</th>
+                                          <th className="px-3 py-2">Vence</th>
+                                          <th className="px-3 py-2 text-right">Valor</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 font-mono">
+                                        {activeSchedulePreview.installments.map((inst) => (
+                                          <tr key={inst.n}>
+                                            <td className="px-3 py-2 font-medium text-slate-700">Cuota {inst.n}</td>
+                                            <td className="px-3 py-2 text-slate-500">{inst.due_date}</td>
+                                            <td className="px-3 py-2 text-right font-bold text-slate-800">
+                                              ${formatDecimalCOP(Number(inst.amount))}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : isCash ? (
+                      <div className="space-y-3">
+                        {payments.length > 1 && (
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-500 uppercase">Monto a pagar en efectivo</label>
+                            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                              <span className="text-2xl font-bold text-slate-400">$</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={p.amount ? p.amount.toLocaleString("es-CO") : ""}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "");
+                                  updatePaymentAmount(p.id, digits ? Number(digits) : 0);
+                                }}
+                                className="w-full bg-transparent text-2xl font-bold tabular-nums outline-none"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Monto recibido en efectivo
+                          </label>
+                          <label className="flex items-center gap-2 rounded-2xl border-2 border-brand bg-white px-4 py-3">
+                            <span className="text-2xl font-bold text-slate-400">$</span>
+                            <input
+                              autoFocus
+                              inputMode="numeric"
+                              value={received == null ? "" : received.toLocaleString("es-CO")}
+                              placeholder={p.amount.toLocaleString("es-CO")}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "");
+                                setReceived(digits ? Number(digits) : null);
+                              }}
+                              className="w-full bg-transparent text-3xl font-bold tabular-nums outline-none"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {quickAmounts(p.amount).map((quickAmt, i) => (
+                            <button
+                              key={quickAmt}
+                              type="button"
+                              onClick={() => setReceived(quickAmt)}
+                              className={cn(
+                                "h-11 rounded-full border text-sm font-semibold",
+                                cashReceived === quickAmt
+                                  ? "border-brand bg-brand text-white"
+                                  : "border-slate-200 bg-white hover:bg-slate-100",
+                              )}
+                            >
+                              {i === 0 ? "Exacto" : formatCOP(quickAmt)}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div
+                          className={cn(
+                            "rounded-2xl border p-4 text-center",
+                            cashReceived >= p.amount ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50",
+                          )}
+                        >
+                          {cashReceived >= p.amount ? (
+                            <>
+                              <p className="text-xs font-semibold tracking-wider text-emerald-700 uppercase">
+                                Cambio a entregar
+                              </p>
+                              <p className="text-4xl font-extrabold text-emerald-600 tabular-nums">
+                                {formatCOP(cashChange)}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm font-medium text-rose-600">
+                              Faltan {formatCOP(p.amount - cashReceived)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-500 uppercase">Monto a pagar</label>
+                        <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <span className="text-2xl font-bold text-slate-400">$</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={p.amount ? p.amount.toLocaleString("es-CO") : ""}
+                            placeholder="0"
+                            onChange={(e) => {
+                              const digits = e.target.value.replace(/\D/g, "");
+                              updatePaymentAmount(p.id, digits ? Number(digits) : 0);
+                            }}
+                            className="w-full bg-transparent text-2xl font-bold tabular-nums outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Error y flujo de autorización */}
+            {error && (
+              <div className="space-y-3 rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">
+                <p className="font-medium">{error}</p>
+
+                {creditErrorData && (
+                  canCreditOverride ? (
+                    !showOverrideForm ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowOverrideForm(true)}
+                        className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700"
+                      >
+                        Autorizar igual
+                      </button>
+                    ) : (
+                      <div className="space-y-3 border-t border-rose-200 pt-3">
+                        <label className="text-xs font-bold text-rose-800 uppercase">Motivo de la autorización</label>
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="Motivo de la autorización"
+                          value={overrideReason}
+                          onChange={(e) => {
+                            setOverrideReason(e.target.value);
+                            setOverrideError(null);
+                          }}
+                          className="h-11 w-full rounded-xl border border-rose-300 bg-white px-3 text-sm font-medium text-slate-800 outline-none focus:border-rose-500"
+                        />
+                        {overrideError && <p className="text-xs font-semibold text-rose-600">{overrideError}</p>}
+                        <button
+                          type="button"
+                          disabled={submitting}
+                          onClick={() => {
+                            const trimmed = overrideReason.trim();
+                            if (trimmed.length < 3 || trimmed.length > 200) {
+                              setOverrideError("El motivo debe tener entre 3 y 200 caracteres.");
+                              return;
+                            }
+                            confirm(trimmed);
+                          }}
+                          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50"
+                        >
+                          {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+                          Autorizar y cobrar
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-xs font-medium text-rose-800">
+                      Pedile a un supervisor que autorice la venta.
+                    </p>
+                  )
+                )}
               </div>
             )}
-
-            {isCash && (
-              <div
-                className={cn(
-                  "rounded-2xl border p-4 text-center",
-                  paid >= total ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50",
-                )}
-              >
-                {paid >= total ? (
-                  <>
-                    <p className="text-xs font-semibold tracking-wider text-emerald-700 uppercase">Cambio a entregar</p>
-                    <p className="text-4xl font-extrabold text-emerald-600 tabular-nums">{formatCOP(change)}</p>
-                  </>
-                ) : (
-                  <p className="text-sm font-medium text-rose-600">Faltan {formatCOP(total - paid)}</p>
-                )}
-              </div>
-            )}
-
-            {error && <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-600">{error}</p>}
 
             <button
-              onClick={confirm}
+              onClick={() => confirm()}
               disabled={!canConfirm}
               className="flex h-16 w-full items-center justify-center gap-3 rounded-2xl bg-brand text-xl font-bold text-white shadow-lg shadow-teal-900/20 hover:bg-brand-dark disabled:bg-slate-300 disabled:shadow-none"
             >
@@ -373,6 +909,8 @@ function ReceiptView({
   // Los valores del comprobante son los que cobró el servidor, no los del carrito.
   const model = ticketFromSale(response, meta);
   const change = Number(response.change_due);
+
+  const creditPayment = response.payments.find((p) => p.method === "CREDITO");
 
   return (
     <div className="space-y-5">
@@ -441,6 +979,20 @@ function ReceiptView({
             <span className="text-brand">{formatCOP(model.total)}</span>
           </div>
         </div>
+
+        {creditPayment && (
+          <div className="mt-3 border-t border-dashed border-slate-300 pt-2 font-sans text-xs">
+            <div className="flex justify-between font-bold text-amber-800">
+              <span>Crédito</span>
+              <span>{formatCOP(Number(creditPayment.amount))}</span>
+            </div>
+            {model.payments?.find((p) => p.label === "Crédito")?.detail && (
+              <p className="mt-0.5 text-slate-500">
+                {model.payments.find((p) => p.label === "Crédito")?.detail}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <button

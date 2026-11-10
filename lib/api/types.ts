@@ -118,7 +118,39 @@ export type BranchAccess = {
 
 // ------------------------------------------------------ venta de mostrador
 
-export type PaymentMethod = "EFECTIVO" | "DATAFONO" | "QR";
+export type PaymentMethod = "EFECTIVO" | "DATAFONO" | "QR" | "CREDITO";
+
+export type CreditFrequency = "SEMANAL" | "QUINCENAL" | "MENSUAL";
+export type CreditInterestType = "SIMPLE" | "CUOTA_FIJA";
+
+export type CreditPlan = {
+  installments: number;
+  frequency: CreditFrequency;
+  first_due_date: string;
+  interest_rate_monthly: Decimal;
+  interest_type: CreditInterestType;
+};
+
+export type ScheduleInstallment = {
+  n: number;
+  due_date: string;
+  amount: Decimal;
+};
+
+export type SchedulePreview = {
+  interest_total: Decimal;
+  total: Decimal;
+  installments: ScheduleInstallment[];
+};
+
+export type SchedulePreviewParams = {
+  principal: Decimal;
+  installments: number;
+  frequency: CreditFrequency;
+  first_due_date: string;
+  interest_rate_monthly: Decimal;
+  interest_type: CreditInterestType;
+};
 
 /**
  * POST /v1/sales — src/sales.rs::SaleRequest.
@@ -219,7 +251,11 @@ export type CheckoutRequest = {
   customer_id?: Uuid | null;
   customer_alias?: string | null;
   coupon_code?: string | null;
+  credit_plan?: CreditPlan | null;
+  credit_override_reason?: string | null;
 };
+
+export type SaleRequest = CheckoutRequest;
 
 /** src/sales.rs::Payment */
 export type Payment = {

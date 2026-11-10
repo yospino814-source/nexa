@@ -76,6 +76,16 @@ export function CartPanel({
   } = useCart();
   const branch = useCurrentBranch();
   const can = useSession((s) => s.can);
+  const canCreditSell = can("credit:sell");
+  const hasCustomer = Boolean(customer?.id);
+  const availableMethods = PAYMENT_METHODS.filter((m) => m.id !== "CREDITO" || (hasCustomer && canCreditSell));
+
+  useEffect(() => {
+    if (method === "CREDITO" && (!hasCustomer || !canCreditSell)) {
+      onMethodChange("EFECTIVO");
+    }
+  }, [method, hasCustomer, canCreditSell, onMethodChange]);
+
   const canOverride = allowPriceOverride && can("pos:price_override");
   const [overrideLine, setOverrideLine] = useState<CartLine | null>(null);
   const business = useBusinessInfo();
@@ -404,8 +414,8 @@ export function CartPanel({
             <span className="text-4xl font-extrabold tracking-tight tabular-nums">{formatCOP(total)}</span>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          {PAYMENT_METHODS.map(({ id, label, icon: Icon, tone }) => (
+        <div className={cn("grid gap-2", availableMethods.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
+          {availableMethods.map(({ id, label, icon: Icon, tone }) => (
             <button
               key={id}
               onClick={() => onMethodChange(id)}

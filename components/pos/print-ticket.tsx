@@ -2,13 +2,14 @@
 
 import { PrintArea } from "@/components/nexa/print-area";
 
-import type { BusinessInfo, CheckoutResponse, PaymentMethod, QuoteResponse } from "@/lib/api";
+import type { BusinessInfo, CheckoutResponse, CreditPlan, PaymentMethod, QuoteResponse } from "@/lib/api";
 import { formatCOP } from "@/lib/format";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
   EFECTIVO: "Efectivo",
   DATAFONO: "Datáfono",
   QR: "QR / Transferencia",
+  CREDITO: "Crédito",
 };
 
 const DISCOUNT_LABELS = {
@@ -42,7 +43,7 @@ export type TicketModel = {
   tip: number;
   total: number;
   /** null en la precuenta: sin pagos ni bloque fiscal. */
-  payments: { label: string; amount: number; tendered: number | null }[] | null;
+  payments: { label: string; amount: number; tendered: number | null; detail?: string | null }[] | null;
   change: number;
   fiscalAccepted: boolean;
 };
@@ -53,6 +54,7 @@ export type TicketMeta = {
   register: string | null;
   customer: string;
   waiter: string | null;
+  creditPlan?: CreditPlan | null;
 };
 
 function taxLabelFor(rate: number): string {
@@ -80,6 +82,20 @@ function discountsOf(d: { manual?: string; promotion?: string; order?: string; c
   return (Object.keys(DISCOUNT_LABELS) as (keyof typeof DISCOUNT_LABELS)[])
     .map((k) => ({ label: DISCOUNT_LABELS[k], amount: Number(d[k] ?? 0) }))
     .filter((x) => x.amount > 0);
+}
+
+function formatDateDMY(d: string | Date): string {
+  if (typeof d === "string") {
+    const parts = d.split("-");
+    if (parts.length === 3) {
+      return `${parts[2].padStart(2, "0")}/${parts[1].padStart(2, "0")}/${parts[0]}`;
+    }
+    d = new Date(d);
+  }
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 /** Tirilla de una venta registrada: todos los valores salen del servidor. */
@@ -113,11 +129,25 @@ export function ticketFromSale(sale: CheckoutResponse, meta: TicketMeta, date = 
     taxes: taxesByRate(sale.items.map((it) => ({ rate: Number(it.tax_rate), amount: Number(it.tax_amount) }))),
     tip: Number(sale.order.tip_amount),
     total: Number(sale.order.total_amount),
-    payments: sale.payments.map((p) => ({
-      label: METHOD_LABELS[p.method] ?? p.method,
-      amount: Number(p.amount),
-      tendered: p.tendered != null ? Number(p.tendered) : null,
-    })),
+    payments: sale.payments.map((p) => {
+      let detail: string | null = null;
+      if (p.method === "CREDITO") {
+        if (meta.creditPlan) {
+          const freq = meta.creditPlan.frequency.toLowerCase();
+          const firstDate = formatDateDMY(meta.creditPlan.first_due_date);
+          detail = `Cuotas: ${meta.creditPlan.installments} ${freq}, primera el ${firstDate}`;
+        } else {
+          const in30Days = new Date(date.getTime() + 30 * 86400000);
+          detail = `Vence el ${formatDateDMY(in30Days)}`;
+        }
+      }
+      return {
+        label: METHOD_LABELS[p.method] ?? p.method,
+        amount: Number(p.amount),
+        tendered: p.tendered != null ? Number(p.tendered) : null,
+        detail,
+      };
+    }),
     change: Number(sale.change_due),
     fiscalAccepted: sale.fiscal_status === "ACEPTADO",
   };
@@ -267,6 +297,12 @@ export function PrintTicket({
                 <span>{p.label}</span>
                 <span>{formatCOP(p.amount)}</span>
               </p>
+              {p.detail && (
+                <p className="t-row">
+                  <span>  {p.detail}</span>
+                  <span />
+                </p>
+              )}
               {p.tendered != null && (
                 <>
                   <p className="t-row">

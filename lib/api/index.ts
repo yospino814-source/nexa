@@ -6,6 +6,7 @@
 
 import { ApiError, request, USE_MOCKS } from "./client";
 import { MOCK_BRANCH_ID, mockCatalog, mockDashboard } from "./mock";
+import { mockSchedulePreview } from "./mock-credit";
 import {
   mockCount,
   mockKardex,
@@ -155,6 +156,8 @@ import type {
   PurchaseSummary,
   Role,
   RolePermissionsResponse,
+  SchedulePreview,
+  SchedulePreviewParams,
   SessionContext,
   StockAlert,
   ExpiringLot,
@@ -875,6 +878,62 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
   // Propina sin impuesto, sumada después del IVA (F1.10).
   const total = cents(subtotal + tax + tip);
 
+  const creditLines = body.payments.filter((p) => p.method === "CREDITO");
+  if (creditLines.length > 1) {
+    throw new ApiError(409, "Solo puede haber un pago a crédito por venta.", "SALE_MULTIPLE_CREDIT");
+  }
+
+  const cust = body.customer_id ? mockCustomers.find((c) => c.id === body.customer_id) : null;
+
+  if (creditLines.length === 1) {
+    const creditLine = creditLines[0];
+    if (!body.customer_id || !cust || cust.archived_at) {
+      throw new ApiError(422, "Para vender a crédito elegí un cliente.", "CREDIT_REQUIRES_CUSTOMER");
+    }
+
+    if (body.credit_plan) {
+      const plan = body.credit_plan;
+      const today = new Date().toISOString().slice(0, 10);
+      if (
+        plan.installments < 1 ||
+        plan.installments > 60 ||
+        Number(plan.interest_rate_monthly) !== 0 ||
+        (plan.interest_type !== "SIMPLE" && plan.interest_type !== "CUOTA_FIJA") ||
+        (plan.frequency !== "SEMANAL" && plan.frequency !== "QUINCENAL" && plan.frequency !== "MENSUAL") ||
+        plan.first_due_date < today
+      ) {
+        throw new ApiError(422, "Revisá el plan de cuotas.", "CREDIT_PLAN_INVALID");
+      }
+    }
+
+    if (body.credit_override_reason != null) {
+      const reason = body.credit_override_reason.trim();
+      if (reason.length < 3 || reason.length > 200) {
+        throw new ApiError(422, "El motivo debe tener entre 3 y 200 caracteres.", "CREDIT_OVERRIDE_REASON_INVALID");
+      }
+    } else {
+      const limit = Number(cust.credit_limit || 0);
+      if (limit === 0) {
+        throw new ApiError(409, "Este cliente no tiene cupo de crédito.", "CREDIT_NOT_ENABLED");
+      }
+      const blockDays = cust.credit_block_days ?? 30;
+      const overdueDays = cust.max_days_overdue ?? 0;
+      if (overdueDays > blockDays) {
+        throw new ApiError(409, "El cliente tiene deudas vencidas: crédito bloqueado.", "CREDIT_BLOCKED_OVERDUE", {
+          days: overdueDays,
+        });
+      }
+      const currentBal = Number(cust.balance || 0);
+      const available = Math.max(0, limit - currentBal);
+      const creditAmount = Number(creditLine.amount);
+      if (creditAmount > available) {
+        throw new ApiError(409, "La venta supera el cupo disponible.", "CREDIT_LIMIT_EXCEEDED", {
+          available: available.toFixed(2),
+        });
+      }
+    }
+  }
+
   // Mismo reparto que src/sales.rs::settle.
   const nonCash = body.payments.filter((p) => p.method !== "EFECTIVO").reduce((s, p) => s + Number(p.amount), 0);
   const cashLine = body.payments.find((p) => p.method === "EFECTIVO");
@@ -896,7 +955,11 @@ function mockCheckout(body: CheckoutRequest): CheckoutResponse {
 
   receiptSeq += 1;
   sessionOf.set(orderId, mockCash.id);
-  const cust = body.customer_id ? mockCustomers.find((c) => c.id === body.customer_id) : null;
+  if (cust && creditLines.length === 1) {
+    const creditAmount = Number(creditLines[0].amount);
+    const newBal = (Number(cust.balance || 0) + creditAmount).toFixed(2);
+    cust.balance = newBal;
+  }
   const response: CheckoutResponse = {
     order: {
       id: orderId,
@@ -1273,6 +1336,25 @@ export const api = {
         return mockVoid(orderId, reason);
       }
       return request(`/v1/sales/${orderId}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+    },
+  },
+
+  credit: {
+    /** GET /v1/credit/schedule-preview */
+    async schedulePreview(params: SchedulePreviewParams): Promise<SchedulePreview> {
+      if (USE_MOCKS) {
+        await delay(100);
+        return mockSchedulePreview(params);
+      }
+      const qs = new URLSearchParams({
+        principal: String(params.principal),
+        installments: String(params.installments),
+        frequency: params.frequency,
+        first_due_date: params.first_due_date,
+        interest_rate_monthly: String(params.interest_rate_monthly),
+        interest_type: params.interest_type,
+      });
+      return request(`/v1/credit/schedule-preview?${qs.toString()}`);
     },
   },
 
@@ -3045,6 +3127,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   CUSTOMER_DV_CONFLICT: "El dígito de verificación no coincide.",
   CUSTOMER_HAS_BALANCE: "El cliente tiene saldos pendientes.",
   CUSTOMER_NO_PHONE: "El cliente no tiene teléfono.",
+  CREDIT_PLAN_INVALID: "Revisá el plan de cuotas.",
+  CREDIT_OVERRIDE_REASON_INVALID: "El motivo debe tener entre 3 y 200 caracteres.",
+  PAYMENT_METHOD_NOT_AVAILABLE: "Ese método no está disponible para abonos.",
   SALE_MULTIPLE_CREDIT: "Solo puede haber un pago a crédito por venta.",
   CREDIT_REQUIRES_CUSTOMER: "Para vender a crédito elegí un cliente.",
   CREDIT_NOT_ENABLED: "Este cliente no tiene cupo de crédito.",

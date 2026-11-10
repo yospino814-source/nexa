@@ -1,4 +1,4 @@
-import { Banknote, CreditCard, QrCode, type LucideIcon } from "lucide-react";
+import { Banknote, CalendarClock, CreditCard, QrCode, type LucideIcon } from "lucide-react";
 
 import type { PaymentMethod } from "@/lib/api";
 
@@ -6,4 +6,5 @@ export const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: LucideIc
   { id: "EFECTIVO", label: "Efectivo", icon: Banknote, tone: "text-emerald-600" },
   { id: "DATAFONO", label: "Datáfono", icon: CreditCard, tone: "text-sky-600" },
   { id: "QR", label: "Nequi / QR", icon: QrCode, tone: "text-violet-600" },
+  { id: "CREDITO", label: "Crédito", icon: CalendarClock, tone: "text-amber-600" },
 ];

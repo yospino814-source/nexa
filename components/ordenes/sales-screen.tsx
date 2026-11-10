@@ -26,6 +26,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
   EFECTIVO: "Efectivo",
   DATAFONO: "Datáfono",
   QR: "QR",
+  CREDITO: "Crédito",
 };
 
 const PAGE_SIZE = 50;
