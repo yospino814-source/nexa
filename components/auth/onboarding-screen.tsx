@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, friendlyError } from "@/lib/api";
 import { useSession } from "@/lib/stores/session";
 import { AUTH_ENABLED } from "@/lib/supabase/config";
 
@@ -48,14 +48,13 @@ export function OnboardingScreen() {
   }, [boot]);
 
   useEffect(() => {
-    if (AUTH_ENABLED) {
-      if (status === "signed-out") {
-        router.replace("/login?next=/onboarding");
-      } else if (status === "ready" || status === "choose-branch") {
-        router.replace("/panel");
-      }
+    if (!AUTH_ENABLED || success || submitting) return;
+    if (status === "signed-out") {
+      router.replace("/login?next=/onboarding");
+    } else if (status === "ready" || status === "choose-branch") {
+      router.replace("/panel");
     }
-  }, [status, router]);
+  }, [status, router, success, submitting]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,7 +83,7 @@ export function OnboardingScreen() {
 
         if (err.code === "ONBOARDING_INVALID") {
           const field = (err.data as { field?: string } | undefined)?.field;
-          const msg = err.message || "Revisá los datos del negocio.";
+          const msg = friendlyError(err);
           if (field === "business_name") {
             setBusinessNameError(msg);
           } else if (field === "branch_name") {
