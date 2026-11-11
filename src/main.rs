@@ -26,6 +26,7 @@ pub mod promotions;
 pub mod receivables;
 pub mod refunds;
 pub mod registers;
+pub mod reports;
 pub mod routes;
 mod sales;
 pub mod sales_history;

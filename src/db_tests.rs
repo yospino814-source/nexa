@@ -16,8 +16,8 @@ use crate::sales::{Checkout, PaymentMethod, QuoteRequest, SaleItem, SalePayment,
 use crate::test_support::*;
 use crate::{
     AppState, cash, catalog, coupons, customers, expenses, inventory, options, orders, outbox,
-    payables, permissions, procurement, products, refunds, registers, routes, sales, sales_history,
-    sequences, settings, tenancy, users,
+    payables, permissions, procurement, products, receivables, refunds, registers, reports, routes,
+    sales, sales_history, sequences, settings, tenancy, users,
 };
 
 async fn default_register(pool: &PgPool, branch_id: Uuid) -> Uuid {
@@ -807,6 +807,7 @@ async fn database_integration() {
     s2_invitations(&app, &admin).await;
     s3_business(&app, &admin).await;
     s4_permissions(&app, &admin).await;
+    s5_sales_view(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -13072,4 +13073,411 @@ async fn s4_permissions(app: &PgPool, admin: &PgPool) {
         &[owner, admin_caja, supervisor, bodega, cashier],
     )
     .await;
+}
+
+/// S5 Vista `v_sales`: columnas calculadas en zona horaria local, exclusiones,
+/// RLS (`security_invoker`), ventas a crédito vs abonos posteriores y métricas.
+async fn s5_sales_view(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let other_tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let branch_2 = seed_branch(admin, tenant).await;
+    let other_branch = seed_branch(admin, other_tenant).await;
+
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    let other_owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, other_tenant, None, other_owner, "DUENO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_other = claims(other_owner, Some(other_tenant), Some(other_branch));
+
+    // Privilegios de la vista: solo `authenticated`, nunca `anon`.
+    let (auth_sel, anon_sel): (bool, bool) = sqlx::query_as(
+        "select has_table_privilege('authenticated', 'public.v_sales', 'SELECT'),
+                has_table_privilege('anon', 'public.v_sales', 'SELECT')",
+    )
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(auth_sel, "authenticated debe tener SELECT en v_sales");
+    assert!(!anon_sel, "anon no debe tener acceso a v_sales");
+
+    // Activar propinas en branch para verificar que gross_sale excluye tip_amount.
+    let mut bs = settings::BranchSettings::default();
+    bs.tips.enabled = true;
+    settings::update_settings(
+        app,
+        &c_owner,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: bs,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Producto gravado con IVA 19%: 1 x 10.000 = 10.000 + 1.900 IVA -> gross_sale = 11.900.
+    // Entrada con costo 6.000 para validar cost_total y margin.
+    let prod = seed_product(admin, tenant, "Whisky S5", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, prod, "10000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_branch_product(admin, tenant, branch_2, prod, None, None).await;
+    {
+        let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner, branch)
+            .await
+            .unwrap();
+        let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+            .await
+            .unwrap();
+        inventory::apply_delta_tx(
+            &mut tx,
+            &scope,
+            inventory::StockDelta {
+                branch_id: branch,
+                location_id: def_loc,
+                product_id: prod,
+                delta: dec(10),
+                movement: "REPOSICION",
+                unit_cost: Some(dec(6000)),
+                lot_id: None,
+                ref_type: "S5_SEED",
+                ref_id: Uuid::new_v4(),
+                cause: Some("Inventario inicial S5".into()),
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+    seed_stock(admin, tenant, branch_2, prod, "5", "0").await;
+
+    let reg1 = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg1, dec(0))
+        .await
+        .unwrap();
+    let reg2 = default_register(admin, branch_2).await;
+    cash::open(app, &c_owner, branch_2, reg2, dec(0))
+        .await
+        .unwrap();
+
+    // 1. Venta en efectivo con propina ($2.000) y transición a CERRADA.
+    // Se fija created_at = '2026-11-10 03:30:00+00' (en America/Bogota UTC-5 es lunes 2026-11-09 22:30).
+    let sale1_id = Uuid::new_v4();
+    let mut req1 = cash_sale(
+        branch,
+        SaleItem {
+            product_id: Some(prod),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+            custom_tax: None,
+            option_ids: vec![],
+        },
+        13900,
+    );
+    req1.id = sale1_id;
+    req1.tip_amount = Some(dec(2000));
+    req1.payments = vec![SalePayment {
+        method: PaymentMethod::Efectivo,
+        amount: dec(13900),
+        reference: None,
+    }];
+    let s1 = created(sales::checkout(app, &c_cashier, req1).await.unwrap());
+    assert_eq!(s1.order.total_amount.normalize(), dec(13900));
+    orders::transition(app, &c_owner, sale1_id, OrderStatus::Cerrada)
+        .await
+        .unwrap();
+    sqlx::query(
+        "update orders set created_at = '2026-11-10 03:30:00+00'::timestamptz where id = $1",
+    )
+    .bind(sale1_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // 2. Cambio 4: venta a CREDITO cuenta en el día en que se hizo; el abono posterior NO cuenta como venta.
+    let cust = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("90102030".into()),
+            dv: None,
+            name: "Cliente Credito S5".into(),
+            phone: Some("3005556677".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(500000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    let today_bogota: chrono::NaiveDate =
+        sqlx::query_scalar("select (now() at time zone 'America/Bogota')::date")
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let credit_sale_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_cashier,
+        SaleRequest {
+            id: credit_sale_id,
+            branch_id: branch,
+            items: vec![SaleItem {
+                product_id: Some(prod),
+                custom_name: None,
+                qty: dec(1),
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Credito,
+                amount: dec(11900),
+                reference: None,
+            }],
+            quoted_total: dec(11900),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 2,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: today_bogota + Duration::days(30),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Fecha de la venta a crédito: hace 2 días en hora local de Bogota (para separarla del abono de hoy).
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date - 2)::timestamp at time zone b.timezone) + interval '14 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(credit_sale_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let rec_id: Uuid = sqlx::query_scalar("select id from receivables where order_id = $1")
+        .bind(credit_sale_id)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+
+    // Abono posterior hoy (fecha local actual).
+    receivables::record_payment(
+        app,
+        &c_cashier,
+        rec_id,
+        receivables::CreateReceivablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(5000),
+            method: "EFECTIVO".into(),
+            reference: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // 3. Venta anulada (CANCELADA) y orden abierta (CREADA): nunca entran a v_sales.
+    let void_id = Uuid::new_v4();
+    let mut void_req = cash_sale(
+        branch,
+        SaleItem {
+            product_id: Some(prod),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+            custom_tax: None,
+            option_ids: vec![],
+        },
+        11900,
+    );
+    void_req.id = void_id;
+    sales::checkout(app, &c_cashier, void_req).await.unwrap();
+    sales::void(
+        app,
+        &c_owner,
+        void_id,
+        sales::VoidRequest {
+            reason: "Error en digitacion".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let open_order = orders::create_order(app, &c_cashier, branch, "MOSTRADOR", None, None, None)
+        .await
+        .unwrap();
+    orders::add_line(app, &c_cashier, open_order.id, prod, dec(1), None)
+        .await
+        .unwrap();
+
+    // 4. Venta en sucursal 2 (para comprobar aislamiento por sucursal cuando branch_id está fijado).
+    let sale_b2_id = Uuid::new_v4();
+    let mut req_b2 = cash_sale(
+        branch_2,
+        SaleItem {
+            product_id: Some(prod),
+            custom_name: None,
+            qty: dec(1),
+            unit_price_override: None,
+            discount_pct: None,
+            tier_id: None,
+            price_override_reason: None,
+            custom_tax: None,
+            option_ids: vec![],
+        },
+        11900,
+    );
+    req_b2.id = sale_b2_id;
+    sales::checkout(app, &c_owner, req_b2).await.unwrap();
+
+    // Consultar v_sales con scope en branch (debe ver solo sale1_id y credit_sale_id).
+    let (_, mut tx_b1) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    #[derive(sqlx::FromRow)]
+    struct VRow {
+        id: Uuid,
+        local_date: chrono::NaiveDate,
+        local_hour: i32,
+        local_isodow: i32,
+        subtotal: Decimal,
+        tax: Decimal,
+        tip_amount: Decimal,
+        gross_sale: Decimal,
+        customer_id: Option<Uuid>,
+    }
+    let rows_b1: Vec<VRow> = sqlx::query_as(
+        "select id, local_date, local_hour, local_isodow, subtotal, tax, tip_amount, gross_sale, customer_id
+           from public.v_sales
+          order by created_at",
+    )
+    .fetch_all(&mut *tx_b1)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        rows_b1.len(),
+        2,
+        "v_sales en branch 1 solo debe incluir COBRADA y CERRADA (excluye CANCELADA, CREADA y branch 2)"
+    );
+
+    let r1 = rows_b1.iter().find(|r| r.id == sale1_id).unwrap();
+    assert_eq!(
+        r1.local_date,
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 9).unwrap()
+    );
+    assert_eq!(r1.local_hour, 22);
+    assert_eq!(r1.local_isodow, 1);
+    assert_eq!(r1.subtotal, dec(10000));
+    assert_eq!(r1.tax, dec(1900));
+    assert_eq!(r1.tip_amount, dec(2000));
+    assert_eq!(r1.gross_sale, dec(11900));
+
+    let r_cred = rows_b1.iter().find(|r| r.id == credit_sale_id).unwrap();
+    assert_eq!(r_cred.local_date, today_bogota - Duration::days(2));
+    assert_eq!(r_cred.local_hour, 14);
+    assert_eq!(r_cred.gross_sale, dec(11900));
+    assert_eq!(r_cred.customer_id, Some(cust.customer.id));
+
+    // Cambio 4: el abono de hoy NO genera fila en v_sales para today_bogota.
+    let today_count_b1: i64 =
+        sqlx::query_scalar("select count(*) from public.v_sales where local_date = $1")
+            .bind(today_bogota)
+            .fetch_one(&mut *tx_b1)
+            .await
+            .unwrap();
+    assert_eq!(
+        today_count_b1, 0,
+        "abono posterior no debe contar como venta hoy"
+    );
+
+    // Verificar cruce con metrics::from_totals en el mismo scope de branch 1.
+    let (line_sum, cost_sum, missing_cnt): (Decimal, Decimal, i64) = sqlx::query_as(
+        "select coalesce(sum(oi.line_total), 0),
+                coalesce(sum(oi.cost_total), 0),
+                count(*) filter (where oi.cost_missing)
+           from public.order_items oi
+           join public.v_sales v on v.id = oi.order_id",
+    )
+    .fetch_one(&mut *tx_b1)
+    .await
+    .unwrap();
+    let gross_total: Decimal = rows_b1.iter().map(|r| r.gross_sale).sum();
+    let m = reports::metrics::from_totals(
+        gross_total,
+        Decimal::ZERO,
+        i64::try_from(rows_b1.len()).unwrap(),
+        line_sum,
+        cost_sum,
+        missing_cnt,
+    );
+    assert_eq!(m.gross_sale, dec(23800));
+    assert_eq!(m.net_sale, dec(23800));
+    assert_eq!(m.sales_count, 2);
+    assert_eq!(m.avg_ticket, dec(11900));
+    assert_eq!(m.cost_of_sales, dec(12000));
+    assert_eq!(m.gross_margin, dec(8000));
+    assert_eq!(m.margin_pct, dec(40));
+    assert_eq!(m.cost_missing_lines, 0);
+    tx_b1.rollback().await.unwrap();
+
+    // Sin filtro de branch_id (tenancy::begin con branch = None): ve las 3 ventas del tenant (2 en branch 1 + 1 en branch 2).
+    let c_owner_all = claims(owner, Some(tenant), None);
+    let (_, mut tx_tenant) = tenancy::begin(app, &c_owner_all).await.unwrap();
+    let tenant_count: i64 = sqlx::query_scalar("select count(*) from public.v_sales")
+        .fetch_one(&mut *tx_tenant)
+        .await
+        .unwrap();
+    assert_eq!(tenant_count, 3);
+    tx_tenant.rollback().await.unwrap();
+
+    // RLS (`security_invoker = true`): otro tenant no ve ninguna fila en v_sales.
+    let (_, mut tx_other) = tenancy::begin(app, &c_other).await.unwrap();
+    let other_count: i64 = sqlx::query_scalar("select count(*) from public.v_sales")
+        .fetch_one(&mut *tx_other)
+        .await
+        .unwrap();
+    assert_eq!(other_count, 0);
+    tx_other.rollback().await.unwrap();
+
+    cleanup(admin, tenant, &[owner, cashier]).await;
+    cleanup(admin, other_tenant, &[other_owner]).await;
 }

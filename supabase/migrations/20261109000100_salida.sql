@@ -140,3 +140,17 @@ select r.tima_id, 'purchases:receive'
    and r.tima_codigo = 'SUPERVISOR'
 on conflict do nothing;
 
+-- S5 Vista de ventas
+create view public.v_sales with (security_invoker = true) as
+select o.id, o.tenant_id, o.branch_id, o.created_at,
+       (o.created_at at time zone b.timezone)::date as local_date,
+       extract(hour from o.created_at at time zone b.timezone)::int as local_hour,
+       extract(isodow from o.created_at at time zone b.timezone)::int as local_isodow,
+       o.subtotal, o.inc_amount as tax, o.discount_total, o.tip_amount,
+       (o.subtotal + o.inc_amount) as gross_sale,
+       o.refunded_amount, o.customer_id, o.sale_type_id, o.cash_session_id
+  from public.orders o
+  join public.branches b on b.id = o.branch_id
+ where o.status_id in (public.tipo_id('ORD','COBRADA'), public.tipo_id('ORD','CERRADA'));
+grant select on public.v_sales to authenticated;
+
