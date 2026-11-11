@@ -158,6 +158,7 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/settings?branch_id=` | Ajustes operativos de sucursal (POS, caja, inventario, propinas, impresión) |
 | PUT | `/v1/settings?branch_id=` | Modificar ajustes operativos de sucursal |
 | GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
+| GET | `/v1/reports/dashboard?branch_id=&from=&to=` | Métricas, ventas por hora/día, top 10, métodos de pago, stock bajo y cartera vencida del panel (`reports:read`; `branch_id` opcional) |
 | POST | `/v1/onboarding` | Alta de negocio y sucursal principal con rol DUENO (requiere sesión autenticada) |
 | GET | `/v1/users` | Lista de usuarios y membresías del negocio |
 | GET | `/v1/business` | Nombre, razón social, NIT, DV e iva_responsible del negocio (cualquier miembro) |
@@ -250,4 +251,3 @@ Todo ocurre en una transacción:
 
 - **Worker de facturación DIAN:** lee `fiscal_documents` en `PENDIENTE`, transmite al proveedor tecnológico y guarda el CUDE. Falta elegir proveedor.
 - **Configurar numeración:** pantalla para cargar prefijo, rango y resolución en `document_sequences`. Hoy se crea una numeración `POS` sin resolución.
-- **`GET /v1/reports/dashboard`:** el panel del frontend todavía usa mocks.

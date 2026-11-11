@@ -808,6 +808,7 @@ async fn database_integration() {
     s3_business(&app, &admin).await;
     s4_permissions(&app, &admin).await;
     s5_sales_view(&app, &admin).await;
+    f7_dashboard(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -13479,5 +13480,602 @@ async fn s5_sales_view(app: &PgPool, admin: &PgPool) {
     tx_other.rollback().await.unwrap();
 
     cleanup(admin, tenant, &[owner, cashier]).await;
+    cleanup(admin, other_tenant, &[other_owner]).await;
+}
+
+/// S6 Panel principal (`GET /v1/reports/dashboard`): KPIs exactos, exclusión de
+/// ventas anuladas, venta mixta efectivo+crédito, variaciones vs periodo
+/// anterior, series por hora/día, top 10, `stock_alerts` `BAJO` abiertas,
+/// `overdue_receivables` en hora local y alcance multi-sucursal/permisos.
+async fn f7_dashboard(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let other_tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let branch_2 = seed_branch(admin, tenant).await;
+    let other_branch = seed_branch(admin, other_tenant).await;
+
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    let supervisor_b1 = seed_user(admin).await;
+    let other_owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, Some(branch), supervisor_b1, "SUPERVISOR").await;
+    seed_membership(admin, other_tenant, None, other_owner, "DUENO").await;
+
+    let c_owner = claims(owner, Some(tenant), None);
+    let c_owner_b1 = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_sup_b1 = claims(supervisor_b1, Some(tenant), None);
+    let c_other = claims(other_owner, Some(other_tenant), Some(other_branch));
+
+    // Habilitar propinas en sucursal 1.
+    let mut bs = settings::BranchSettings::default();
+    bs.tips.enabled = true;
+    settings::update_settings(
+        app,
+        &c_owner_b1,
+        settings::UpdateSettingsRequest {
+            branch_id: branch,
+            settings: bs,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Productos con costo conocido, sin costo y combo de 50.000:
+    // - p1: 10.000 + IVA19 (11.900), costo 6.000
+    // - p2: 5.000 exento, sin costo (cost_missing = true)
+    // - p3: 50.000 exento, costo 30.000
+    let p1 = seed_product(admin, tenant, "Aguardiente S6", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, p1, "10000").await;
+    seed_branch_product(admin, tenant, branch, p1, None, None).await;
+    seed_branch_product(admin, tenant, branch_2, p1, None, None).await;
+
+    let p2 = seed_product(admin, tenant, "Hielo Sin Costo S6", "UND", None, false).await;
+    set_base_price(admin, p2, "5000").await;
+    seed_branch_product(admin, tenant, branch, p2, None, None).await;
+
+    let p3 = seed_product(admin, tenant, "Botella 50k S6", "UND", None, false).await;
+    set_base_price(admin, p3, "50000").await;
+    seed_branch_product(admin, tenant, branch, p3, None, None).await;
+
+    let p_low = seed_product(admin, tenant, "Cerveza Alerta S6", "UND", None, false).await;
+    set_base_price(admin, p_low, "4000").await;
+    seed_branch_product(admin, tenant, branch, p_low, None, None).await;
+    seed_stock(admin, tenant, branch, p_low, "10", "0").await;
+    inventory::set_min_qty(app, &c_owner_b1, branch, p_low, dec(5))
+        .await
+        .unwrap();
+
+    {
+        let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner_b1, branch)
+            .await
+            .unwrap();
+        let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+            .await
+            .unwrap();
+        for (prod, qty, cost) in [(p1, dec(20), dec(6000)), (p3, dec(10), dec(30000))] {
+            inventory::apply_delta_tx(
+                &mut tx,
+                &scope,
+                inventory::StockDelta {
+                    branch_id: branch,
+                    location_id: def_loc,
+                    product_id: prod,
+                    delta: qty,
+                    movement: "REPOSICION",
+                    unit_cost: Some(cost),
+                    lot_id: None,
+                    ref_type: "S6_SEED",
+                    ref_id: Uuid::new_v4(),
+                    cause: Some("Inventario inicial S6".into()),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        // p_low baja a 4 <= min_qty 5 -> abre alerta 'BAJO' en stock_alerts.
+        inventory::apply_delta_tx(
+            &mut tx,
+            &scope,
+            inventory::StockDelta {
+                branch_id: branch,
+                location_id: def_loc,
+                product_id: p_low,
+                delta: dec(-6),
+                movement: "DESCUENTO",
+                unit_cost: None,
+                lot_id: None,
+                ref_type: "S6_SEED",
+                ref_id: Uuid::new_v4(),
+                cause: Some("Salida inicial S6".into()),
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+    // p2 sin capa de costo para disparar cost_missing = true.
+    seed_stock(admin, tenant, branch, p2, "10", "0").await;
+    seed_stock(admin, tenant, branch_2, p1, "10", "0").await;
+
+    let reg1 = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg1, dec(0))
+        .await
+        .unwrap();
+    let reg2 = default_register(admin, branch_2).await;
+    cash::open(app, &c_owner, branch_2, reg2, dec(0))
+        .await
+        .unwrap();
+
+    let item_for = |product_id: Uuid, qty: i64| SaleItem {
+        product_id: Some(product_id),
+        custom_name: None,
+        qty: dec(qty),
+        unit_price_override: None,
+        discount_pct: None,
+        tier_id: None,
+        price_override_reason: None,
+        custom_tax: None,
+        option_ids: vec![],
+    };
+
+    // Venta 1 (hoy, DATAFONO): 2 x p1 = 20.000 + 3.800 IVA -> gross_sale = 23.800, costo = 12.000.
+    let s1_id = Uuid::new_v4();
+    let s1 = created(
+        sales::checkout(
+            app,
+            &c_cashier,
+            SaleRequest {
+                id: s1_id,
+                branch_id: branch,
+                items: vec![item_for(p1, 2)],
+                payments: vec![SalePayment {
+                    method: PaymentMethod::Datafono,
+                    amount: dec(23800),
+                    reference: Some("DAT-001".into()),
+                }],
+                quoted_total: dec(23800),
+                tip_amount: None,
+                tip_waiter_id: None,
+                customer_id: None,
+                customer_alias: None,
+                coupon_code: None,
+                credit_plan: None,
+                credit_override_reason: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '10 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s1_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta 2 (hoy, QR + propina): 1 x p1 (11.900) + 1 x p2 sin costo (5.000) + tip 1.500 = 18.400.
+    // gross_sale = 16.900, line_total = 15.000, costo = 6.000, cost_missing_lines = 1.
+    let s2_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_cashier,
+        SaleRequest {
+            id: s2_id,
+            branch_id: branch,
+            items: vec![item_for(p1, 1), item_for(p2, 1)],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Qr,
+                amount: dec(18400),
+                reference: Some("QR-001".into()),
+            }],
+            quoted_total: dec(18400),
+            tip_amount: Some(dec(1500)),
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '14 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s2_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Devolución aprobada hoy de 1 x p1 de la venta 1 (10.000 + 1.900 = 11.900).
+    let ref_created = refunds::create(
+        app,
+        &c_owner_b1,
+        refunds::RefundRequest {
+            id: Uuid::new_v4(),
+            order_id: s1_id,
+            method: refunds::RefundMethod::Original,
+            reason: "Botella averiada".into(),
+            reversal_reference: Some("REV-DAT-001".into()),
+            items: vec![refunds::RefundItemInput {
+                order_item_id: s1.items[0].id,
+                qty: dec(1),
+                disposition: refunds::Disposition::Reintegrar,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    match ref_created {
+        refunds::Created::New(r) | refunds::Created::Replayed(r) => {
+            assert_eq!(r.status, "APROBADA");
+            assert_eq!(r.total.normalize(), dec(11900));
+        }
+    }
+
+    // Venta anulada hoy (1 x p1 = 11.900): no debe contar en KPIs, gráficas ni métodos de pago.
+    let void_id = Uuid::new_v4();
+    let mut void_req = cash_sale(branch, item_for(p1, 1), 11900);
+    void_req.id = void_id;
+    sales::checkout(app, &c_cashier, void_req).await.unwrap();
+    sales::void(
+        app,
+        &c_owner_b1,
+        void_id,
+        sales::VoidRequest {
+            reason: "Error en cobro".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Cliente y venta mixta de 50.000 pagada con 20.000 EFECTIVO + 30.000 CREDITO.
+    let cust = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("80102030".into()),
+            dv: None,
+            name: "Cliente Mixto S6".into(),
+            phone: Some("3001112233".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(500000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    let today_bogota: chrono::NaiveDate =
+        sqlx::query_scalar("select (now() at time zone 'America/Bogota')::date")
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    let mixed_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_cashier,
+        SaleRequest {
+            id: mixed_id,
+            branch_id: branch,
+            items: vec![item_for(p3, 1)],
+            payments: vec![
+                SalePayment {
+                    method: PaymentMethod::Efectivo,
+                    amount: dec(20000),
+                    reference: None,
+                },
+                SalePayment {
+                    method: PaymentMethod::Credito,
+                    amount: dec(30000),
+                    reference: None,
+                },
+            ],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 1,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: today_bogota + Duration::days(15),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '14 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(mixed_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta de ayer en sucursal 1 (para kpis_previous del rango [today, today]).
+    let prev_id = Uuid::new_v4();
+    let mut prev_req = cash_sale(branch, item_for(p1, 1), 11900);
+    prev_req.id = prev_id;
+    sales::checkout(app, &c_cashier, prev_req).await.unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date - 1)::timestamp at time zone b.timezone) + interval '16 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(prev_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta hoy en sucursal 2 (11.900 DATAFONO): prueba aislamiento vs suma total sin branch_id.
+    let b2_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_owner,
+        SaleRequest {
+            id: b2_id,
+            branch_id: branch_2,
+            items: vec![item_for(p1, 1)],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Datafono,
+                amount: dec(11900),
+                reference: Some("DAT-B2".into()),
+            }],
+            quoted_total: dec(11900),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // [P] Con datos conocidos (ventas válidas, 1 devolución aprobada y 1 venta cancelada), cada KPI da el valor exacto esperado; la venta cancelada no cuenta.
+    // [P] Venta mixta de 50.000 pagada con 20.000 efectivo y 30.000 crédito: gross_sale la cuenta completa y payment_methods muestra EFECTIVO 20.000 y CREDITO 30.000.
+    let dash_b1 = reports::dashboard::get(
+        app,
+        &c_owner,
+        reports::dashboard::DashboardQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(dash_b1.period.from, today_bogota);
+    assert_eq!(dash_b1.period.to, today_bogota);
+    assert_eq!(dash_b1.previous.from, today_bogota - Duration::days(1));
+    assert_eq!(dash_b1.previous.to, today_bogota - Duration::days(1));
+
+    // Ventas válidas de hoy en branch 1: 23.800 + 16.900 + 50.000 = 90.700; devolución = 11.900.
+    // line_total = 20.000 + 15.000 + 50.000 = 85.000; cost = 12.000 + 6.000 + 30.000 = 48.000.
+    // gross_margin = 37.000; margin_pct = round(37000 * 100 / 85000, 2) = 43.53; avg_ticket = 30.233.33.
+    assert_eq!(dash_b1.kpis.sales_count, 3);
+    assert_eq!(dash_b1.kpis.gross_sale, d("90700.00"));
+    assert_eq!(dash_b1.kpis.refunds, d("11900.00"));
+    assert_eq!(dash_b1.kpis.net_sale, d("78800.00"));
+    assert_eq!(dash_b1.kpis.avg_ticket, d("30233.33"));
+    assert_eq!(dash_b1.kpis.gross_margin, d("37000.00"));
+    assert_eq!(dash_b1.kpis.margin_pct, d("43.53"));
+    assert_eq!(dash_b1.kpis.tips, d("1500.00"));
+    assert_eq!(dash_b1.kpis.cost_missing_lines, 1);
+
+    // Periodo anterior (ayer en branch 1): 1 venta de p1 (11.900, line_total 10.000, cost 6.000 -> margin 4.000, 40%).
+    assert_eq!(dash_b1.kpis_previous.sales_count, 1);
+    assert_eq!(dash_b1.kpis_previous.gross_sale, d("11900.00"));
+    assert_eq!(dash_b1.kpis_previous.net_sale, d("11900.00"));
+    assert_eq!(dash_b1.kpis_previous.gross_margin, d("4000.00"));
+    assert_eq!(dash_b1.kpis_previous.margin_pct, d("40.00"));
+
+    // Métodos de pago incluyen CREDITO y reflejan los montos exactos de la venta mixta.
+    let by_method: std::collections::HashMap<_, _> = dash_b1
+        .payment_methods
+        .iter()
+        .map(|pm| (pm.method.as_str(), (pm.amount, pm.count)))
+        .collect();
+    assert_eq!(by_method.get("EFECTIVO"), Some(&(d("20000.00"), 1)));
+    assert_eq!(by_method.get("CREDITO"), Some(&(d("30000.00"), 1)));
+    assert_eq!(by_method.get("DATAFONO"), Some(&(d("23800.00"), 1)));
+    assert_eq!(by_method.get("QR"), Some(&(d("18400.00"), 1)));
+
+    // by_hour siempre devuelve 24 entradas (0..23).
+    assert_eq!(dash_b1.by_hour.len(), 24);
+    assert_eq!(dash_b1.by_hour[10].gross_sale, d("23800.00"));
+    assert_eq!(dash_b1.by_hour[10].sales_count, 1);
+    assert_eq!(dash_b1.by_hour[14].gross_sale, d("66900.00"));
+    assert_eq!(dash_b1.by_hour[14].sales_count, 2);
+
+    // by_day en rango [today, today].
+    assert_eq!(dash_b1.by_day.len(), 1);
+    assert_eq!(dash_b1.by_day[0].date, today_bogota);
+    assert_eq!(dash_b1.by_day[0].gross_sale, d("90700.00"));
+
+    // top_products ordenados por line_total desc.
+    assert_eq!(dash_b1.top_products.len(), 3);
+    assert_eq!(dash_b1.top_products[0].product_id, Some(p3));
+    assert_eq!(dash_b1.top_products[0].line_total, d("50000.00"));
+    assert_eq!(dash_b1.top_products[1].product_id, Some(p1));
+    assert_eq!(dash_b1.top_products[1].qty.normalize(), dec(3));
+    assert_eq!(dash_b1.top_products[1].line_total, d("30000.00"));
+    assert_eq!(dash_b1.top_products[2].product_id, Some(p2));
+
+    // Cambio 3: low_stock lee stock_alerts con kind='BAJO' y resolved_at is null.
+    assert_eq!(dash_b1.low_stock.len(), 1);
+    assert_eq!(dash_b1.low_stock[0].product_id, p_low);
+    assert_eq!(dash_b1.low_stock[0].on_hand.normalize(), dec(4));
+    assert_eq!(dash_b1.low_stock[0].min_qty.normalize(), dec(5));
+
+    // Cambio 2: con cuota vencida en el futuro, overdue_receivables = {0, 0}.
+    assert_eq!(dash_b1.overdue_receivables.count, 0);
+    assert_eq!(dash_b1.overdue_receivables.amount, Decimal::ZERO);
+
+    // Vencer la cuota 3 días en hora local -> aparece en overdue_receivables.
+    sqlx::query(
+        "update receivable_installments
+            set due_date = (now() at time zone 'America/Bogota')::date - 3
+          where receivable_id in (select id from receivables where order_id = $1)",
+    )
+    .bind(mixed_id)
+    .execute(admin)
+    .await
+    .unwrap();
+    sqlx::query(
+        "update receivables
+            set due_date = (now() at time zone 'America/Bogota')::date - 3
+          where order_id = $1",
+    )
+    .bind(mixed_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let dash_overdue = reports::dashboard::get(
+        app,
+        &c_owner,
+        reports::dashboard::DashboardQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(dash_overdue.overdue_receivables.count, 1);
+    assert_eq!(dash_overdue.overdue_receivables.amount, d("30000.00"));
+
+    // Cambio 4: sin branch_id suma todas las sucursales accesibles al dueño (branch 1 + branch 2),
+    // mientras supervisor_b1 con membresía solo de branch 1 ve únicamente branch 1 vía RLS.
+    let dash_all = reports::dashboard::get(
+        app,
+        &c_owner,
+        reports::dashboard::DashboardQuery {
+            branch_id: None,
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(dash_all.kpis.sales_count, 4);
+    assert_eq!(dash_all.kpis.gross_sale, d("102600.00"));
+
+    let dash_sup_all = reports::dashboard::get(
+        app,
+        &c_sup_b1,
+        reports::dashboard::DashboardQuery {
+            branch_id: None,
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(dash_sup_all.kpis.sales_count, 3);
+    assert_eq!(dash_sup_all.kpis.gross_sale, d("90700.00"));
+
+    // Otro negocio no ve datos por RLS.
+    let dash_other = reports::dashboard::get(
+        app,
+        &c_other,
+        reports::dashboard::DashboardQuery {
+            branch_id: None,
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(dash_other.kpis.sales_count, 0);
+    assert_eq!(dash_other.kpis.gross_sale, Decimal::ZERO);
+    assert!(dash_other.low_stock.is_empty());
+    assert_eq!(dash_other.overdue_receivables.count, 0);
+
+    // CAJERO no tiene reports:read -> 403 Forbidden.
+    let err_cashier = reports::dashboard::get(
+        app,
+        &c_cashier,
+        reports::dashboard::DashboardQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err_cashier.status(), axum::http::StatusCode::FORBIDDEN);
+
+    // Rango inválido (from > to) -> 422.
+    let err_dates = reports::dashboard::get(
+        app,
+        &c_owner,
+        reports::dashboard::DashboardQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota),
+            to: Some(today_bogota - Duration::days(1)),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        err_dates.status(),
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    // Resolver la alerta BAJO reponiendo por encima del mínimo la saca de low_stock.
+    inventory::replenish(app, &c_owner_b1, branch, p_low, dec(5), "Reposición S6")
+        .await
+        .unwrap();
+    let dash_resolved = reports::dashboard::get(
+        app,
+        &c_owner,
+        reports::dashboard::DashboardQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota),
+            to: Some(today_bogota),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(dash_resolved.low_stock.is_empty());
+
+    cleanup(admin, tenant, &[owner, cashier, supervisor_b1]).await;
     cleanup(admin, other_tenant, &[other_owner]).await;
 }

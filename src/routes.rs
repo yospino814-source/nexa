@@ -18,7 +18,7 @@ use crate::sales::{Checkout, SaleRequest};
 use crate::{
     AppState, audit, cash, catalog, customers, expenses, inventory, invitations, locations,
     onboarding, options, orders, payables, permissions, procurement, products, receivables,
-    refunds, registers, sales, sales_history, settings, tenancy, users,
+    refunds, registers, reports, sales, sales_history, settings, tenancy, users,
 };
 
 // Extractores que rechazan entradas invalidas con el mismo formato
@@ -234,6 +234,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/settings", get(get_settings).put(update_settings))
         // Auditoria
         .route("/v1/audit", get(list_audit))
+        // Reportes
+        .route("/v1/reports/dashboard", get(get_dashboard))
         // Usuarios y roles
         .route("/v1/onboarding", post(onboarding_create_business))
         .route("/v1/users", get(list_users))
@@ -1572,6 +1574,18 @@ async fn list_audit(
 ) -> ApiResult<Json<Vec<audit::AuditEntry>>> {
     let entries = audit::list_audit_entries(&state.pool, &user.claims, filter).await?;
     Ok(Json(entries))
+}
+
+// ------------------------------------------------------------------- reportes
+
+async fn get_dashboard(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<reports::dashboard::DashboardQuery>,
+) -> ApiResult<Json<reports::dashboard::DashboardResponse>> {
+    Ok(Json(
+        reports::dashboard::get(&state.pool, &user.claims, q).await?,
+    ))
 }
 
 // ------------------------------------------------------------------- usuarios

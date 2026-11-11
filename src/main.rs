@@ -236,6 +236,7 @@ mod tests {
                 "/v1/settings?branch_id=00000000-0000-0000-0000-000000000000",
             ),
             ("GET", "/v1/audit"),
+            ("GET", "/v1/reports/dashboard"),
             ("GET", "/v1/users"),
         ] {
             let response = test_router()
