@@ -102,6 +102,7 @@ pub fn base_allows(role: &str, code: &str) -> bool {
                 | "pos:refund"
                 | "inventory:adjust"
                 | "reports:read"
+                | "purchases:receive"
         ),
         "BODEGA" => matches!(
             code,
@@ -138,6 +139,15 @@ impl Scope {
     /// Exige un permiso por codigo granular.
     pub fn require_permission(&self, code: &str) -> Result<(), ApiError> {
         if self.has_permission(code) {
+            Ok(())
+        } else {
+            Err(ApiError::Domain(DomainError::Forbidden))
+        }
+    }
+
+    /// Exige que el rol u overrides otorguen al menos uno de los permisos listados.
+    pub fn require_any(&self, codes: &[&str]) -> Result<(), ApiError> {
+        if codes.iter().any(|c| self.has_permission(c)) {
             Ok(())
         } else {
             Err(ApiError::Domain(DomainError::Forbidden))

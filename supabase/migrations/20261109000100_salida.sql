@@ -132,3 +132,11 @@ create policy tenants_member_update on public.tenants for update
   using (id = public.current_tenant_id())
   with check (id = public.current_tenant_id());
 
+-- S4 Permisos
+insert into public.role_permissions (role_id, permission_code)
+select r.tima_id, 'purchases:receive'
+  from public.tbl_tipos_maestra r
+ where r.padre_id = (select tima_id from public.tbl_tipos_maestra where padre_id is null and tima_codigo = 'ROL')
+   and r.tima_codigo = 'SUPERVISOR'
+on conflict do nothing;
+

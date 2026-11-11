@@ -534,10 +534,31 @@ pub async fn reduce_receivable_tx(
     Ok(aplicado)
 }
 
+/// Selecciona el turno de caja abierto para descontar el efectivo de una
+/// devolución: primero el de quien la pidió (`requested_by`) y si no tiene, el
+/// de quien la aprueba (`scope.user`).
+async fn select_cash_session_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch: Uuid,
+    requested_by: Uuid,
+) -> Result<Uuid, ApiError> {
+    if let Some(id) = cash::open_session_of_tx(tx, branch, requested_by).await? {
+        return Ok(id);
+    }
+    if let Some(id) = cash::open_session_tx(tx, scope, branch).await? {
+        return Ok(id);
+    }
+    Err(conflict(
+        "REFUND_NEEDS_OPEN_SESSION",
+        "open a cash session to refund cash",
+    ))
+}
+
 /// Aplica stock, caja, saldo devuelto y nota crédito, y deja la devolución
 /// `APROBADA`. La devolución debe estar bloqueada o recién creada en `tx`.
 async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Result<(), ApiError> {
-    let (branch, order_id, prefix, number, method, original_method, total): (
+    let (branch, order_id, prefix, number, method, original_method, total, requested_by): (
         Uuid,
         Uuid,
         String,
@@ -545,8 +566,9 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
         String,
         Option<String>,
         Decimal,
+        Uuid,
     ) = sqlx::query_as(
-        "select branch_id, order_id, prefix, number, method, original_method, total
+        "select branch_id, order_id, prefix, number, method, original_method, total, requested_by
            from refunds where id = $1",
     )
     .bind(refund_id)
@@ -621,13 +643,7 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
         let cash_refund = total - aplicado;
         // 4. si total - aplicado = 0, no se llama a record_movement_tx y no se exige turno abierto
         if cash_refund > Decimal::ZERO {
-            let open = cash::open_session_tx(tx, scope, branch).await?;
-            let Some(session_id) = open else {
-                return Err(conflict(
-                    "REFUND_NEEDS_OPEN_SESSION",
-                    "open a cash session to refund cash",
-                ));
-            };
+            let session_id = select_cash_session_tx(tx, scope, branch, requested_by).await?;
             cash::record_movement_tx(
                 tx,
                 scope,
@@ -646,13 +662,7 @@ async fn apply_effects_tx(tx: &mut Tx<'_>, scope: &Scope, refund_id: Uuid) -> Re
         // Sin pago CREDITO: como hoy
         let cash_out = method == "EFECTIVO" || original_method.as_deref() == Some("EFECTIVO");
         if cash_out {
-            let open = cash::open_session_tx(tx, scope, branch).await?;
-            let Some(session_id) = open else {
-                return Err(conflict(
-                    "REFUND_NEEDS_OPEN_SESSION",
-                    "open a cash session to refund cash",
-                ));
-            };
+            let session_id = select_cash_session_tx(tx, scope, branch, requested_by).await?;
             cash::record_movement_tx(
                 tx,
                 scope,

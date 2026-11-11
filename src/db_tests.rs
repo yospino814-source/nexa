@@ -806,6 +806,7 @@ async fn database_integration() {
     s1_onboarding(&app, &admin).await;
     s2_invitations(&app, &admin).await;
     s3_business(&app, &admin).await;
+    s4_permissions(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -5090,7 +5091,18 @@ async fn f1_refunds(app: &PgPool, admin: &PgPool) {
     .await;
     assert_eq!(err_code(&r), Some("REFUND_QTY_EXCEEDED"), "{:?}", r.err());
 
-    // [P] Sin turno abierto del aprobador: 409 REFUND_NEEDS_OPEN_SESSION
+    // S4.2: como el cajero cerró su turno tras pedir la devolución y el dueño tampoco tiene turno:
+    // [P] Sin turno abierto de quien pide ni de quien aprueba: 409 REFUND_NEEDS_OPEN_SESSION
+    cash::close(
+        app,
+        &c_cashier,
+        before.session.id,
+        d("3573.61"),
+        None,
+        &before.state_token,
+    )
+    .await
+    .unwrap();
     let r = refunds::approve(app, &c_owner, r1.id).await;
     assert_eq!(
         err_code(&r),
@@ -5185,7 +5197,10 @@ async fn f1_refunds(app: &PgPool, admin: &PgPool) {
     let r = refunds::create(app, &c_cashier, changed).await;
     assert_eq!(err_code(&r), Some("IDEMPOTENCY_CONFLICT"), "{:?}", r.err());
 
-    // Rechazo: una pendiente rechazada ya no se puede aprobar.
+    // Rechazo: una pendiente rechazada ya no se puede aprobar (el cajero reabre su turno para vender).
+    cash::open(app, &c_cashier, branch, reg, dec(0))
+        .await
+        .unwrap();
     let mut s3 = sale(Uuid::new_v4(), branch, &[(prod, 1)], &[], d("1191.20"));
     s3.payments = cash_payment("1191.20");
     let s3 = created(sales::checkout(app, &c_cashier, s3).await.unwrap());
@@ -12759,4 +12774,302 @@ async fn s3_business(app: &PgPool, admin: &PgPool) {
     );
 
     cleanup(admin, tenant, &[owner, admin_caja_user, user_m]).await;
+}
+
+async fn s4_permissions(app: &PgPool, admin: &PgPool) {
+    use refunds::{Disposition::*, RefundMethod::*};
+
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+
+    let owner = seed_user(admin).await;
+    let admin_caja = seed_user(admin).await;
+    let supervisor = seed_user(admin).await;
+    let bodega = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), admin_caja, "ADMIN_CAJA").await;
+    seed_membership(admin, tenant, Some(branch), supervisor, "SUPERVISOR").await;
+    seed_membership(admin, tenant, Some(branch), bodega, "BODEGA").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+
+    let c_owner = claims(owner, Some(tenant), Some(branch));
+    let c_admin = claims(admin_caja, Some(tenant), Some(branch));
+    let c_supervisor = claims(supervisor, Some(tenant), Some(branch));
+    let c_bodega = claims(bodega, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+
+    let sup = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Distribuidora S4".into(),
+            tax_id: Some("900888777-1".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let prod = seed_product(admin, tenant, "Cerveza S4", "UND", Some("IVA19"), false).await;
+    set_base_price(admin, prod, "5000").await;
+    seed_branch_product(admin, tenant, branch, prod, None, None).await;
+    seed_stock(admin, tenant, branch, prod, "10", "0").await;
+
+    let make_purchase_req = |doc: &str| procurement::CreatePurchaseRequest {
+        id: Uuid::new_v4(),
+        branch_id: branch,
+        supplier_id: sup.id,
+        document_number: Some(doc.into()),
+        items: vec![procurement::PurchaseItemRequest {
+            product_id: prod,
+            qty: dec(5),
+            unit_cost: dec(2000),
+            new_sale_price: None,
+        }],
+        ..Default::default()
+    };
+
+    // [P] BODEGA crea una compra: 403. BODEGA recibe una compra aprobada: 200.
+    assert!(
+        is_forbidden(
+            &procurement::create_purchase(app, &c_bodega, make_purchase_req("FAC-S4-NO")).await
+        ),
+        "BODEGA no debe poder crear compras"
+    );
+    let p_bodega = procurement::create_purchase(app, &c_owner, make_purchase_req("FAC-S4-1"))
+        .await
+        .unwrap();
+    // Sin aprobar (PENDIENTE), BODEGA tampoco puede auto-aprobarla al recibirla.
+    assert!(
+        is_forbidden(&procurement::receive_purchase(app, &c_bodega, p_bodega.purchase.id).await),
+        "BODEGA no debe auto-aprobar una compra pendiente"
+    );
+    assert!(
+        is_forbidden(&procurement::approve_purchase(app, &c_bodega, p_bodega.purchase.id).await),
+        "BODEGA no debe aprobar compras"
+    );
+    assert!(
+        is_forbidden(&procurement::cancel_purchase(app, &c_bodega, p_bodega.purchase.id).await),
+        "BODEGA no debe anular compras"
+    );
+    procurement::approve_purchase(app, &c_owner, p_bodega.purchase.id)
+        .await
+        .unwrap();
+    let rec_bodega = procurement::receive_purchase(app, &c_bodega, p_bodega.purchase.id)
+        .await
+        .expect("BODEGA debe poder recibir una compra aprobada");
+    assert_eq!(rec_bodega.purchase.status, "RECIBIDA");
+
+    // [P] SUPERVISOR aprueba una compra: 403. SUPERVISOR la recibe: 200.
+    assert!(
+        is_forbidden(
+            &procurement::create_purchase(app, &c_supervisor, make_purchase_req("FAC-S4-NO2"))
+                .await
+        ),
+        "SUPERVISOR no debe crear compras"
+    );
+    let p_sup = procurement::create_purchase(app, &c_owner, make_purchase_req("FAC-S4-2"))
+        .await
+        .unwrap();
+    assert!(
+        is_forbidden(&procurement::approve_purchase(app, &c_supervisor, p_sup.purchase.id).await),
+        "SUPERVISOR no debe aprobar compras"
+    );
+    procurement::approve_purchase(app, &c_owner, p_sup.purchase.id)
+        .await
+        .unwrap();
+    let rec_sup = procurement::receive_purchase(app, &c_supervisor, p_sup.purchase.id)
+        .await
+        .expect("SUPERVISOR debe poder recibir una compra aprobada");
+    assert_eq!(rec_sup.purchase.status, "RECIBIDA");
+
+    // [P] CAJERO lista compras: 403.
+    assert!(
+        is_forbidden(
+            &procurement::list_purchases(app, &c_cashier, procurement::PurchaseFilter::default())
+                .await
+        ),
+        "CAJERO no debe listar compras"
+    );
+    assert!(
+        is_forbidden(&procurement::get_purchase(app, &c_cashier, p_bodega.purchase.id).await),
+        "CAJERO no debe ver detalle de compras"
+    );
+    assert!(
+        !procurement::list_purchases(app, &c_supervisor, procurement::PurchaseFilter::default())
+            .await
+            .expect("SUPERVISOR si puede listar compras")
+            .is_empty()
+    );
+    assert!(
+        !procurement::list_purchases(app, &c_bodega, procurement::PurchaseFilter::default())
+            .await
+            .expect("BODEGA si puede listar compras")
+            .is_empty()
+    );
+
+    // [P] ADMIN_CAJA crea, aprueba y recibe: 200 en las tres.
+    let p_admin = procurement::create_purchase(app, &c_admin, make_purchase_req("FAC-S4-3"))
+        .await
+        .expect("ADMIN_CAJA crea compra");
+    assert_eq!(p_admin.purchase.status, "PENDIENTE");
+    let p_admin_approved = procurement::approve_purchase(app, &c_admin, p_admin.purchase.id)
+        .await
+        .expect("ADMIN_CAJA aprueba compra");
+    assert_eq!(p_admin_approved.purchase.status, "APROBADA");
+    let p_admin_received = procurement::receive_purchase(app, &c_admin, p_admin.purchase.id)
+        .await
+        .expect("ADMIN_CAJA recibe compra");
+    assert_eq!(p_admin_received.purchase.status, "RECIBIDA");
+
+    // [P] Un cajero con turno abierto pide una devolución en efectivo. El dueño, sin turno, la aprueba. El movimiento DEVOLUCION queda en el turno del cajero.
+    let reg = default_register(admin, branch).await;
+    let cashier_session = cash::open(app, &c_cashier, branch, reg, dec(10000))
+        .await
+        .unwrap();
+
+    // Venta de 2 unidades (5.000 * 1.19 = 5.950 cada una -> 11.900 total).
+    let mut sale_req = sale(Uuid::new_v4(), branch, &[(prod, 2)], &[], d("11900"));
+    sale_req.payments = cash_payment("11900");
+    let s1 = created(sales::checkout(app, &c_cashier, sale_req).await.unwrap());
+
+    let r1 = new_refund(
+        refunds::create(
+            app,
+            &c_cashier,
+            refund_req(
+                Uuid::new_v4(),
+                s1.order.id,
+                s1.items[0].id,
+                1,
+                Reintegrar,
+                Efectivo,
+            ),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(r1.status, "PENDIENTE");
+
+    // Dueño sin turno abierto en la sucursal aprueba la devolución.
+    assert!(
+        cash::current(app, &c_owner, branch)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let r1_approved = refunds::approve(app, &c_owner, r1.id)
+        .await
+        .expect("Dueño sin turno aprueba devolución pedida por cajero con turno abierto");
+    assert_eq!(r1_approved.status, "APROBADA");
+
+    let mov_session: (Uuid, String) = sqlx::query_as(
+        "select m.cash_session_id, t.tima_codigo
+           from cash_movements m
+           join tbl_tipos_maestra t on t.tima_id = m.kind_id
+          where m.ref_type = 'REFUND' and m.ref_id = $1",
+    )
+    .bind(r1.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(mov_session.0, cashier_session.id);
+    assert_eq!(mov_session.1, "DEVOLUCION");
+
+    let refund_cash_session: Option<Uuid> =
+        sqlx::query_scalar("select cash_session_id from refunds where id = $1")
+            .bind(r1.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(refund_cash_session, Some(cashier_session.id));
+
+    let cashier_summary = cash::current(app, &c_cashier, branch)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cashier_summary.expected_cash.normalize(), dec(15950));
+
+    // SUPERVISOR sin turno también puede aprobar la devolución de la segunda unidad -> queda en el turno del cajero.
+    let r2 = new_refund(
+        refunds::create(
+            app,
+            &c_cashier,
+            refund_req(
+                Uuid::new_v4(),
+                s1.order.id,
+                s1.items[0].id,
+                1,
+                Reintegrar,
+                Efectivo,
+            ),
+        )
+        .await
+        .unwrap(),
+    );
+    let r2_approved = refunds::approve(app, &c_supervisor, r2.id)
+        .await
+        .expect("SUPERVISOR sin turno aprueba devolución pedida por cajero con turno abierto");
+    assert_eq!(r2_approved.status, "APROBADA");
+    let refund2_session: Option<Uuid> =
+        sqlx::query_scalar("select cash_session_id from refunds where id = $1")
+            .bind(r2.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(refund2_session, Some(cashier_session.id));
+
+    // Si tanto el cajero como el dueño tienen turno abierto, la devolución sigue saliendo del turno del cajero.
+    let reg2: Uuid = sqlx::query_scalar(
+        "insert into cash_registers (tenant_id, branch_id, name, code)
+         values ($1, $2, 'Caja S4 2', 'CAJA-S4-2') returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    let owner_session = cash::open(app, &c_owner, branch, reg2, dec(50000))
+        .await
+        .unwrap();
+
+    let mut sale2_req = sale(Uuid::new_v4(), branch, &[(prod, 1)], &[], d("5950"));
+    sale2_req.payments = cash_payment("5950");
+    let s2 = created(sales::checkout(app, &c_cashier, sale2_req).await.unwrap());
+    let r3 = new_refund(
+        refunds::create(
+            app,
+            &c_cashier,
+            refund_req(
+                Uuid::new_v4(),
+                s2.order.id,
+                s2.items[0].id,
+                1,
+                Reintegrar,
+                Efectivo,
+            ),
+        )
+        .await
+        .unwrap(),
+    );
+    refunds::approve(app, &c_owner, r3.id).await.unwrap();
+    let r3_session: Option<Uuid> =
+        sqlx::query_scalar("select cash_session_id from refunds where id = $1")
+            .bind(r3.id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(r3_session, Some(cashier_session.id));
+    let owner_summary = cash::current(app, &c_owner, branch).await.unwrap().unwrap();
+    assert_eq!(owner_summary.session.id, owner_session.id);
+    assert_eq!(owner_summary.expected_cash.normalize(), dec(50000));
+
+    cleanup(
+        admin,
+        tenant,
+        &[owner, admin_caja, supervisor, bodega, cashier],
+    )
+    .await;
 }

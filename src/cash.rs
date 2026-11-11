@@ -280,13 +280,22 @@ pub async fn open_session_tx(
     scope: &Scope,
     branch_id: Uuid,
 ) -> Result<Option<Uuid>, ApiError> {
+    open_session_of_tx(tx, branch_id, scope.user).await
+}
+
+/// Turno abierto de un usuario concreto en la sucursal. Toma un bloqueo compartido.
+pub async fn open_session_of_tx(
+    tx: &mut Tx<'_>,
+    branch_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<Uuid>, ApiError> {
     let id = sqlx::query_scalar(
         "select id from cash_sessions
           where branch_id = $1 and opened_by = $2 and closed_at is null
           for share",
     )
     .bind(branch_id)
-    .bind(scope.user)
+    .bind(user_id)
     .fetch_optional(&mut **tx)
     .await?;
     Ok(id)
@@ -460,6 +469,15 @@ async fn lock_open_session_tx(
     scope: &Scope,
     session_id: Uuid,
 ) -> Result<Uuid, ApiError> {
+    lock_open_session_inner_tx(tx, scope, session_id, false).await
+}
+
+async fn lock_open_session_inner_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    session_id: Uuid,
+    allow_refund_approver: bool,
+) -> Result<Uuid, ApiError> {
     let row: Option<(Uuid, Uuid, bool)> = sqlx::query_as(
         "select branch_id, opened_by, closed_at is not null
            from cash_sessions where id = $1 for update",
@@ -468,7 +486,8 @@ async fn lock_open_session_tx(
     .fetch_optional(&mut **tx)
     .await?;
     let (branch_id, opened_by, closed) = row.ok_or(ApiError::Domain(DomainError::NotFound))?;
-    if opened_by != scope.user && !scope.is_admin() {
+    let can_operate = opened_by == scope.user || scope.is_admin() || allow_refund_approver;
+    if !can_operate {
         return Err(ApiError::Domain(DomainError::Forbidden));
     }
     if closed {
@@ -502,7 +521,10 @@ pub async fn record_movement_tx(
         ));
     }
 
-    let branch_id = lock_open_session_tx(tx, scope, session_id).await?;
+    let allow_refund_approver =
+        kind == CashMovementKind::Devolucion && scope.has_permission("pos:refund");
+    let branch_id =
+        lock_open_session_inner_tx(tx, scope, session_id, allow_refund_approver).await?;
 
     if !kind.is_inflow() {
         let available = summary_tx(tx, session_id).await?.expected_cash;

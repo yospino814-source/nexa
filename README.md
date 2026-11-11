@@ -121,17 +121,17 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | PUT | `/v1/suppliers/{id}` | Editar proveedor |
 | POST | `/v1/suppliers/{id}/archive` | Archivar proveedor (valida que no tenga compras o deudas abiertas) |
 | PUT | `/v1/suppliers/{id}/products` | Configurar catálogo del proveedor `{products: [{product_id, supplier_code?, min_order_qty?, preferred}]}` |
-| GET | `/v1/purchases?branch_id=&from=&to=&supplier_id=&status=&limit=` | Historial de compras con número de ítems y total |
-| POST | `/v1/purchases` | Crear orden de compra en estado `PENDIENTE` (idempotente) |
-| GET | `/v1/purchases/summary?branch_id=&month=YYYY-MM` | Total comprado en el mes y proveedores activos |
-| POST | `/v1/purchases/cost-preview` | Vista previa de prorrateo de costos y márgenes de ganancia |
+| GET | `/v1/purchases?branch_id=&from=&to=&supplier_id=&status=&limit=` | Historial de compras con número de ítems y total (`purchases:create`, `purchases:approve` o `purchases:receive`) |
+| POST | `/v1/purchases` | Crear orden de compra en estado `PENDIENTE` (idempotente, `purchases:create`) |
+| GET | `/v1/purchases/summary?branch_id=&month=YYYY-MM` | Total comprado en el mes y proveedores activos (`purchases:create`, `purchases:approve` o `purchases:receive`) |
+| POST | `/v1/purchases/cost-preview` | Vista previa de prorrateo de costos y márgenes de ganancia (`purchases:create`, `purchases:approve` o `purchases:receive`) |
 | GET | `/v1/purchases/suggestions?branch_id=` | Sugerencias de compra por stock mínimo agrupadas por proveedor |
 | POST | `/v1/purchases/suggestions/create` | Generar órdenes en borrador desde sugerencias seleccionadas |
-| GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto, SKU, unidad de compra y costos |
-| PUT | `/v1/purchases/{id}` | Actualizar orden de compra en estado `PENDIENTE` |
+| GET | `/v1/purchases/{id}` | Detalle de compra con ítems, producto, SKU, unidad de compra y costos (`purchases:create`, `purchases:approve` o `purchases:receive`) |
+| PUT | `/v1/purchases/{id}` | Actualizar orden de compra en estado `PENDIENTE` (`purchases:create`) |
 | POST | `/v1/purchases/{id}/approve` | Aprobar orden de compra (`purchases:approve`) |
 | POST | `/v1/purchases/{id}/receive` | Recepción parcial o total con lotes, vencimientos y fletes (`purchases:receive`) |
-| POST | `/v1/purchases/{id}/cancel` | Anular orden de compra (`purchases:approve`) |
+| POST | `/v1/purchases/{id}/cancel` | Anular orden de compra (`purchases:create`) |
 | GET | `/v1/payables?branch_id=&status=&supplier_id=&overdue=` | Cuentas por pagar con saldo y estado (`payables:read`) |
 | GET | `/v1/payables/aging?branch_id=` | Reporte de cartera y antigüedad de saldos (`payables:read`) |
 | GET | `/v1/payables/{id}` | Detalle de cuenta por pagar e historial de pagos (`payables:read`) |

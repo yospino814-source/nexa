@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::auth::Claims;
 use crate::error::{ApiError, DomainError, state, validation};
-use crate::tenancy::{self, Action, Scope};
+use crate::tenancy::{self, Scope};
 use crate::{audit, catalog, inventory, money, payables, pricing, sequences};
 
 type Tx<'a> = Transaction<'a, Postgres>;
@@ -1254,7 +1254,7 @@ pub async fn get_purchase(
     id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_any(&["purchases:create", "purchases:approve", "purchases:receive"])?;
     let detail = get_purchase_detail_tx(&mut tx, &scope, id).await?;
     tx.commit().await?;
     Ok(detail)
@@ -1332,7 +1332,7 @@ pub async fn cost_preview(
     req: CostPreviewRequest,
 ) -> Result<CostPreviewResponse, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_any(&["purchases:create", "purchases:approve", "purchases:receive"])?;
     let resp = cost_preview_tx(&mut tx, &scope, req).await?;
     tx.commit().await?;
     Ok(resp)
@@ -1482,7 +1482,7 @@ pub async fn create_purchase(
     req: CreatePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
     let detail = create_purchase_tx(&mut tx, &scope, req).await?;
     tx.commit().await?;
     Ok(detail)
@@ -1493,7 +1493,7 @@ pub async fn create_purchase_tx(
     scope: &Scope,
     req: CreatePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
     tenancy::ensure_branch_tx(tx, scope, req.branch_id).await?;
 
     if req.items.is_empty() {
@@ -1706,7 +1706,7 @@ pub async fn update_purchase(
     req: UpdatePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
     let detail = update_purchase_tx(&mut tx, &scope, id, req).await?;
     tx.commit().await?;
     Ok(detail)
@@ -1718,7 +1718,7 @@ pub async fn update_purchase_tx(
     id: Uuid,
     req: UpdatePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
 
     let current: Option<(Uuid, String)> = sqlx::query_as(
         "select pr.id, tm.tima_codigo as status
@@ -1930,7 +1930,7 @@ pub async fn approve_purchase(
     id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:approve")?;
     let detail = approve_purchase_tx(&mut tx, &scope, id).await?;
     tx.commit().await?;
     Ok(detail)
@@ -1941,7 +1941,7 @@ pub async fn approve_purchase_tx(
     scope: &Scope,
     id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:approve")?;
 
     let current: Option<(Uuid, String)> = sqlx::query_as(
         "select pr.id, tm.tima_codigo as status
@@ -2001,7 +2001,7 @@ pub async fn receive_purchase(
     purchase_id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:receive")?;
 
     let status: String = sqlx::query_scalar(
         "select tm.tima_codigo from purchase_receipts pr join tbl_tipos_maestra tm on tm.tima_id = pr.status_id where pr.id = $1 and pr.tenant_id = $2"
@@ -2061,7 +2061,7 @@ pub async fn receive_purchase_with_req(
     req: ReceivePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:receive")?;
     let res = receive_purchase_tx(&mut tx, &scope, purchase_id, req).await?;
     tx.commit().await?;
     Ok(res)
@@ -2073,7 +2073,7 @@ pub async fn receive_purchase_tx(
     purchase_id: Uuid,
     req: ReceivePurchaseRequest,
 ) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:receive")?;
 
     // 1. Idempotencia por purchase_receptions.id
     let client_req = serde_json::to_value(&req).map_err(anyhow::Error::from)?;
@@ -2516,7 +2516,7 @@ pub async fn cancel_purchase(
     purchase_id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
     let result = cancel_purchase_tx(&mut tx, &scope, purchase_id).await?;
     tx.commit().await?;
     Ok(result)
@@ -2527,7 +2527,7 @@ pub async fn cancel_purchase_tx(
     scope: &Scope,
     purchase_id: Uuid,
 ) -> Result<PurchaseDetail, ApiError> {
-    scope.require(Action::ManageInventory)?;
+    scope.require_permission("purchases:create")?;
 
     let row: Option<(Uuid, String)> = sqlx::query_as(
         "select pr.id, tm.tima_codigo as status
@@ -2589,7 +2589,7 @@ pub async fn list_purchases(
     filter: PurchaseFilter,
 ) -> Result<Vec<PurchaseRow>, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_any(&["purchases:create", "purchases:approve", "purchases:receive"])?;
 
     let limit = filter.limit.unwrap_or(50).clamp(1, 200);
     let status_code = clean_opt(filter.status);
@@ -2629,7 +2629,7 @@ pub async fn purchase_summary(
     month: Option<String>,
 ) -> Result<PurchaseSummary, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
-    scope.require(Action::ManageInventory)?;
+    scope.require_any(&["purchases:create", "purchases:approve", "purchases:receive"])?;
 
     let month_str = clean_opt(month).unwrap_or_else(|| Utc::now().format("%Y-%m").to_string());
 
