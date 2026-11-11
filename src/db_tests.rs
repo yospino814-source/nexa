@@ -809,6 +809,7 @@ async fn database_integration() {
     s4_permissions(&app, &admin).await;
     s5_sales_view(&app, &admin).await;
     f7_dashboard(&app, &admin).await;
+    f7_reports(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -14075,6 +14076,940 @@ async fn f7_dashboard(app: &PgPool, admin: &PgPool) {
     .await
     .unwrap();
     assert!(dash_resolved.low_stock.is_empty());
+
+    cleanup(admin, tenant, &[owner, cashier, supervisor_b1]).await;
+    cleanup(admin, other_tenant, &[other_owner]).await;
+}
+
+/// S7 Reportes analíticos y exportación CSV (`GET /v1/reports/*`):
+/// sumas consistentes con `order_items.line_total`, BOM + `;` en CSV, `CREDITO`
+/// etiquetado como "Crédito", heatmap 7×24 sin CSV, valorización/rotación
+/// (últimos 30 días ignorando `from`) y compras por proveedor con RLS/permisos.
+async fn f7_reports(app: &PgPool, admin: &PgPool) {
+    use axum::body::to_bytes;
+    use axum::http::header;
+    use axum::response::IntoResponse;
+
+    let tenant = seed_tenant(admin).await;
+    let other_tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let branch_2 = seed_branch(admin, tenant).await;
+    let other_branch = seed_branch(admin, other_tenant).await;
+
+    let owner = seed_user(admin).await;
+    let cashier = seed_user(admin).await;
+    let supervisor_b1 = seed_user(admin).await;
+    let other_owner = seed_user(admin).await;
+    sqlx::query("update users set full_name = 'Camila Cajera' where id = $1")
+        .bind(cashier)
+        .execute(admin)
+        .await
+        .unwrap();
+    sqlx::query("update users set full_name = 'Dueño Principal' where id = $1")
+        .bind(owner)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    seed_membership(admin, tenant, Some(branch), cashier, "CAJERO").await;
+    seed_membership(admin, tenant, Some(branch), supervisor_b1, "SUPERVISOR").await;
+    seed_membership(admin, other_tenant, None, other_owner, "DUENO").await;
+
+    let c_owner = claims(owner, Some(tenant), None);
+    let c_owner_b1 = claims(owner, Some(tenant), Some(branch));
+    let c_cashier = claims(cashier, Some(tenant), Some(branch));
+    let c_sup_b1 = claims(supervisor_b1, Some(tenant), None);
+    let c_other = claims(other_owner, Some(other_tenant), Some(other_branch));
+
+    // Categorías en sucursal 1 y 2.
+    let cat_licores: Uuid = sqlx::query_scalar(
+        "insert into product_categories (tenant_id, branch_id, name) values ($1, $2, 'Licores') returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    let cat_cervezas: Uuid = sqlx::query_scalar(
+        "insert into product_categories (tenant_id, branch_id, name) values ($1, $2, 'Cervezas') returning id",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+
+    // Segunda bodega en branch 1 para probar valorización multi-ubicación.
+    let loc_bodega = crate::locations::create_location(
+        app,
+        &c_owner_b1,
+        crate::locations::CreateLocationInput {
+            branch_id: branch,
+            name: "Bodega Reserva".into(),
+            kind: "BODEGA".into(),
+            sellable: true,
+            is_default: Some(false),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Productos con SKUs y categorías distintas:
+    // - p1 ("Aguardiente S7", SKU "LIC-001", IVA19): precio 10.000, costo 6.000, cat Licores.
+    // - p2 ("Cerveza S7", SKU "CRV-001", exento): precio 5.000, costo 3.000, cat Cervezas.
+    // - p3 ("Whisky Crédito S7", SKU "WHK-001", exento): precio 50.000, costo 30.000, cat Licores.
+    // - p_unsold ("Tequila Sin Venta S7", SKU "TEQ-001"): stock 8 @ 20.000, 0 ventas -> dias_inventario = None.
+    // - p_zero ("Copa En Cero S7", SKU "COP-001"): stock 0, 0 ventas -> fuera de valorización, dentro de rotación con dias_inventario = None.
+    let p1 = seed_product(admin, tenant, "Aguardiente S7", "UND", Some("IVA19"), false).await;
+    let p2 = seed_product(admin, tenant, "Cerveza S7", "UND", None, false).await;
+    let p3 = seed_product(admin, tenant, "Whisky Crédito S7", "UND", None, false).await;
+    let p_unsold = seed_product(admin, tenant, "Tequila Sin Venta S7", "UND", None, false).await;
+    let p_zero = seed_product(admin, tenant, "Copa En Cero S7", "UND", None, false).await;
+
+    for (pid, sku) in [
+        (p1, "LIC-001"),
+        (p2, "CRV-001"),
+        (p3, "WHK-001"),
+        (p_unsold, "TEQ-001"),
+        (p_zero, "COP-001"),
+    ] {
+        sqlx::query("update products set sku = $2 where id = $1")
+            .bind(pid)
+            .bind(sku)
+            .execute(admin)
+            .await
+            .unwrap();
+    }
+
+    set_base_price(admin, p1, "10000").await;
+    set_base_price(admin, p2, "5000").await;
+    set_base_price(admin, p3, "50000").await;
+    set_base_price(admin, p_unsold, "80000").await;
+    set_base_price(admin, p_zero, "15000").await;
+
+    seed_branch_product(admin, tenant, branch, p1, Some(cat_licores), None).await;
+    seed_branch_product(admin, tenant, branch, p2, Some(cat_cervezas), None).await;
+    seed_branch_product(admin, tenant, branch, p3, Some(cat_licores), None).await;
+    seed_branch_product(admin, tenant, branch, p_unsold, Some(cat_licores), None).await;
+    seed_branch_product(admin, tenant, branch, p_zero, None, None).await;
+    seed_branch_product(admin, tenant, branch_2, p1, None, None).await;
+
+    {
+        let (scope, mut tx) = tenancy::begin_in_branch(app, &c_owner_b1, branch)
+            .await
+            .unwrap();
+        let def_loc = crate::locations::default_location_id_tx(&mut tx, branch)
+            .await
+            .unwrap();
+        for (prod, loc, qty, cost) in [
+            (p1, def_loc, dec(20), dec(6000)),
+            (p2, def_loc, dec(10), dec(3000)),
+            (p2, loc_bodega.id, dec(15), dec(3000)),
+            (p3, def_loc, dec(10), dec(30000)),
+            (p_unsold, def_loc, dec(8), dec(20000)),
+        ] {
+            inventory::apply_delta_tx(
+                &mut tx,
+                &scope,
+                inventory::StockDelta {
+                    branch_id: branch,
+                    location_id: loc,
+                    product_id: prod,
+                    delta: qty,
+                    movement: "REPOSICION",
+                    unit_cost: Some(cost),
+                    lot_id: None,
+                    ref_type: "S7_SEED",
+                    ref_id: Uuid::new_v4(),
+                    cause: Some("Inventario inicial S7".into()),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+    }
+    seed_stock(admin, tenant, branch, p_zero, "0", "0").await;
+    seed_stock(admin, tenant, branch_2, p1, "10", "0").await;
+
+    // Dos cajas abiertas en branch 1 (cajero en CAJA-1, dueño en CAJA-2) y una en branch 2.
+    let reg1 = default_register(admin, branch).await;
+    cash::open(app, &c_cashier, branch, reg1, dec(0))
+        .await
+        .unwrap();
+    let reg_owner_b1 = registers::create(
+        app,
+        &c_owner_b1,
+        registers::CreateRegisterRequest {
+            branch_id: branch,
+            location_id: None,
+            name: "Caja 2".into(),
+            code: "CAJA-2".into(),
+            default_opening: dec(0),
+        },
+    )
+    .await
+    .unwrap();
+    cash::open(app, &c_owner_b1, branch, reg_owner_b1.id, dec(100000))
+        .await
+        .unwrap();
+    let reg2 = default_register(admin, branch_2).await;
+    cash::open(app, &c_owner, branch_2, reg2, dec(0))
+        .await
+        .unwrap();
+
+    let item_for = |product_id: Uuid, qty: i64| SaleItem {
+        product_id: Some(product_id),
+        custom_name: None,
+        qty: dec(qty),
+        unit_price_override: None,
+        discount_pct: None,
+        tier_id: None,
+        price_override_reason: None,
+        custom_tax: None,
+        option_ids: vec![],
+    };
+
+    let today_bogota: chrono::NaiveDate =
+        sqlx::query_scalar("select (now() at time zone 'America/Bogota')::date")
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+    // Venta 1 (hoy 10:00, Camila Cajera, DATAFONO): 2 x p1 = 23.800 (sin IVA = 20.000, costo = 12.000).
+    let s1_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_cashier,
+        SaleRequest {
+            id: s1_id,
+            branch_id: branch,
+            items: vec![item_for(p1, 2)],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Datafono,
+                amount: dec(23800),
+                reference: Some("DAT-S7-1".into()),
+            }],
+            quoted_total: dec(23800),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '10 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s1_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta 2 (hoy 14:00, Camila Cajera, mixta EFECTIVO 10.000 + QR 11.900):
+    // 1 x p1 (11.900, line 10.000, cost 6.000) + 2 x p2 (10.000, line 10.000, cost 6.000). Total 21.900.
+    let s2_id = Uuid::new_v4();
+    let s2 = created(
+        sales::checkout(
+            app,
+            &c_cashier,
+            SaleRequest {
+                id: s2_id,
+                branch_id: branch,
+                items: vec![item_for(p1, 1), item_for(p2, 2)],
+                payments: vec![
+                    SalePayment {
+                        method: PaymentMethod::Efectivo,
+                        amount: dec(10000),
+                        reference: None,
+                    },
+                    SalePayment {
+                        method: PaymentMethod::Qr,
+                        amount: dec(11900),
+                        reference: Some("QR-S7-2".into()),
+                    },
+                ],
+                quoted_total: dec(21900),
+                tip_amount: None,
+                tip_waiter_id: None,
+                customer_id: None,
+                customer_alias: None,
+                coupon_code: None,
+                credit_plan: None,
+                credit_override_reason: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '14 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s2_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Devolución aprobada hoy de 1 x p2 (5.000) sobre s2.
+    let p2_line_id = s2
+        .items
+        .iter()
+        .find(|i| i.product_id == Some(p2))
+        .unwrap()
+        .id;
+    refunds::create(
+        app,
+        &c_owner_b1,
+        refunds::RefundRequest {
+            id: Uuid::new_v4(),
+            order_id: s2_id,
+            method: refunds::RefundMethod::Efectivo,
+            reason: "Cerveza mal sellada".into(),
+            reversal_reference: None,
+            items: vec![refunds::RefundItemInput {
+                order_item_id: p2_line_id,
+                qty: dec(1),
+                disposition: refunds::Disposition::Reintegrar,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Cliente + Venta 3 (hoy 14:00, Dueño Principal, 20.000 EFECTIVO + 30.000 CREDITO):
+    // 1 x p3 = 50.000 (line 50.000, cost 30.000).
+    let cust = customers::create(
+        app,
+        &c_owner,
+        customers::CreateCustomerInput {
+            doc_type: Some("CC".into()),
+            doc_number: Some("90102030".into()),
+            dv: None,
+            name: "Cliente Crédito S7".into(),
+            phone: Some("3005556677".into()),
+            email: None,
+            price_tier_id: None,
+            person_type: None,
+            tax_regime: None,
+            fiscal_responsibilities: None,
+            ciiu: None,
+            withholding_agent: None,
+            city_code: None,
+            billing_address: None,
+            shipping_address: None,
+            pinned_note: None,
+            credit_limit: Some(dec(500000)),
+            credit_block_days: Some(30),
+        },
+    )
+    .await
+    .unwrap();
+
+    let s3_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_owner_b1,
+        SaleRequest {
+            id: s3_id,
+            branch_id: branch,
+            items: vec![item_for(p3, 1)],
+            payments: vec![
+                SalePayment {
+                    method: PaymentMethod::Efectivo,
+                    amount: dec(20000),
+                    reference: None,
+                },
+                SalePayment {
+                    method: PaymentMethod::Credito,
+                    amount: dec(30000),
+                    reference: None,
+                },
+            ],
+            quoted_total: dec(50000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: Some(cust.customer.id),
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: Some(crate::credit::CreditPlan {
+                installments: 1,
+                frequency: crate::credit::Frequency::Mensual,
+                first_due_date: today_bogota + Duration::days(15),
+                interest_rate_monthly: Decimal::ZERO,
+                interest_type: crate::credit::InterestType::Simple,
+            }),
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date)::timestamp at time zone b.timezone) + interval '14 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s3_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta 4 (ayer 16:00, Camila Cajera, EFECTIVO): 1 x p1 = 11.900 (line 10.000, cost 6.000).
+    let s4_id = Uuid::new_v4();
+    let mut s4_req = cash_sale(branch, item_for(p1, 1), 11900);
+    s4_req.id = s4_id;
+    sales::checkout(app, &c_cashier, s4_req).await.unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date - 1)::timestamp at time zone b.timezone) + interval '16 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s4_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta 5 (hace 45 días, Camila Cajera, EFECTIVO): 4 x p2 = 20.000.
+    // Fuera del periodo de 30 días de inventory-rotation (aunque `from` sea hace 60 días).
+    let s5_id = Uuid::new_v4();
+    let mut s5_req = cash_sale(branch, item_for(p2, 4), 20000);
+    s5_req.id = s5_id;
+    sales::checkout(app, &c_cashier, s5_req).await.unwrap();
+    sqlx::query(
+        "update orders
+            set created_at = (((now() at time zone b.timezone)::date - 45)::timestamp at time zone b.timezone) + interval '11 hours'
+           from branches b
+          where orders.id = $1 and b.id = orders.branch_id",
+    )
+    .bind(s5_id)
+    .execute(admin)
+    .await
+    .unwrap();
+
+    // Venta anulada hoy (1 x p1): no debe contar en ningún reporte.
+    let void_id = Uuid::new_v4();
+    let mut void_req = cash_sale(branch, item_for(p1, 1), 11900);
+    void_req.id = void_id;
+    sales::checkout(app, &c_cashier, void_req).await.unwrap();
+    sales::void(
+        app,
+        &c_owner_b1,
+        void_id,
+        sales::VoidRequest {
+            reason: "Anulación S7".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // Venta hoy en sucursal 2 (1 x p1 = 11.900, DATAFONO).
+    let s_b2_id = Uuid::new_v4();
+    sales::checkout(
+        app,
+        &c_owner,
+        SaleRequest {
+            id: s_b2_id,
+            branch_id: branch_2,
+            items: vec![item_for(p1, 1)],
+            payments: vec![SalePayment {
+                method: PaymentMethod::Datafono,
+                amount: dec(11900),
+                reference: Some("DAT-B2-S7".into()),
+            }],
+            quoted_total: dec(11900),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            credit_plan: None,
+            credit_override_reason: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Nota sobre stock final en branch 1 tras las ventas y reintegro de p2:
+    // - p1: 20 - 2 - 1 - 1 - 1(voided) + 1(void) = 16
+    // - p2: (10 + 15) - 2(s2) + 1(devolucion) - 4(s5) = 20 (30d sold = 2; total sold excl void = 6)
+    // - p3: 10 - 1 = 9
+    // - p_unsold: 8
+
+    let period_from = today_bogota - Duration::days(6);
+    let period_to = today_bogota;
+    let q_b1 = || reports::queries::ReportQuery {
+        branch_id: Some(branch),
+        from: Some(period_from),
+        to: Some(period_to),
+        format: None,
+    };
+
+    // 1. [P] la suma de sales-by-product.venta_sin_impuesto es igual a Σ line_total del periodo
+    let by_product_b1 = reports::queries::sales_by_product_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    let sum_product_report: Decimal = by_product_b1
+        .rows
+        .iter()
+        .map(|r| r.venta_sin_impuesto)
+        .sum();
+    let sum_line_total_b1: Decimal = sqlx::query_scalar(
+        "select coalesce(sum(oi.line_total), 0)
+           from public.order_items oi
+           join public.v_sales v on v.id = oi.order_id
+          where v.tenant_id = $1
+            and v.branch_id = $2
+            and v.local_date between $3 and $4",
+    )
+    .bind(tenant)
+    .bind(branch)
+    .bind(period_from)
+    .bind(period_to)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(sum_product_report, d("100000.00"));
+    assert_eq!(sum_product_report, sum_line_total_b1);
+
+    // También en vista consolidada sin branch_id (branch 1 + branch 2 = 110.000).
+    let by_product_all = reports::queries::sales_by_product_data(
+        app,
+        &c_owner,
+        reports::queries::ReportQuery {
+            branch_id: None,
+            from: Some(period_from),
+            to: Some(period_to),
+            format: None,
+        },
+    )
+    .await
+    .unwrap();
+    let sum_product_all: Decimal = by_product_all
+        .rows
+        .iter()
+        .map(|r| r.venta_sin_impuesto)
+        .sum();
+    let sum_line_total_all: Decimal = sqlx::query_scalar(
+        "select coalesce(sum(oi.line_total), 0)
+           from public.order_items oi
+           join public.v_sales v on v.id = oi.order_id
+          where v.tenant_id = $1
+            and v.local_date between $2 and $3",
+    )
+    .bind(tenant)
+    .bind(period_from)
+    .bind(period_to)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(sum_product_all, d("110000.00"));
+    assert_eq!(sum_product_all, sum_line_total_all);
+    // p1 vendido en branch 1 (Licores) y branch 2 (sin categoría) debe consolidar en 1 sola fila.
+    assert_eq!(
+        by_product_all
+            .rows
+            .iter()
+            .filter(|r| r.product_id == Some(p1))
+            .count(),
+        1
+    );
+
+    // 2. [P] el CSV empieza con el BOM y usa ; (verificado directo con la respuesta HTTP de csv)
+    let mut csv_q = q_b1();
+    csv_q.format = Some("csv".into());
+    let csv_day_resp = reports::queries::sales_by_day(app, &c_owner, csv_q)
+        .await
+        .unwrap()
+        .into_response();
+    assert_eq!(
+        csv_day_resp.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/csv; charset=utf-8"
+    );
+    let expected_disp =
+        format!("attachment; filename=\"sales-by-day_{period_from}_{period_to}.csv\"");
+    assert_eq!(
+        csv_day_resp
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap(),
+        expected_disp.as_str()
+    );
+    let csv_bytes = to_bytes(csv_day_resp.into_body(), 1024 * 64).await.unwrap();
+    assert!(csv_bytes.starts_with(&[0xEF, 0xBB, 0xBF]));
+    let csv_text = String::from_utf8(csv_bytes[3..].to_vec()).unwrap();
+    let csv_lines: Vec<&str> = csv_text.split("\r\n").collect();
+    assert_eq!(
+        csv_lines[0],
+        "fecha;ventas;venta_bruta;devoluciones;venta_neta;ticket_promedio;margen"
+    );
+    assert!(csv_lines[1].contains(';'));
+    assert!(csv_lines[1].contains(",00"));
+
+    // 3. sales-by-day: solo devuelve días con ventas (2 de 7) y descuenta devolución aprobada.
+    let by_day = reports::queries::sales_by_day_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert_eq!(by_day.rows.len(), 2);
+    assert_eq!(by_day.rows[0].fecha, today_bogota - Duration::days(1));
+    assert_eq!(by_day.rows[0].ventas, 1);
+    assert_eq!(by_day.rows[0].venta_bruta, d("11900.00"));
+    assert_eq!(by_day.rows[0].devoluciones, d("0.00"));
+    assert_eq!(by_day.rows[0].venta_neta, d("11900.00"));
+    assert_eq!(by_day.rows[0].margen, d("4000.00"));
+
+    assert_eq!(by_day.rows[1].fecha, today_bogota);
+    assert_eq!(by_day.rows[1].ventas, 3);
+    assert_eq!(by_day.rows[1].venta_bruta, d("95700.00"));
+    assert_eq!(by_day.rows[1].devoluciones, d("5000.00"));
+    assert_eq!(by_day.rows[1].venta_neta, d("90700.00"));
+    assert_eq!(by_day.rows[1].ticket_promedio, d("31900.00"));
+    assert_eq!(by_day.rows[1].margen, d("36000.00"));
+
+    // 4. sales-by-category: Licores (p1+p3) y Cervezas (p2).
+    let by_cat = reports::queries::sales_by_category_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert_eq!(by_cat.rows.len(), 2);
+    assert_eq!(by_cat.rows[0].categoria, "Licores");
+    assert_eq!(by_cat.rows[0].venta_sin_impuesto, d("90000.00"));
+    assert_eq!(by_cat.rows[0].margen, d("36000.00"));
+    assert_eq!(by_cat.rows[1].categoria, "Cervezas");
+    assert_eq!(by_cat.rows[1].venta_sin_impuesto, d("10000.00"));
+    assert_eq!(by_cat.rows[1].margen, d("4000.00"));
+
+    // 5. sales-by-cashier: Camila Cajera (3 ventas en el periodo: 23800+21900+11900=57600) vs Dueño Principal (1 venta = 50000).
+    let by_cashier = reports::queries::sales_by_cashier_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert_eq!(by_cashier.rows.len(), 2);
+    assert_eq!(by_cashier.rows[0].cajero, "Camila Cajera");
+    assert_eq!(by_cashier.rows[0].ventas, 3);
+    assert_eq!(by_cashier.rows[0].venta_bruta, d("57600.00"));
+    assert_eq!(by_cashier.rows[0].ticket_promedio, d("19200.00"));
+    assert_eq!(by_cashier.rows[1].cajero, "Dueño Principal");
+    assert_eq!(by_cashier.rows[1].ventas, 1);
+    assert_eq!(by_cashier.rows[1].venta_bruta, d("50000.00"));
+
+    // 6. sales-by-method (Cambio 1): incluye CREDITO con etiqueta "Crédito" en JSON y CSV.
+    let by_method = reports::queries::sales_by_method_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    let method_map: std::collections::HashMap<_, _> = by_method
+        .rows
+        .iter()
+        .map(|r| (r.metodo.as_str(), r))
+        .collect();
+    let credito_row = method_map.get("CREDITO").expect("CREDITO row");
+    assert_eq!(credito_row.etiqueta, "Crédito");
+    assert_eq!(credito_row.pagos, 1);
+    assert_eq!(credito_row.monto, d("30000.00"));
+    assert_eq!(method_map.get("EFECTIVO").unwrap().pagos, 3);
+    assert_eq!(method_map.get("EFECTIVO").unwrap().monto, d("41900.00"));
+    assert_eq!(method_map.get("DATAFONO").unwrap().monto, d("23800.00"));
+    assert_eq!(method_map.get("QR").unwrap().monto, d("11900.00"));
+    let method_csv = by_method.to_csv();
+    assert!(method_csv.contains("método;pagos;monto"));
+    assert!(method_csv.contains("Crédito;1;30000,00"));
+
+    // 7. sales-heatmap: matriz 7x24 ordenada y rechaza format=csv con 422.
+    let heatmap = reports::queries::sales_heatmap(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert_eq!(heatmap.rows.len(), 7 * 24);
+    let today_isodow = chrono::Datelike::weekday(&today_bogota).number_from_monday() as i32;
+    let slot_10 = heatmap
+        .rows
+        .iter()
+        .find(|c| c.dia == today_isodow && c.hora == 10)
+        .unwrap();
+    assert_eq!(slot_10.ventas, 1);
+    assert_eq!(slot_10.venta_bruta, d("23800.00"));
+    let slot_14 = heatmap
+        .rows
+        .iter()
+        .find(|c| c.dia == today_isodow && c.hora == 14)
+        .unwrap();
+    assert_eq!(slot_14.ventas, 2);
+    assert_eq!(slot_14.venta_bruta, d("71900.00"));
+
+    let mut hm_csv_q = q_b1();
+    hm_csv_q.format = Some("csv".into());
+    let hm_err = reports::queries::sales_heatmap(app, &c_owner, hm_csv_q)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        hm_err.status(),
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    // 8. inventory-valuation: excluye p_zero (on_hand == 0), separa las dos ubicaciones de p2 y calcula valor exacto.
+    let val = reports::queries::inventory_valuation_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert!(val.rows.iter().all(|r| r.existencias != Decimal::ZERO));
+    assert!(!val.rows.iter().any(|r| r.product_id == p_zero));
+    assert_eq!(val.rows.len(), 5);
+    assert_eq!(
+        val.rows.iter().filter(|r| r.product_id == p2).count(),
+        2,
+        "p2 debe aparecer en Principal y Bodega Reserva"
+    );
+    // Total valor branch 1:
+    // p1(16*6000=96000) + p2_def(5*3000=15000) + p2_bodega(15*3000=45000) + p3(9*30000=270000) + p_unsold(8*20000=160000) = 586000.
+    assert_eq!(val.total_valor, d("586000.00"));
+
+    // 9. inventory-rotation: últimos 30d hasta `to`; ignora `from` incluso si `from` cubre 60d atrás o `from > to`.
+    let rot = reports::queries::inventory_rotation_data(
+        app,
+        &c_owner,
+        reports::queries::ReportQuery {
+            branch_id: Some(branch),
+            from: Some(today_bogota - Duration::days(60)),
+            to: Some(today_bogota),
+            format: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(rot.period.from, today_bogota - Duration::days(29));
+    assert_eq!(rot.period.to, today_bogota);
+    let rot_p2 = rot.rows.iter().find(|r| r.product_id == p2).unwrap();
+    // La venta de hace 45 días no se incluye aunque `from` fuera -60d: vendidas_30d = 2, existencias = 20 => 20 / (2/30) = 300.00.
+    assert_eq!(rot_p2.vendidas_30d.normalize(), dec(2));
+    assert_eq!(rot_p2.existencias.normalize(), dec(20));
+    assert_eq!(rot_p2.dias_inventario, Some(d("300.00")));
+    let rot_unsold = rot.rows.iter().find(|r| r.product_id == p_unsold).unwrap();
+    assert_eq!(rot_unsold.vendidas_30d.normalize(), dec(0));
+    assert_eq!(rot_unsold.existencias.normalize(), dec(8));
+    assert_eq!(rot_unsold.dias_inventario, None);
+    let rot_csv = rot.to_csv();
+    assert!(rot_csv.contains("Tequila Sin Venta S7;0;8;\r\n"));
+    // Incluso con `from > to`, inventory-rotation ignora `from` y no falla.
+    assert!(
+        reports::queries::inventory_rotation_data(
+            app,
+            &c_owner,
+            reports::queries::ReportQuery {
+                branch_id: Some(branch),
+                from: Some(today_bogota + Duration::days(10)),
+                to: Some(today_bogota),
+                format: None,
+            },
+        )
+        .await
+        .is_ok()
+    );
+
+    // 10. purchases-by-supplier: 1 orden recibida parcial con pago parcial, y excluye orden anulada.
+    let mut tx_loc = crate::db::begin_tenant_tx(app, &c_owner_b1).await.unwrap();
+    let def_loc_id = crate::locations::default_location_id_tx(&mut tx_loc, branch)
+        .await
+        .unwrap();
+    tx_loc.commit().await.unwrap();
+
+    let sup1 = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Licorera Del Valle S.A.S.".into(),
+            tax_id: Some("900333111".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let sup2 = procurement::create_supplier(
+        app,
+        &c_owner,
+        procurement::CreateSupplierRequest {
+            name: "Proveedor Anulado S.A.S.".into(),
+            tax_id: Some("900333222".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let po1 = procurement::create_purchase(
+        app,
+        &c_owner,
+        procurement::CreatePurchaseRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            supplier_id: sup1.id,
+            location_id: Some(def_loc_id),
+            document_number: Some("OC-S7-01".into()),
+            expected_at: None,
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: Some(Decimal::ZERO),
+            freight_amount: Some(Decimal::ZERO),
+            freight_mode: Some("PRORRATEAR".into()),
+            payment_terms: Some("CREDITO".into()),
+            credit_days: Some(30),
+            iva_to_cost: Some(false),
+            items: vec![procurement::PurchaseItemRequest {
+                product_id: p2,
+                qty: dec(10),
+                unit_cost: dec(3000),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    procurement::approve_purchase(app, &c_owner, po1.purchase.id)
+        .await
+        .unwrap();
+    procurement::receive_purchase_with_req(
+        app,
+        &c_owner,
+        po1.purchase.id,
+        procurement::ReceivePurchaseRequest {
+            id: Uuid::new_v4(),
+            items: vec![procurement::ReceiveItemInput {
+                purchase_item_id: po1.items[0].id,
+                qty: dec(4),
+                lot_code: None,
+                expires_at: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Pagar 5.000 por transferencia sobre la CxP generada (total recibido = 4 * 3.000 = 12.000, saldo = 7.000).
+    let (scope_pay, mut tx_pay) = tenancy::begin_in_branch(app, &c_owner, branch)
+        .await
+        .unwrap();
+    let payables_list = payables::list_payables_tx(
+        &mut tx_pay,
+        &scope_pay,
+        payables::PayablesFilter {
+            branch_id: Some(branch),
+            status: None,
+            supplier_id: Some(sup1.id),
+            overdue: None,
+        },
+    )
+    .await
+    .unwrap();
+    payables::create_payment_tx(
+        &mut tx_pay,
+        &scope_pay,
+        payables_list[0].id,
+        payables::CreatePayablePaymentRequest {
+            id: Uuid::new_v4(),
+            amount: dec(5000),
+            method: "TRANSFERENCIA".into(),
+            reference: Some("TRF-S7-01".into()),
+        },
+    )
+    .await
+    .unwrap();
+    tx_pay.commit().await.unwrap();
+
+    // Orden anulada del segundo proveedor no debe aparecer.
+    let po_void = procurement::create_purchase(
+        app,
+        &c_owner,
+        procurement::CreatePurchaseRequest {
+            id: Uuid::new_v4(),
+            branch_id: branch,
+            supplier_id: sup2.id,
+            location_id: Some(def_loc_id),
+            document_number: Some("OC-S7-VOID".into()),
+            expected_at: None,
+            supplier_invoice_date: None,
+            notes: None,
+            discount_amount: Some(Decimal::ZERO),
+            freight_amount: Some(Decimal::ZERO),
+            freight_mode: Some("PRORRATEAR".into()),
+            payment_terms: Some("CONTADO".into()),
+            credit_days: Some(0),
+            iva_to_cost: Some(false),
+            items: vec![procurement::PurchaseItemRequest {
+                product_id: p2,
+                qty: dec(5),
+                unit_cost: dec(3000),
+                new_sale_price: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    procurement::cancel_purchase(app, &c_owner, po_void.purchase.id)
+        .await
+        .unwrap();
+
+    let by_sup = reports::queries::purchases_by_supplier_data(app, &c_owner, q_b1())
+        .await
+        .unwrap();
+    assert_eq!(by_sup.rows.len(), 1);
+    assert_eq!(by_sup.rows[0].proveedor, "Licorera Del Valle S.A.S.");
+    assert_eq!(by_sup.rows[0].ordenes, 1);
+    assert_eq!(by_sup.rows[0].recibido, d("12000.00"));
+    assert_eq!(by_sup.rows[0].pagado, d("5000.00"));
+    assert_eq!(by_sup.rows[0].saldo, d("7000.00"));
+
+    // 11. Permisos y RLS:
+    // - CAJERO no tiene reports:read -> 403 en todos los endpoints.
+    let err_cashier = reports::queries::sales_by_day_data(app, &c_cashier, q_b1())
+        .await
+        .unwrap_err();
+    assert_eq!(err_cashier.status(), axum::http::StatusCode::FORBIDDEN);
+    let err_cashier_sup = reports::queries::purchases_by_supplier_data(app, &c_cashier, q_b1())
+        .await
+        .unwrap_err();
+    assert_eq!(err_cashier_sup.status(), axum::http::StatusCode::FORBIDDEN);
+
+    // - SUPERVISOR de branch 1 ve solo branch 1 incluso cuando branch_id = None.
+    let sup_day = reports::queries::sales_by_day_data(
+        app,
+        &c_sup_b1,
+        reports::queries::ReportQuery {
+            branch_id: None,
+            from: Some(period_from),
+            to: Some(period_to),
+            format: None,
+        },
+    )
+    .await
+    .unwrap();
+    let sup_today = sup_day
+        .rows
+        .iter()
+        .find(|r| r.fecha == today_bogota)
+        .unwrap();
+    assert_eq!(sup_today.ventas, 3);
+    assert_eq!(sup_today.venta_bruta, d("95700.00"));
+
+    // - Otro negocio no ve datos por RLS.
+    let other_prod = reports::queries::sales_by_product_data(
+        app,
+        &c_other,
+        reports::queries::ReportQuery {
+            branch_id: None,
+            from: Some(period_from),
+            to: Some(period_to),
+            format: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(other_prod.rows.is_empty());
 
     cleanup(admin, tenant, &[owner, cashier, supervisor_b1]).await;
     cleanup(admin, other_tenant, &[other_owner]).await;

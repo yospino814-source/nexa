@@ -17,9 +17,9 @@ use crate::tenancy;
 
 type Tx<'a> = Transaction<'a, Postgres>;
 
-const MAX_RANGE_DAYS: i64 = 3660;
+pub(crate) const MAX_RANGE_DAYS: i64 = 3660;
 
-fn empty_string_as_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn empty_string_as_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: std::str::FromStr,
@@ -181,7 +181,7 @@ pub fn fill_days(
     days
 }
 
-async fn local_today_tx(
+pub(crate) async fn local_today_tx(
     tx: &mut Tx<'_>,
     tenant_id: Uuid,
     branch_filter: Option<Uuid>,

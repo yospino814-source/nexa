@@ -159,6 +159,15 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | PUT | `/v1/settings?branch_id=` | Modificar ajustes operativos de sucursal |
 | GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
 | GET | `/v1/reports/dashboard?branch_id=&from=&to=` | Métricas, ventas por hora/día, top 10, métodos de pago, stock bajo y cartera vencida del panel (`reports:read`; `branch_id` opcional) |
+| GET | `/v1/reports/sales-by-day?branch_id=&from=&to=&format=` | Ventas por día: cantidad, venta bruta, devoluciones, venta neta, ticket promedio y margen (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/sales-by-product?branch_id=&from=&to=&format=` | Ventas por producto: SKU, categoría, cantidad, venta sin impuesto, costo, margen y % margen (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/sales-by-category?branch_id=&from=&to=&format=` | Ventas por categoría: cantidad, venta sin impuesto y margen (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/sales-by-cashier?branch_id=&from=&to=&format=` | Ventas por cajero (creador del primer pago): ventas, venta bruta y ticket promedio (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/sales-by-method?branch_id=&from=&to=&format=` | Pagos por método incluyendo `CREDITO` ("Crédito"): pagos y monto (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/sales-heatmap?branch_id=&from=&to=` | Mapa de calor por día ISO (1..7) y hora (0..23): ventas y venta bruta (`reports:read`; solo JSON) |
+| GET | `/v1/reports/inventory-valuation?branch_id=&from=&to=&format=` | Valorización de inventario por producto y ubicación con `on_hand != 0` (`reports:read`; `format=json\|csv`) |
+| GET | `/v1/reports/inventory-rotation?branch_id=&to=&format=` | Rotación de inventario últimos 30 días hasta `to` (`reports:read`; ignora `from`; `format=json\|csv`) |
+| GET | `/v1/reports/purchases-by-supplier?branch_id=&from=&to=&format=` | Compras por proveedor: órdenes no anuladas, recibido, pagado y saldo (`reports:read`; `format=json\|csv`) |
 | POST | `/v1/onboarding` | Alta de negocio y sucursal principal con rol DUENO (requiere sesión autenticada) |
 | GET | `/v1/users` | Lista de usuarios y membresías del negocio |
 | GET | `/v1/business` | Nombre, razón social, NIT, DV e iva_responsible del negocio (cualquier miembro) |

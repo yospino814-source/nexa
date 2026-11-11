@@ -237,6 +237,15 @@ mod tests {
             ),
             ("GET", "/v1/audit"),
             ("GET", "/v1/reports/dashboard"),
+            ("GET", "/v1/reports/sales-by-day"),
+            ("GET", "/v1/reports/sales-by-product"),
+            ("GET", "/v1/reports/sales-by-category"),
+            ("GET", "/v1/reports/sales-by-cashier"),
+            ("GET", "/v1/reports/sales-by-method"),
+            ("GET", "/v1/reports/sales-heatmap"),
+            ("GET", "/v1/reports/inventory-valuation"),
+            ("GET", "/v1/reports/inventory-rotation"),
+            ("GET", "/v1/reports/purchases-by-supplier"),
             ("GET", "/v1/users"),
         ] {
             let response = test_router()
