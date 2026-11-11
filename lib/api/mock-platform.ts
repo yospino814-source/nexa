@@ -1,7 +1,10 @@
 import type {
   AuditEntry,
   AuditFilter,
+  BranchItem,
   BranchSettings,
+  BusinessInfo,
+  CreateBranchInput,
   Invitation,
   InviteUserInput,
   LoginAttemptInput,
@@ -10,11 +13,14 @@ import type {
   RolePermissionItem,
   RolePermissionsResponse,
   TenantUser,
+  UpdateBranchInput,
+  UpdateBusinessInput,
   UpdateRolePermissionsInput,
   Uuid,
 } from "./types";
 import { ApiError } from "./client";
 import { MOCK_BRANCH_ID } from "./mock";
+import { nitDv } from "../nit";
 
 const BRANCH_CENTRO = MOCK_BRANCH_ID;
 const BRANCH_ASADERO = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12";
@@ -31,6 +37,7 @@ export const mockBusinessInfo = {
   phone: "+57 (604) 444-5566",
   email: "administracion@elvecino.co",
   address: "Cra. 43A #1-50, Medellín, Antioquia",
+  iva_responsible: true as boolean | null,
 };
 
 const mockUsersData: TenantUser[] = [
@@ -514,4 +521,90 @@ export function mockWaiters(): { user_id: string; full_name: string }[] {
   return mockUsersData
     .filter((u) => u.role === "MESERO" && u.active)
     .map((u) => ({ user_id: u.id, full_name: u.full_name ?? u.email ?? "Mesero" }));
+}
+
+export async function mockUpdateBusiness(input: UpdateBusinessInput): Promise<BusinessInfo> {
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 80) {
+    throw new ApiError(422, "Revisá los datos del negocio.", "BUSINESS_INVALID", { field: "name" });
+  }
+
+  const business_name = input.business_name?.trim() || null;
+  if (business_name && business_name.length > 120) {
+    throw new ApiError(422, "Revisá los datos del negocio.", "BUSINESS_INVALID", { field: "business_name" });
+  }
+
+  let nit: string | null = null;
+  let dv: string | null = null;
+  const rawNit = input.nit?.trim() || "";
+  if (rawNit) {
+    if (!/^\d+$/.test(rawNit) || rawNit.length < 5 || rawNit.length > 15) {
+      throw new ApiError(422, "Revisá los datos del negocio.", "BUSINESS_INVALID", { field: "nit" });
+    }
+    const calculatedDv = nitDv(rawNit);
+    if (calculatedDv !== null) {
+      const calcStr = calculatedDv.toString();
+      const rawDv = input.dv?.trim() || "";
+      if (rawDv && rawDv !== calcStr) {
+        throw new ApiError(422, "El dígito de verificación no corresponde al NIT.", "NIT_DV_INVALID");
+      }
+      nit = rawNit;
+      dv = calcStr;
+    }
+  }
+
+  mockBusinessInfo.commercial_name = name;
+  mockBusinessInfo.legal_name = business_name ?? "";
+  mockBusinessInfo.tax_id = nit ? (dv ? `${nit}-${dv}` : nit) : "";
+  mockBusinessInfo.iva_responsible = input.iva_responsible ?? null;
+
+  return {
+    name,
+    business_name,
+    nit,
+    dv,
+    iva_responsible: mockBusinessInfo.iva_responsible,
+  };
+}
+
+export async function mockCreateBranch(input: CreateBranchInput): Promise<BranchItem> {
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 60) {
+    throw new ApiError(422, "El nombre de la sucursal debe tener entre 2 y 60 caracteres.", "BRANCH_INVALID");
+  }
+
+  if (mockBranchesList.some((b) => b.name.toLowerCase() === name.toLowerCase())) {
+    throw new ApiError(409, "Ya existe una sucursal con ese nombre.", "BRANCH_DUPLICATED");
+  }
+
+  const id = crypto.randomUUID();
+  mockBranchesList.push({
+    id,
+    name,
+    code: name.slice(0, 2).toUpperCase(),
+    city: "Medellín",
+    activeTypes: ["Tienda"],
+    userCount: 1,
+  });
+
+  return { id, name };
+}
+
+export async function mockUpdateBranch(id: Uuid, input: UpdateBranchInput): Promise<BranchItem> {
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 60) {
+    throw new ApiError(422, "El nombre de la sucursal debe tener entre 2 y 60 caracteres.", "BRANCH_INVALID");
+  }
+
+  if (mockBranchesList.some((b) => b.id !== id && b.name.toLowerCase() === name.toLowerCase())) {
+    throw new ApiError(409, "Ya existe una sucursal con ese nombre.", "BRANCH_DUPLICATED");
+  }
+
+  const branch = mockBranchesList.find((b) => b.id === id);
+  if (!branch) {
+    throw new ApiError(404, "Sucursal no encontrada");
+  }
+  branch.name = name;
+
+  return { id, name };
 }

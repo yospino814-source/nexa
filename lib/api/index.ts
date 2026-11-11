@@ -69,6 +69,9 @@ import {
   mockUsersList,
   mockWaiters,
   mockBusinessInfo,
+  mockUpdateBusiness,
+  mockCreateBranch,
+  mockUpdateBranch,
   mockRecordLoginAttempt,
   PERMISSION_CATALOG,
 } from "./mock-platform";
@@ -206,7 +209,9 @@ import type {
   SaleHistoryPage,
   SaleHistoryQuery,
   SaleHistoryRow,
+  BranchItem,
   BusinessInfo,
+  CreateBranchInput,
   CreateVariantInput,
   ProductDetail,
   ProductInput,
@@ -230,6 +235,8 @@ import type {
   ReceivablePaymentResponse,
   ReceivablesFilter,
   ReceivablesSummaryResponse,
+  UpdateBranchInput,
+  UpdateBusinessInput,
 } from "./types";
 
 export * from "./types";
@@ -1291,9 +1298,48 @@ export const api = {
           business_name: mockBusinessInfo.legal_name,
           nit,
           dv: dv ?? null,
+          iva_responsible: mockBusinessInfo.iva_responsible ?? null,
         };
       }
       return request("/v1/business");
+    },
+
+    /** PUT /v1/business */
+    async update(input: UpdateBusinessInput): Promise<BusinessInfo> {
+      if (USE_MOCKS) {
+        await delay(50);
+        return mockUpdateBusiness(input);
+      }
+      return request<BusinessInfo>("/v1/business", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+  },
+
+  branches: {
+    /** POST /v1/branches */
+    async create(input: CreateBranchInput): Promise<BranchItem> {
+      if (USE_MOCKS) {
+        await delay(50);
+        return mockCreateBranch(input);
+      }
+      return request<BranchItem>("/v1/branches", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+
+    /** PUT /v1/branches/{id} */
+    async update(id: Uuid, input: UpdateBranchInput): Promise<BranchItem> {
+      if (USE_MOCKS) {
+        await delay(50);
+        return mockUpdateBranch(id, input);
+      }
+      return request<BranchItem>(`/v1/branches/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
     },
   },
 
@@ -3280,6 +3326,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   INVITATION_NOT_PENDING: "Esa invitación ya no está vigente.",
   ONBOARDING_INVALID: "Revisá los datos del negocio.",
   ONBOARDING_ALREADY_MEMBER: "Tu usuario ya tiene un negocio.",
+  BUSINESS_INVALID: "Revisá los datos del negocio.",
+  BRANCH_INVALID: "El nombre de la sucursal debe tener entre 2 y 60 caracteres.",
+  BRANCH_DUPLICATED: "Ya existe una sucursal con ese nombre.",
   REGISTER_INVALID: "Revisá los datos de la caja.",
   REGISTER_CODE_TAKEN: "Ya existe una caja con ese código.",
   REGISTER_HAS_OPEN_SESSION: "La caja tiene un turno abierto. Cerralo primero.",

@@ -14,15 +14,16 @@ import {
   Save,
   Store,
   Users,
+  X,
 } from "lucide-react";
 
-import { api, type BranchSettings } from "@/lib/api";
+import { api, type BranchSettings, friendlyError } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
-import { mockBranchesList, mockBusinessInfo } from "@/lib/api/mock-platform";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { parseCOP } from "@/lib/format";
 import { MoneyInput } from "@/components/caja/money-input";
 import { cn } from "@/lib/utils";
+import { nitDv } from "@/lib/nit";
 
 type SettingsTab = "negocio" | "sucursales" | "pos" | "caja" | "inventario" | "impresion";
 
@@ -30,14 +31,50 @@ export function SettingsScreen() {
   const currentBranch = useCurrentBranch();
   const branches = useSession((s) => s.branches);
   const can = useSession((s) => s.can);
+  const boot = useSession((s) => s.boot);
+  const isOwner = branches.some((b) => b.role === "DUENO");
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("pos");
   const [selectedBranchId, setSelectedBranchId] = useState<string>(currentBranch.id);
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingBiz, setSavingBiz] = useState(false);
 
   // Business info form
-  const [bizInfo, setBizInfo] = useState(mockBusinessInfo);
+  const { data: businessData, reload: reloadBusiness } = useApi(
+    () => api.business.get(),
+    "business-info",
+  );
+
+  const [bizDraft, setBizDraft] = useState<{
+    name?: string;
+    business_name?: string | null;
+    nit?: string | null;
+    iva_responsible?: boolean | null;
+  }>({});
+
+  const bizName = bizDraft.name ?? businessData?.name ?? "";
+  const bizLegalName =
+    bizDraft.business_name !== undefined
+      ? (bizDraft.business_name ?? "")
+      : (businessData?.business_name ?? "");
+  const bizNit =
+    bizDraft.nit !== undefined ? (bizDraft.nit ?? "") : (businessData?.nit ?? "");
+  const bizIva =
+    bizDraft.iva_responsible !== undefined
+      ? bizDraft.iva_responsible
+      : (businessData?.iva_responsible ?? null);
+
+  const computedDv = nitDv(bizNit);
+
+  // Branch management states
+  const [editBranch, setEditBranch] = useState<{ id: string; name: string } | null>(null);
+  const [editBranchName, setEditBranchName] = useState("");
+  const [savingEditBranch, setSavingEditBranch] = useState(false);
+
+  const [newBranchModalOpen, setNewBranchModalOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [savingNewBranch, setSavingNewBranch] = useState(false);
 
   // Branch settings
   const { data: settingsData, reload } = useApi(
@@ -520,25 +557,46 @@ export function SettingsScreen() {
       {/* Tab: Sucursales */}
       {activeTab === "sucursales" && (
         <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Sucursales del Negocio</h2>
+              <p className="text-xs text-slate-500">Puntos de venta habilitados para tu cuenta.</p>
+            </div>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewBranchName("");
+                  setNewBranchModalOpen(true);
+                }}
+                className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-5 text-xs font-semibold text-white shadow-xs hover:bg-slate-800"
+              >
+                <Store className="size-4" />
+                Nueva sucursal
+              </button>
+            )}
+          </div>
+
           <div className="grid gap-6 md:grid-cols-2">
-            {mockBranchesList.map((b) => (
+            {branches.map((b) => (
               <div key={b.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="text-xl font-bold text-slate-900">{b.name}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">{b.city} · Código: {b.code}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Rol: {b.role}{b.code ? ` · Código: ${b.code}` : ""}
+                    </p>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                    {b.userCount} usuarios
-                  </span>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {b.activeTypes.map((t) => (
-                    <span key={t} className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      {t}
-                    </span>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditBranch({ id: b.id, name: b.name });
+                      setEditBranchName(b.name);
+                    }}
+                    className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+                  >
+                    Cambiar nombre
+                  </button>
                 </div>
               </div>
             ))}
@@ -557,8 +615,9 @@ export function SettingsScreen() {
               <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre comercial</label>
               <input
                 type="text"
-                value={bizInfo.commercial_name}
-                onChange={(e) => setBizInfo({ ...bizInfo, commercial_name: e.target.value })}
+                value={bizName}
+                onChange={(e) => setBizDraft((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Nombre comercial de la empresa"
                 className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -567,53 +626,224 @@ export function SettingsScreen() {
               <label className="block text-xs font-semibold text-slate-700 mb-1">Razón social</label>
               <input
                 type="text"
-                value={bizInfo.legal_name}
-                onChange={(e) => setBizInfo({ ...bizInfo, legal_name: e.target.value })}
-                className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                disabled={!isOwner}
+                value={bizLegalName}
+                onChange={(e) => setBizDraft((prev) => ({ ...prev, business_name: e.target.value }))}
+                placeholder="Razón social registrada"
+                className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
+              {!isOwner && (
+                <p className="text-xs text-slate-500 mt-1">Solo el dueño puede cambiar estos datos.</p>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">NIT / Documento</label>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">NIT</label>
                 <input
                   type="text"
-                  value={bizInfo.tax_id}
-                  onChange={(e) => setBizInfo({ ...bizInfo, tax_id: e.target.value })}
-                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                  disabled={!isOwner}
+                  value={bizNit}
+                  onChange={(e) => setBizDraft((prev) => ({ ...prev, nit: e.target.value }))}
+                  placeholder="Sin puntos ni guiones (ej. 900123456)"
+                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                 />
+                {!isOwner && (
+                  <p className="text-xs text-slate-500 mt-1">Solo el dueño puede cambiar estos datos.</p>
+                )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">DV</label>
                 <input
                   type="text"
-                  value={bizInfo.phone}
-                  onChange={(e) => setBizInfo({ ...bizInfo, phone: e.target.value })}
-                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                  readOnly
+                  disabled
+                  value={computedDv !== null ? String(computedDv) : "-"}
+                  className="h-10 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3.5 text-center text-sm font-bold text-slate-700 outline-none cursor-not-allowed"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Correo de facturación</label>
-              <input
-                type="email"
-                value={bizInfo.email}
-                onChange={(e) => setBizInfo({ ...bizInfo, email: e.target.value })}
-                className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
-              />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">¿Es responsable de IVA?</label>
+              <select
+                disabled={!isOwner}
+                value={bizIva === null ? "" : bizIva ? "true" : "false"}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBizDraft((prev) => ({
+                    ...prev,
+                    iva_responsible: val === "" ? null : val === "true",
+                  }));
+                }}
+                className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+              >
+                <option value="">Sin definir</option>
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+              {!isOwner && (
+                <p className="text-xs text-slate-500 mt-1">Solo el dueño puede cambiar estos datos.</p>
+              )}
             </div>
 
             <div className="pt-4 flex justify-end">
               <button
                 type="button"
-                onClick={() => notify("Información de la empresa actualizada")}
-                className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white shadow-xs transition hover:bg-slate-800"
+                disabled={savingBiz}
+                onClick={async () => {
+                  setSavingBiz(true);
+                  try {
+                    await api.business.update({
+                      name: bizName,
+                      business_name: bizLegalName || null,
+                      nit: bizNit || null,
+                      dv: computedDv !== null ? String(computedDv) : null,
+                      iva_responsible: bizIva,
+                    });
+                    setBizDraft({});
+                    notify("Datos del negocio guardados");
+                    reloadBusiness();
+                  } catch (err) {
+                    notify(friendlyError(err));
+                  } finally {
+                    setSavingBiz(false);
+                  }
+                }}
+                className="flex h-10 items-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white shadow-xs transition hover:bg-slate-800 disabled:opacity-50"
               >
-                <Save className="size-4" />
-                Guardar cambios
+                {savingBiz ? <RefreshCw className="size-4 animate-spin" /> : <Save className="size-4" />}
+                Guardar datos
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cambiar Nombre Sucursal */}
+      {editBranch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h2 className="text-lg font-bold text-slate-900">Cambiar nombre</h2>
+              <button
+                onClick={() => setEditBranch(null)}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSavingEditBranch(true);
+                try {
+                  await api.branches.update(editBranch.id, { name: editBranchName });
+                  await boot();
+                  setEditBranch(null);
+                  notify("Nombre de la sucursal actualizado");
+                } catch (err) {
+                  notify(friendlyError(err));
+                } finally {
+                  setSavingEditBranch(false);
+                }
+              }}
+              className="mt-5 space-y-4"
+            >
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Nombre de la sucursal</label>
+                <input
+                  type="text"
+                  required
+                  value={editBranchName}
+                  onChange={(e) => setEditBranchName(e.target.value)}
+                  placeholder="Nombre de la sucursal"
+                  className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditBranch(null)}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEditBranch}
+                  className="rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingEditBranch ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nueva Sucursal */}
+      {newBranchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h2 className="text-lg font-bold text-slate-900">Nueva sucursal</h2>
+              <button
+                onClick={() => setNewBranchModalOpen(false)}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSavingNewBranch(true);
+                try {
+                  await api.branches.create({ name: newBranchName });
+                  await boot();
+                  setNewBranchModalOpen(false);
+                  notify("Sucursal creada exitosamente");
+                } catch (err) {
+                  notify(friendlyError(err));
+                } finally {
+                  setSavingNewBranch(false);
+                }
+              }}
+              className="mt-5 space-y-4"
+            >
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Nombre de la sucursal</label>
+                <input
+                  type="text"
+                  required
+                  value={newBranchName}
+                  onChange={(e) => setNewBranchName(e.target.value)}
+                  placeholder="Nombre de la sucursal"
+                  className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-slate-900"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewBranchModalOpen(false)}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingNewBranch}
+                  className="rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingNewBranch ? "Creando..." : "Guardar"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

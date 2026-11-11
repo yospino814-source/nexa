@@ -1597,6 +1597,28 @@ export type BusinessInfo = {
   business_name: string | null;
   nit: string | null;
   dv: string | null;
+  iva_responsible: boolean | null;
+};
+
+export type UpdateBusinessInput = {
+  name: string;
+  business_name?: string | null;
+  nit?: string | null;
+  dv?: string | null;
+  iva_responsible?: boolean | null;
+};
+
+export type CreateBranchInput = {
+  name: string;
+};
+
+export type UpdateBranchInput = {
+  name: string;
+};
+
+export type BranchItem = {
+  id: Uuid;
+  name: string;
 };
 
 // ------------------------------------------------------------- importacion CSV (F2.6)
