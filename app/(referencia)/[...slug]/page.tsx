@@ -18,6 +18,7 @@ export default async function ReferenceScreenPage({
 }: {
   params: Promise<{ slug: string[] }>;
 }) {
+  if (process.env.NODE_ENV === "production") notFound();
   const { slug } = await params;
   const screen = screenByRoute(`/${slug.join("/")}`);
   if (!screen || screen.status !== "diseno") notFound();

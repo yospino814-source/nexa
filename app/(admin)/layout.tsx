@@ -1,3 +1,4 @@
+import { RouteGuard } from "@/components/auth/route-guard";
 import { SessionGate } from "@/components/auth/session-gate";
 import { Sidebar } from "@/components/nexa/sidebar";
 
@@ -5,10 +6,12 @@ import { Sidebar } from "@/components/nexa/sidebar";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <SessionGate>
-      <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
-        <Sidebar />
-        <main className="min-w-0 flex-1">{children}</main>
-      </div>
+      <RouteGuard>
+        <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
+          <Sidebar />
+          <main className="min-w-0 flex-1">{children}</main>
+        </div>
+      </RouteGuard>
     </SessionGate>
   );
 }

@@ -16,7 +16,7 @@ import { BranchPicker } from "./branch-picker";
  * redirige sin cookie; esto cubre sesiones vencidas y el 401 del backend.
  */
 export function SessionGate({ children }: { children: React.ReactNode }) {
-  const { status, error, email, boot, signOut, invitations, acceptInvitation } = useSession();
+  const { status, error, email, branches, branchId, boot, signOut, invitations, acceptInvitation } = useSession();
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -29,7 +29,26 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
     if (status === "signed-out") router.replace(`/login?next=${encodeURIComponent(pathname)}`);
   }, [status, router, pathname]);
 
-  if (status === "ready") return <>{children}</>;
+  if (status === "ready") {
+    const role = branches.find((b) => b.id === branchId)?.role;
+    if (role === "MESERO" || role === "COCINA" || role === "REPARTIDOR") {
+      return (
+        <AuthShell title="Tu rol todavía no tiene pantallas">
+          <div className="space-y-5 text-center">
+            <p className="text-slate-600">Pedile al dueño que te asigne otro rol.</p>
+            <button
+              type="button"
+              onClick={signOut}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 font-semibold hover:bg-slate-50"
+            >
+              <LogOut className="size-4" /> Salir
+            </button>
+          </div>
+        </AuthShell>
+      );
+    }
+    return <>{children}</>;
+  }
 
   if (status === "choose-branch") {
     return (

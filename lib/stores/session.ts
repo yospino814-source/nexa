@@ -62,9 +62,6 @@ export const ROLE_LABELS: Record<Role, string> = {
 /** Pantalla de inicio segun el rol. */
 export function homeFor(role: Role | null): string {
   if (role === "CAJERO") return "/pos";
-  if (role === "MESERO") return "/mesas";
-  if (role === "COCINA") return "/cocina";
-  if (role === "REPARTIDOR") return "/rutas";
   if (role === "BODEGA") return "/inventario";
   return "/panel";
 }
