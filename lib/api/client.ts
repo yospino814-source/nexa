@@ -61,3 +61,47 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
+
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, "").trim());
+    } catch {
+      return utf8Match[1].replace(/"/g, "").trim();
+    }
+  }
+  const plainMatch = /filename="?([^";]+)"?/i.exec(header);
+  return plainMatch?.[1]?.trim() ?? null;
+}
+
+export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
+  const token = accessToken ?? (tokenProvider ? await tokenProvider() : null);
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (response.status === 401) onUnauthorized?.();
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new ApiError(response.status, body?.error ?? response.statusText, body?.code, body?.data);
+  }
+
+  const blob = await response.blob();
+  const filename = filenameFromDisposition(response.headers.get("content-disposition")) ?? fallbackFilename;
+  saveBlob(blob, filename);
+}

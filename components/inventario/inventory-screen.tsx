@@ -38,6 +38,7 @@ import { ProductFormDialog } from "./product-form-dialog";
 import { StockDialog, type StockMode } from "./stock-dialog";
 import { TransferDialog } from "./transfer-dialog";
 import { TierPricesDialog } from "./tier-prices-dialog";
+import { InventoryReportsTab } from "./inventory-reports-tab";
 
 function CategoryIcon({ category, name }: { category?: string | null; name: string }) {
   const cat = (category || "").toLowerCase();
@@ -105,10 +106,13 @@ export function InventoryScreen() {
   const branch = useCurrentBranch();
   const branches = useSession((s) => s.branches);
   const selectBranch = useSession((s) => s.selectBranch);
+  const can = useSession((s) => s.can);
+  const canReadReports = can("reports:read");
   const { data, loading, error, reload } = useApi(() => api.inventory.stock(branch.id), branch.id);
   const { data: alertsData, reload: reloadAlerts } = useApi(() => api.inventory.alerts(branch.id), branch.id);
   const alerts: StockAlert[] = useMemo(() => alertsData ?? [], [alertsData]);
 
+  const [activeTab, setActiveTab] = useState<"STOCK" | "REPORTES">("STOCK");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState<StockStatus | "">("");
@@ -145,7 +149,9 @@ export function InventoryScreen() {
   if (!ADMIN_ROLES.includes(branch.role)) {
     return <Notice text="Solo el dueño o el administrador pueden ver el inventario de esta sucursal." />;
   }
-  if (error) return <Notice text="No se pudo cargar el inventario." onRetry={reload} />;
+
+  const showReportsTab = canReadReports && activeTab === "REPORTES";
+  if (error && !showReportsTab) return <Notice text="No se pudo cargar el inventario." onRetry={reload} />;
 
   const valued = items.reduce((s, i) => s + Number(i.on_hand) * Number(i.cost_price ?? 0), 0);
   const low = items.filter((i) => i.status === "BAJO");
@@ -197,6 +203,40 @@ export function InventoryScreen() {
           </button>
         </div>
       </div>
+
+      {canReadReports && (
+        <div className="inline-flex rounded-2xl border border-slate-200/80 bg-white p-1 shadow-xs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!showReportsTab}
+            onClick={() => setActiveTab("STOCK")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+              !showReportsTab ? "bg-teal-700 text-white shadow-xs" : "text-slate-600 hover:text-slate-900",
+            )}
+          >
+            Existencias
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={showReportsTab}
+            onClick={() => setActiveTab("REPORTES")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+              showReportsTab ? "bg-teal-700 text-white shadow-xs" : "text-slate-600 hover:text-slate-900",
+            )}
+          >
+            Reportes
+          </button>
+        </div>
+      )}
+
+      {showReportsTab ? (
+        <InventoryReportsTab />
+      ) : (
+        <>
 
       {loading && !data ? (
         <div className="grid gap-6 md:grid-cols-3">
@@ -490,6 +530,8 @@ export function InventoryScreen() {
           reload();
         }}
       />
+        </>
+      )}
     </div>
   );
 }

@@ -4,8 +4,20 @@
 // Los mocks imitan las reglas del backend (impuesto sumado al precio, turno de
 // caja obligatorio, idempotencia por id) para que la UI se comporte igual.
 
-import { ApiError, request, USE_MOCKS } from "./client";
+import { ApiError, downloadBlob, request, saveBlob, USE_MOCKS } from "./client";
 import { MOCK_BRANCH_ID, mockCatalog, mockGetDashboard } from "./mock";
+import {
+  mockExportReportCsv,
+  mockInventoryRotation,
+  mockInventoryValuation,
+  mockPurchasesBySupplier,
+  mockSalesByCashier,
+  mockSalesByCategory,
+  mockSalesByDay,
+  mockSalesByMethod,
+  mockSalesByProduct,
+  mockSalesHeatmap,
+} from "./mock-reports";
 import { mockSchedulePreview } from "./mock-credit";
 import {
   mockCount,
@@ -238,6 +250,17 @@ import type {
   ReceivablesSummaryResponse,
   UpdateBranchInput,
   UpdateBusinessInput,
+  InventoryRotationResponse,
+  InventoryValuationResponse,
+  PurchasesBySupplierResponse,
+  ReportCsvSlug,
+  ReportQuery,
+  SalesByCashierResponse,
+  SalesByCategoryResponse,
+  SalesByDayResponse,
+  SalesByMethodResponse,
+  SalesByProductResponse,
+  SalesHeatmapResponse,
 } from "./types";
 
 export * from "./types";
@@ -246,6 +269,16 @@ export { ApiError, setAccessToken, setTokenProvider, setUnauthorizedHandler, USE
 const delay = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 const cents = (n: number) => Math.round(n * 100) / 100;
 const dec = (n: number): Decimal => cents(n).toFixed(2);
+
+function reportQueryString(query?: ReportQuery, format?: "csv"): string {
+  const params = new URLSearchParams();
+  if (query?.branchId) params.set("branch_id", query.branchId);
+  if (query?.from) params.set("from", query.from);
+  if (query?.to) params.set("to", query.to);
+  if (format) params.set("format", format);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
 
 // ------------------------------------------------------------ estado mock
 
@@ -3131,6 +3164,101 @@ export const api = {
       if (query?.to) params.set("to", query.to);
       const qs = params.toString() ? `?${params.toString()}` : "";
       return request(`/v1/reports/dashboard${qs}`);
+    },
+
+    /** GET /v1/reports/sales-by-day */
+    async salesByDay(query?: ReportQuery): Promise<SalesByDayResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesByDay(query));
+      }
+      return request(`/v1/reports/sales-by-day${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/sales-by-product */
+    async salesByProduct(query?: ReportQuery): Promise<SalesByProductResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesByProduct(query));
+      }
+      return request(`/v1/reports/sales-by-product${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/sales-by-category */
+    async salesByCategory(query?: ReportQuery): Promise<SalesByCategoryResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesByCategory(query));
+      }
+      return request(`/v1/reports/sales-by-category${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/sales-by-cashier */
+    async salesByCashier(query?: ReportQuery): Promise<SalesByCashierResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesByCashier(query));
+      }
+      return request(`/v1/reports/sales-by-cashier${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/sales-by-method */
+    async salesByMethod(query?: ReportQuery): Promise<SalesByMethodResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesByMethod(query));
+      }
+      return request(`/v1/reports/sales-by-method${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/sales-heatmap (sin CSV) */
+    async salesHeatmap(query?: ReportQuery): Promise<SalesHeatmapResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockSalesHeatmap(query));
+      }
+      return request(`/v1/reports/sales-heatmap${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/inventory-valuation */
+    async inventoryValuation(query?: ReportQuery): Promise<InventoryValuationResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockInventoryValuation(query));
+      }
+      return request(`/v1/reports/inventory-valuation${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/inventory-rotation (ultimos 30 dias hasta `to`) */
+    async inventoryRotation(query?: ReportQuery): Promise<InventoryRotationResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockInventoryRotation(query));
+      }
+      return request(`/v1/reports/inventory-rotation${reportQueryString(query)}`);
+    },
+
+    /** GET /v1/reports/purchases-by-supplier */
+    async purchasesBySupplier(query?: ReportQuery): Promise<PurchasesBySupplierResponse> {
+      if (USE_MOCKS) {
+        await delay();
+        return structuredClone(mockPurchasesBySupplier(query));
+      }
+      return request(`/v1/reports/purchases-by-supplier${reportQueryString(query)}`);
+    },
+
+    /** Descarga CSV autenticado con fetch + URL.createObjectURL (nunca <a href> directo). */
+    async exportCsv(slug: ReportCsvSlug, query?: ReportQuery): Promise<void> {
+      if (USE_MOCKS) {
+        await delay(80);
+        const { filename, body } = mockExportReportCsv(slug, query);
+        saveBlob(new Blob([body], { type: "text/csv;charset=utf-8" }), filename);
+        return;
+      }
+      const from = query?.from ?? "periodo";
+      const to = query?.to ?? "hoy";
+      const fallback = `${slug}_${from}_${to}.csv`;
+      await downloadBlob(`/v1/reports/${slug}${reportQueryString(query, "csv")}`, fallback);
     },
   },
 

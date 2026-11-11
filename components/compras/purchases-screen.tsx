@@ -16,13 +16,14 @@ import {
 import { StatCard } from "@/components/nexa/stat-card";
 import { api, type PurchaseStatus } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
-import { useCurrentBranch } from "@/lib/stores/session";
+import { useCurrentBranch, useSession } from "@/lib/stores/session";
 import { formatCOP, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { PurchaseDetailDialog } from "./purchase-detail-dialog";
 import { PurchaseForm } from "./purchase-form";
 import { PurchaseSuggestionsDialog } from "./purchase-suggestions-dialog";
+import { PurchasesReportsTab } from "./purchases-reports-tab";
 
 const ADMIN_ROLES = ["DUENO", "ADMIN_CAJA"];
 
@@ -59,6 +60,9 @@ const STATUS_CONFIG: Record<
 
 export function PurchasesScreen() {
   const branch = useCurrentBranch();
+  const can = useSession((s) => s.can);
+  const canReadReports = can("reports:read");
+  const [activeTab, setActiveTab] = useState<"COMPRAS" | "REPORTES">("COMPRAS");
 
   // Load purchases list
   const {
@@ -140,7 +144,9 @@ export function PurchasesScreen() {
     );
   }
 
-  if (errorPurchases) {
+  const showReportsTab = canReadReports && activeTab === "REPORTES";
+
+  if (errorPurchases && !showReportsTab) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-6 text-center">
         <p className="max-w-md text-sm text-slate-500">No se pudieron cargar las compras.</p>
@@ -209,6 +215,40 @@ export function PurchasesScreen() {
           </button>
         </div>
       </div>
+
+      {canReadReports && (
+        <div className="inline-flex rounded-2xl border border-slate-200/80 bg-white p-1 shadow-xs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!showReportsTab}
+            onClick={() => setActiveTab("COMPRAS")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+              !showReportsTab ? "bg-teal-700 text-white shadow-xs" : "text-slate-600 hover:text-slate-900",
+            )}
+          >
+            Órdenes de compra
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={showReportsTab}
+            onClick={() => setActiveTab("REPORTES")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+              showReportsTab ? "bg-teal-700 text-white shadow-xs" : "text-slate-600 hover:text-slate-900",
+            )}
+          >
+            Reportes
+          </button>
+        </div>
+      )}
+
+      {showReportsTab ? (
+        <PurchasesReportsTab />
+      ) : (
+        <>
 
       {/* 3 StatCards: Total Comprado, Por Recibir, Por Pagar */}
       <div className="grid gap-6 md:grid-cols-3">
@@ -402,6 +442,8 @@ export function PurchasesScreen() {
           );
         }}
       />
+        </>
+      )}
     </div>
   );
 }

@@ -1392,6 +1392,166 @@ export type DashboardQuery = {
   to?: string | null;
 };
 
+// ---------------------------------------------------------------- reportes S7 / F7.3
+
+export type ReportQuery = {
+  branchId?: Uuid | null;
+  from?: string | null;
+  to?: string | null;
+};
+
+export type ReportCsvSlug =
+  | "sales-by-day"
+  | "sales-by-product"
+  | "sales-by-category"
+  | "sales-by-cashier"
+  | "sales-by-method"
+  | "inventory-valuation"
+  | "inventory-rotation"
+  | "purchases-by-supplier";
+
+/** GET /v1/reports/sales-by-day */
+export type SalesByDayRow = {
+  fecha: string;
+  ventas: number;
+  venta_bruta: Decimal;
+  devoluciones: Decimal;
+  venta_neta: Decimal;
+  ticket_promedio: Decimal;
+  margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByDayResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByDayRow[];
+};
+
+/** GET /v1/reports/sales-by-product */
+export type SalesByProductRow = {
+  product_id: Uuid | null;
+  sku: string | null;
+  producto: string;
+  categoria: string;
+  cantidad: Decimal;
+  venta_sin_impuesto: Decimal;
+  costo: Decimal;
+  margen: Decimal;
+  pct_margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByProductResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByProductRow[];
+};
+
+/** GET /v1/reports/sales-by-category */
+export type SalesByCategoryRow = {
+  categoria: string;
+  cantidad: Decimal;
+  venta_sin_impuesto: Decimal;
+  costo: Decimal;
+  margen: Decimal;
+  pct_margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByCategoryResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByCategoryRow[];
+};
+
+/** GET /v1/reports/sales-by-cashier */
+export type SalesByCashierRow = {
+  cashier_id: Uuid | null;
+  cajero: string;
+  ventas: number;
+  venta_bruta: Decimal;
+  ticket_promedio: Decimal;
+};
+
+export type SalesByCashierResponse = {
+  period: DashboardDateRange;
+  rows: SalesByCashierRow[];
+};
+
+/** GET /v1/reports/sales-by-method */
+export type SalesByMethodRow = {
+  metodo: PaymentMethod | string;
+  etiqueta: string;
+  pagos: number;
+  monto: Decimal;
+};
+
+export type SalesByMethodResponse = {
+  period: DashboardDateRange;
+  rows: SalesByMethodRow[];
+};
+
+/** GET /v1/reports/sales-heatmap */
+export type SalesHeatmapRow = {
+  dia: number;
+  hora: number;
+  ventas: number;
+  venta_bruta: Decimal;
+};
+
+export type SalesHeatmapResponse = {
+  period: DashboardDateRange;
+  rows: SalesHeatmapRow[];
+};
+
+/** GET /v1/reports/inventory-valuation */
+export type InventoryValuationRow = {
+  product_id: Uuid;
+  location_id: Uuid;
+  sucursal: string;
+  producto: string;
+  ubicacion: string;
+  existencias: Decimal;
+  costo_promedio: Decimal;
+  valor: Decimal;
+};
+
+export type InventoryValuationResponse = {
+  period: DashboardDateRange;
+  total_valor: Decimal;
+  rows: InventoryValuationRow[];
+};
+
+/** GET /v1/reports/inventory-rotation */
+export type InventoryRotationRow = {
+  product_id: Uuid;
+  producto: string;
+  vendidas_30d: Decimal;
+  existencias: Decimal;
+  dias_inventario: Decimal | null;
+};
+
+export type InventoryRotationResponse = {
+  period: DashboardDateRange;
+  rows: InventoryRotationRow[];
+};
+
+/** GET /v1/reports/purchases-by-supplier */
+export type PurchasesBySupplierRow = {
+  supplier_id: Uuid;
+  proveedor: string;
+  ordenes: number;
+  recibido: Decimal;
+  pagado: Decimal;
+  saldo: Decimal;
+};
+
+export type PurchasesBySupplierResponse = {
+  period: DashboardDateRange;
+  rows: PurchasesBySupplierRow[];
+};
+
 /** Cuerpo de error de ApiError (src/error.rs). */
 export type ApiErrorBody = {
   error: string;
