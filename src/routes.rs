@@ -258,33 +258,6 @@ pub fn router() -> Router<AppState> {
             "/v1/reports/purchases-by-supplier",
             get(report_purchases_by_supplier),
         )
-        .route("/v1/reports/sales-by-day", get(report_sales_by_day))
-        .route(
-            "/v1/reports/sales-by-product",
-            get(report_sales_by_product),
-        )
-        .route(
-            "/v1/reports/sales-by-category",
-            get(report_sales_by_category),
-        )
-        .route(
-            "/v1/reports/sales-by-cashier",
-            get(report_sales_by_cashier),
-        )
-        .route("/v1/reports/sales-by-method", get(report_sales_by_method))
-        .route("/v1/reports/sales-heatmap", get(report_sales_heatmap))
-        .route(
-            "/v1/reports/inventory-valuation",
-            get(report_inventory_valuation),
-        )
-        .route(
-            "/v1/reports/inventory-rotation",
-            get(report_inventory_rotation),
-        )
-        .route(
-            "/v1/reports/purchases-by-supplier",
-            get(report_purchases_by_supplier),
-        )
         // Usuarios y roles
         .route("/v1/onboarding", post(onboarding_create_business))
         .route("/v1/users", get(list_users))
