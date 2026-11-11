@@ -1317,21 +1317,79 @@ export type WhatsappLinkResponse = {
   url: string;
 };
 
-// ---------------------------------------------------------------- PROPUESTOS
+/** GET /v1/reports/dashboard?branch_id=&from=&to= */
+export type DashboardDateRange = {
+  from: string;
+  to: string;
+};
 
-/** PROPUESTO — GET /v1/reports/dashboard?branch_id=&period=today */
-export type DashboardSummary = {
-  revenue: Decimal;
-  revenue_ex_tax: Decimal;
-  revenue_change_pct: Decimal;
-  profit: Decimal;
-  profit_margin_pct: Decimal;
-  profit_change_pct: Decimal;
-  balance: Decimal;
-  expenses: Decimal;
-  hourly: { hour: number; revenue: Decimal; orders: number }[];
-  channels: { channel: "POS" | "WHATSAPP" | "TIENDA_ONLINE"; amount: Decimal }[];
-  alerts: { low_stock: number; out_of_stock: number; pending_dispatch: number };
+export type DashboardKpis = {
+  gross_sale: Decimal;
+  net_sale: Decimal;
+  sales_count: number;
+  avg_ticket: Decimal;
+  gross_margin: Decimal;
+  margin_pct: Decimal;
+  refunds: Decimal;
+  tips: Decimal;
+  cost_missing_lines: number;
+};
+
+export type DashboardHourlyPoint = {
+  hour: number;
+  gross_sale: Decimal;
+  sales_count: number;
+};
+
+export type DashboardDailyPoint = {
+  date: string;
+  gross_sale: Decimal;
+  sales_count: number;
+};
+
+export type DashboardTopProduct = {
+  product_id: Uuid | null;
+  name: string;
+  qty: Decimal;
+  line_total: Decimal;
+};
+
+export type DashboardPaymentMethod = {
+  method: PaymentMethod | string;
+  amount: Decimal;
+  count: number;
+};
+
+export type DashboardLowStockItem = {
+  product_id: Uuid;
+  name: string;
+  location_name: string;
+  on_hand: Decimal;
+  min_qty: Decimal;
+};
+
+export type DashboardOverdueReceivables = {
+  count: number;
+  amount: Decimal;
+};
+
+export type DashboardResponse = {
+  period: DashboardDateRange;
+  previous: DashboardDateRange;
+  kpis: DashboardKpis;
+  kpis_previous: DashboardKpis;
+  by_hour: DashboardHourlyPoint[];
+  by_day: DashboardDailyPoint[];
+  top_products: DashboardTopProduct[];
+  payment_methods: DashboardPaymentMethod[];
+  low_stock: DashboardLowStockItem[];
+  overdue_receivables: DashboardOverdueReceivables;
+};
+
+export type DashboardQuery = {
+  branchId?: Uuid | null;
+  from?: string | null;
+  to?: string | null;
 };
 
 /** Cuerpo de error de ApiError (src/error.rs). */

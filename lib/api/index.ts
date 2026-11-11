@@ -5,7 +5,7 @@
 // caja obligatorio, idempotencia por id) para que la UI se comporte igual.
 
 import { ApiError, request, USE_MOCKS } from "./client";
-import { MOCK_BRANCH_ID, mockCatalog, mockDashboard } from "./mock";
+import { MOCK_BRANCH_ID, mockCatalog, mockGetDashboard } from "./mock";
 import { mockSchedulePreview } from "./mock-credit";
 import {
   mockCount,
@@ -148,7 +148,8 @@ import type {
   CustomerDetail,
   CustomerQuery,
   CustomerUpsertResponse,
-  DashboardSummary,
+  DashboardQuery,
+  DashboardResponse,
   Decimal,
   Invitation,
   InviteUserInput,
@@ -3118,13 +3119,18 @@ export const api = {
   },
 
   reports: {
-    /** Backend: GET /v1/reports/dashboard (PROPUESTO, aun sin implementar). */
-    async dashboard(branchId: Uuid): Promise<DashboardSummary> {
+    /** Backend: GET /v1/reports/dashboard?branch_id=&from=&to= (src/reports/dashboard.rs). */
+    async dashboard(query?: DashboardQuery): Promise<DashboardResponse> {
       if (USE_MOCKS) {
         await delay();
-        return structuredClone(mockDashboard);
+        return structuredClone(mockGetDashboard(query));
       }
-      return request(`/v1/reports/dashboard?branch_id=${branchId}&period=today`);
+      const params = new URLSearchParams();
+      if (query?.branchId) params.set("branch_id", query.branchId);
+      if (query?.from) params.set("from", query.from);
+      if (query?.to) params.set("to", query.to);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/v1/reports/dashboard${qs}`);
     },
   },
 
