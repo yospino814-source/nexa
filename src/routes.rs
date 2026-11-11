@@ -64,7 +64,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/health", get(health))
         .route("/v1/health/db", get(health_db))
         .route("/v1/context", get(context))
-        .route("/v1/branches", get(branches))
+        .route("/v1/branches", get(branches).post(create_branch))
+        .route("/v1/branches/{id}", put(update_branch))
         // Catalogo
         .route("/v1/catalog", get(catalog_list))
         .route("/v1/products/{id}/recipe", get(recipe))
@@ -237,7 +238,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/onboarding", post(onboarding_create_business))
         .route("/v1/users", get(list_users))
         .route("/v1/waiters", get(list_waiters))
-        .route("/v1/business", get(business_info))
+        .route("/v1/business", get(business_info).put(update_business))
         .route("/v1/users/invite", post(invite_user))
         .route(
             "/v1/users/invitations/{id}/revoke",
@@ -298,6 +299,25 @@ async fn branches(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<tenancy::BranchAccess>>> {
     Ok(Json(tenancy::branches(&state.pool, &user.claims).await?))
+}
+
+async fn create_branch(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<tenancy::CreateBranchRequest>,
+) -> ApiResult<(StatusCode, Json<tenancy::BranchItem>)> {
+    let item = tenancy::create_branch(&state.pool, &user.claims, req).await?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn update_branch(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Body(req): Body<tenancy::UpdateBranchRequest>,
+) -> ApiResult<Json<tenancy::BranchItem>> {
+    let item = tenancy::update_branch(&state.pool, &user.claims, id, req).await?;
+    Ok(Json(item))
 }
 
 // ----------------------------------------------------------------- catalogo
@@ -1954,6 +1974,15 @@ async fn business_info(
     Ok(Json(
         settings::business_info(&state.pool, &user.claims).await?,
     ))
+}
+
+async fn update_business(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Body(req): Body<settings::UpdateBusinessRequest>,
+) -> ApiResult<Json<settings::BusinessInfo>> {
+    let item = settings::update_business(&state.pool, &user.claims, req).await?;
+    Ok(Json(item))
 }
 
 // ------------------------------------------------------- importacion CSV (F2.6)

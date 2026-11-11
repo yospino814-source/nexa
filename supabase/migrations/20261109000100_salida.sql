@@ -122,3 +122,13 @@ end;
 $$;
 revoke all on function public.accept_invitation(uuid) from public, anon;
 grant execute on function public.accept_invitation(uuid) to authenticated;
+
+-- S3 Negocio y sucursales
+drop policy tenants_member_read on public.tenants;
+create policy tenants_member_read on public.tenants for select using (
+  id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid() and m.active)
+);
+create policy tenants_member_update on public.tenants for update
+  using (id = public.current_tenant_id())
+  with check (id = public.current_tenant_id());
+

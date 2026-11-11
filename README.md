@@ -81,6 +81,8 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/health`, `/v1/health/db` | Salud del servicio y de la BD |
 | GET | `/v1/context` | uid, tenant, sucursal y rol resueltos |
 | GET | `/v1/branches` | Sucursales del usuario con su rol en cada una |
+| POST | `/v1/branches` | Crear sucursal nueva con bodega Principal y Caja 1 (solo `DUENO`) |
+| PUT | `/v1/branches/{id}` | Actualizar nombre de sucursal (`settings:write`) |
 | GET | `/v1/catalog?branch_id=` | Catálogo con precio, impuesto y disponible |
 | GET | `/v1/products/{id}/recipe` | Insumos de un producto compuesto |
 | POST | `/v1/sales` | Venta de mostrador idempotente (ver abajo) |
@@ -158,7 +160,8 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/audit?from=&to=&user_id=&action=&limit=` | Registro de auditoría inmutable |
 | POST | `/v1/onboarding` | Alta de negocio y sucursal principal con rol DUENO (requiere sesión autenticada) |
 | GET | `/v1/users` | Lista de usuarios y membresías del negocio |
-| GET | `/v1/business` | Nombre, razón social, NIT y DV del negocio, para la tirilla (cualquier miembro) |
+| GET | `/v1/business` | Nombre, razón social, NIT, DV e iva_responsible del negocio (cualquier miembro) |
+| PUT | `/v1/business` | Actualizar datos del negocio (`settings:write`, campos fiscales solo `DUENO`) |
 | GET | `/v1/waiters?branch_id=` | Meseros activos de la sucursal, para la propina del POS (`pos:sell`) |
 | POST | `/v1/users/invite` | Invitar usuario por email con rol y sucursales asignadas |
 | POST | `/v1/users/invitations/{id}/revoke` | Revocar invitación pendiente (`users:manage`) |

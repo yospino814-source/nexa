@@ -1,12 +1,13 @@
 //! Ajustes por sucursal con valores por defecto combinados (F0.4).
 
+use axum::http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::Claims;
-use crate::error::{ApiError, validation};
+use crate::error::{ApiError, DomainError, validation};
 use crate::tenancy;
 
 type Tx<'a> = Transaction<'a, Postgres>;
@@ -278,23 +279,169 @@ pub async fn update_settings(
 }
 
 /// Datos del negocio para la tirilla (F1.15).
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct BusinessInfo {
     pub name: String,
     pub business_name: Option<String>,
     pub nit: Option<String>,
     pub dv: Option<String>,
+    pub iva_responsible: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateBusinessRequest {
+    pub name: String,
+    pub business_name: Option<String>,
+    pub nit: Option<String>,
+    pub dv: Option<String>,
+    pub iva_responsible: Option<bool>,
 }
 
 /// `GET /v1/business`: cualquier miembro del negocio.
 pub async fn business_info(pool: &PgPool, claims: &Claims) -> Result<BusinessInfo, ApiError> {
     let (scope, mut tx) = tenancy::begin(pool, claims).await?;
     let info = sqlx::query_as::<_, BusinessInfo>(
-        "select name, business_name, nit, dv::text as dv from tenants where id = $1",
+        "select name, business_name, nit, dv::text as dv, iva_responsible from tenants where id = $1",
     )
     .bind(scope.tenant)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(info)
+}
+
+/// `PUT /v1/business`: actualiza los datos del negocio.
+pub async fn update_business(
+    pool: &PgPool,
+    claims: &Claims,
+    req: UpdateBusinessRequest,
+) -> Result<BusinessInfo, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("settings:write")?;
+
+    // 1. name: recortado, de 2 a 80 caracteres. Si no: 422 BUSINESS_INVALID, con data: {field: "name"}.
+    let name = req.name.trim();
+    let name_len = name.chars().count();
+    if !(2..=80).contains(&name_len) {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "BUSINESS_INVALID",
+            "Revisá los datos del negocio.",
+            Some(serde_json::json!({ "field": "name" })),
+        ));
+    }
+
+    // 2. business_name: recortado; vacío pasa a null; más de 120 caracteres: 422 BUSINESS_INVALID, con field: "business_name".
+    let business_name = req
+        .business_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if business_name
+        .as_deref()
+        .is_some_and(|bn| bn.chars().count() > 120)
+    {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "BUSINESS_INVALID",
+            "Revisá los datos del negocio.",
+            Some(serde_json::json!({ "field": "business_name" })),
+        ));
+    }
+
+    // 3. nit: solo dígitos; vacío pasa a null, y entonces dv = null. Con menos de 5 o más de 15 dígitos: 422 BUSINESS_INVALID, con field: "nit".
+    // El DV se calcula con procurement::nit_dv. Si llegó dv y es distinto: 422 NIT_DV_INVALID.
+    let (nit, dv) = match req.nit.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => (None, None),
+        Some(raw_nit) => {
+            if !raw_nit.chars().all(|c| c.is_ascii_digit()) || !(5..=15).contains(&raw_nit.len()) {
+                return Err(crate::error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "BUSINESS_INVALID",
+                    "Revisá los datos del negocio.",
+                    Some(serde_json::json!({ "field": "nit" })),
+                ));
+            }
+            let calculated_dv = crate::procurement::nit_dv(raw_nit).to_string();
+            if req
+                .dv
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_some_and(|req_dv| req_dv != calculated_dv)
+            {
+                return Err(crate::error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "NIT_DV_INVALID",
+                    "El dígito de verificación no corresponde al NIT.",
+                    None,
+                ));
+            }
+            (Some(raw_nit.to_string()), Some(calculated_dv))
+        }
+    };
+
+    // 4. Lee la fila actual con select ... from tenants where id = $1 for update.
+    // Si cambia business_name, nit, dv o iva_responsible y scope.role != "DUENO": 403.
+    let current = sqlx::query_as::<_, BusinessInfo>(
+        "select name, business_name, nit, dv::text as dv, iva_responsible from tenants where id = $1 for update",
+    )
+    .bind(scope.tenant)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let changes_restricted = current.business_name != business_name
+        || current.nit != nit
+        || current.dv != dv
+        || current.iva_responsible != req.iva_responsible;
+
+    if changes_restricted && scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+
+    // 5. update tenants set ... Auditoría NEGOCIO_ACTUALIZADO, con before y after.
+    sqlx::query(
+        "update tenants set name = $1, business_name = $2, nit = $3, dv = $4, iva_responsible = $5 where id = $6",
+    )
+    .bind(name)
+    .bind(&business_name)
+    .bind(&nit)
+    .bind(&dv)
+    .bind(req.iva_responsible)
+    .bind(scope.tenant)
+    .execute(&mut *tx)
+    .await?;
+
+    let before = serde_json::to_value(&current).unwrap();
+    let after = serde_json::json!({
+        "name": name,
+        "business_name": business_name,
+        "nit": nit,
+        "dv": dv,
+        "iva_responsible": req.iva_responsible,
+    });
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "NEGOCIO_ACTUALIZADO",
+        "tenants",
+        scope.tenant,
+        Some(before),
+        Some(after),
+        None,
+    )
+    .await?;
+
+    // 6. Responde lo mismo que GET /v1/business.
+    tx.commit().await?;
+
+    Ok(BusinessInfo {
+        name: name.to_string(),
+        business_name,
+        nit,
+        dv,
+        iva_responsible: req.iva_responsible,
+    })
 }

@@ -1,3 +1,5 @@
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -347,6 +349,158 @@ pub async fn ensure_branch_in_tenant(
     ensure_branch_tx(&mut tx, &scope, branch_id).await?;
     tx.commit().await?;
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateBranchRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
+pub struct BranchItem {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateBranchRequest {
+    pub name: String,
+}
+
+pub async fn create_branch(
+    pool: &PgPool,
+    claims: &Claims,
+    req: CreateBranchRequest,
+) -> Result<BranchItem, ApiError> {
+    let (scope, mut tx) = begin(pool, claims).await?;
+    if scope.role != "DUENO" {
+        return Err(ApiError::Domain(DomainError::Forbidden));
+    }
+    crate::db::set_scope(&mut tx, scope.tenant, None).await?;
+
+    let name = req.name.trim();
+    let name_len = name.chars().count();
+    if !(2..=60).contains(&name_len) {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "BRANCH_INVALID",
+            "El nombre de la sucursal debe tener entre 2 y 60 caracteres.",
+            None,
+        ));
+    }
+
+    let exists: bool = sqlx::query_scalar(
+        "select exists(select 1 from branches where tenant_id = $1 and lower(name) = lower($2))",
+    )
+    .bind(scope.tenant)
+    .bind(name)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if exists {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "BRANCH_DUPLICATED",
+            "Ya existe una sucursal con ese nombre.",
+            None,
+        ));
+    }
+
+    let branch = sqlx::query_as::<_, BranchItem>(
+        "insert into branches (tenant_id, name) values ($1, $2) returning id, name",
+    )
+    .bind(scope.tenant)
+    .bind(name)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "SUCURSAL_CREADA",
+        "branches",
+        branch.id,
+        None,
+        Some(serde_json::to_value(&branch).unwrap()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(branch)
+}
+
+pub async fn update_branch(
+    pool: &PgPool,
+    claims: &Claims,
+    branch_id: Uuid,
+    req: UpdateBranchRequest,
+) -> Result<BranchItem, ApiError> {
+    let (scope, mut tx) = begin_in_branch(pool, claims, branch_id).await?;
+    scope.require_permission("settings:write")?;
+
+    let name = req.name.trim();
+    let name_len = name.chars().count();
+    if !(2..=60).contains(&name_len) {
+        return Err(crate::error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "BRANCH_INVALID",
+            "El nombre de la sucursal debe tener entre 2 y 60 caracteres.",
+            None,
+        ));
+    }
+
+    let exists: bool = sqlx::query_scalar(
+        "select exists(select 1 from branches where tenant_id = $1 and id != $2 and lower(name) = lower($3))",
+    )
+    .bind(scope.tenant)
+    .bind(branch_id)
+    .bind(name)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if exists {
+        return Err(crate::error::coded(
+            StatusCode::CONFLICT,
+            "BRANCH_DUPLICATED",
+            "Ya existe una sucursal con ese nombre.",
+            None,
+        ));
+    }
+
+    let old_name: String =
+        sqlx::query_scalar("select name from branches where id = $1 and tenant_id = $2 for update")
+            .bind(branch_id)
+            .bind(scope.tenant)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    sqlx::query("update branches set name = $1 where id = $2 and tenant_id = $3")
+        .bind(name)
+        .bind(branch_id)
+        .bind(scope.tenant)
+        .execute(&mut *tx)
+        .await?;
+
+    let item = BranchItem {
+        id: branch_id,
+        name: name.to_string(),
+    };
+
+    crate::audit::record_tx(
+        &mut tx,
+        &scope,
+        "SUCURSAL_ACTUALIZADA",
+        "branches",
+        branch_id,
+        Some(serde_json::json!({ "name": old_name })),
+        Some(serde_json::json!({ "name": name })),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(item)
 }
 
 #[cfg(test)]

@@ -805,6 +805,7 @@ async fn database_integration() {
     f3_aging(&app, &admin).await;
     s1_onboarding(&app, &admin).await;
     s2_invitations(&app, &admin).await;
+    s3_business(&app, &admin).await;
 }
 
 /// Existencias con punto de reorden, conteo fisico, kardex con saldo y traslados.
@@ -12526,4 +12527,236 @@ async fn s2_invitations(app: &PgPool, admin: &PgPool) {
         ],
     )
     .await;
+}
+
+async fn s3_business(app: &PgPool, admin: &PgPool) {
+    let tenant = seed_tenant(admin).await;
+    let branch = seed_branch(admin, tenant).await;
+    let owner = seed_user(admin).await;
+    seed_membership(admin, tenant, None, owner, "DUENO").await;
+    let owner_c = claims(owner, Some(tenant), Some(branch));
+
+    let admin_caja_user = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), admin_caja_user, "ADMIN_CAJA").await;
+    let admin_caja_c = claims(admin_caja_user, Some(tenant), Some(branch));
+
+    // [P] NIT "900123456" con dv = 7: 422 NIT_DV_INVALID.
+    let err_invalid_dv = settings::update_business(
+        app,
+        &owner_c,
+        settings::UpdateBusinessRequest {
+            name: "Mi Negocio".into(),
+            business_name: Some("Mi Negocio SAS".into()),
+            nit: Some("900123456".into()),
+            dv: Some("7".into()),
+            iva_responsible: Some(true),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_invalid_dv {
+        ApiError::Domain(DomainError::Coded { status, code, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(code, "NIT_DV_INVALID");
+        }
+        other => panic!("esperaba 422 NIT_DV_INVALID, obtuve: {:?}", other),
+    }
+
+    // [P] El dueño cambia el nombre, la razón social y el NIT "900123456" sin DV: queda guardado con DV "8" y hay auditoría NEGOCIO_ACTUALIZADO.
+    let updated = settings::update_business(
+        app,
+        &owner_c,
+        settings::UpdateBusinessRequest {
+            name: "Comercial Valido".into(),
+            business_name: Some("Comercial SAS".into()),
+            nit: Some("900123456".into()),
+            dv: None,
+            iva_responsible: Some(true),
+        },
+    )
+    .await
+    .expect("update business as owner");
+    assert_eq!(updated.name, "Comercial Valido");
+    assert_eq!(updated.business_name.as_deref(), Some("Comercial SAS"));
+    assert_eq!(updated.nit.as_deref(), Some("900123456"));
+    assert_eq!(updated.dv.as_deref(), Some("8"));
+    assert_eq!(updated.iva_responsible, Some(true));
+
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from audit_log where tenant_id = $1 and action = 'NEGOCIO_ACTUALIZADO' and entity_id = $1",
+    )
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(audit_count >= 1, "esperaba auditoria NEGOCIO_ACTUALIZADO");
+
+    // [P] ADMIN_CAJA cambia solo name: 200. ADMIN_CAJA cambia nit: 403.
+    let updated_name = settings::update_business(
+        app,
+        &admin_caja_c,
+        settings::UpdateBusinessRequest {
+            name: "Nombre Por Admin".into(),
+            business_name: Some("Comercial SAS".into()),
+            nit: Some("900123456".into()),
+            dv: Some("8".into()),
+            iva_responsible: Some(true),
+        },
+    )
+    .await
+    .expect("admin_caja should be allowed to change only name");
+    assert_eq!(updated_name.name, "Nombre Por Admin");
+
+    let err_admin_caja_nit = settings::update_business(
+        app,
+        &admin_caja_c,
+        settings::UpdateBusinessRequest {
+            name: "Nombre Por Admin".into(),
+            business_name: Some("Comercial SAS".into()),
+            nit: Some("800111222".into()),
+            dv: None,
+            iva_responsible: Some(true),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_admin_caja_nit {
+        ApiError::Domain(DomainError::Forbidden) => {}
+        other => panic!(
+            "esperaba 403 Forbidden al cambiar nit como ADMIN_CAJA, obtuve: {:?}",
+            other
+        ),
+    }
+
+    // [P] ADMIN_CAJA crea una sucursal: 403.
+    let err_branch_admin_caja = tenancy::create_branch(
+        app,
+        &admin_caja_c,
+        tenancy::CreateBranchRequest { name: "Sur".into() },
+    )
+    .await
+    .unwrap_err();
+    match err_branch_admin_caja {
+        ApiError::Domain(DomainError::Forbidden) => {}
+        other => panic!(
+            "esperaba 403 Forbidden al crear sucursal como ADMIN_CAJA, obtuve: {:?}",
+            other
+        ),
+    }
+
+    // [P] El dueño crea la sucursal "Norte": existe, con su bodega "Principal" y su caja CAJA-1. Crear otra "norte": 409 BRANCH_DUPLICATED.
+    let branch_norte = tenancy::create_branch(
+        app,
+        &owner_c,
+        tenancy::CreateBranchRequest {
+            name: "Norte".into(),
+        },
+    )
+    .await
+    .expect("crear sucursal Norte");
+    assert_eq!(branch_norte.name, "Norte");
+
+    let has_location: bool = sqlx::query_scalar(
+        "select exists(select 1 from locations where branch_id = $1 and name = 'Principal')",
+    )
+    .bind(branch_norte.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(has_location, "sucursal nueva debe tener bodega Principal");
+
+    let has_register: bool = sqlx::query_scalar(
+        "select exists(select 1 from cash_registers where branch_id = $1 and code = 'CAJA-1')",
+    )
+    .bind(branch_norte.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(has_register, "sucursal nueva debe tener caja CAJA-1");
+
+    let err_duplicated = tenancy::create_branch(
+        app,
+        &owner_c,
+        tenancy::CreateBranchRequest {
+            name: "norte".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    match err_duplicated {
+        ApiError::Domain(DomainError::Coded { status, code, .. }) => {
+            assert_eq!(status, axum::http::StatusCode::CONFLICT);
+            assert_eq!(code, "BRANCH_DUPLICATED");
+        }
+        other => panic!("esperaba 409 BRANCH_DUPLICATED, obtuve: {:?}", other),
+    }
+
+    // Actualizar nombre de sucursal (PUT /v1/branches/{id})
+    let updated_branch = tenancy::update_branch(
+        app,
+        &owner_c,
+        branch_norte.id,
+        tenancy::UpdateBranchRequest {
+            name: "Norte Centro".into(),
+        },
+    )
+    .await
+    .expect("update branch name");
+    assert_eq!(updated_branch.name, "Norte Centro");
+
+    let branch_audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from audit_log where tenant_id = $1 and action = 'SUCURSAL_ACTUALIZADA' and entity_id = $2",
+    )
+    .bind(tenant)
+    .bind(branch_norte.id)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(
+        branch_audit_count >= 1,
+        "esperaba auditoria SUCURSAL_ACTUALIZADA"
+    );
+
+    // [P] Con la membresía desactivada, select name from tenants devuelve 0 filas.
+    let user_m = seed_user(admin).await;
+    seed_membership(admin, tenant, Some(branch), user_m, "CAJERO").await;
+    let user_m_c = claims(user_m, Some(tenant), Some(branch));
+
+    let mut tx_active = crate::db::begin_scope_tx(app, &user_m_c, None, None)
+        .await
+        .unwrap();
+    let rows_active: Vec<String> = sqlx::query_scalar("select name from tenants where id = $1")
+        .bind(tenant)
+        .fetch_all(&mut *tx_active)
+        .await
+        .unwrap();
+    tx_active.commit().await.unwrap();
+    assert_eq!(
+        rows_active.len(),
+        1,
+        "con membresia activa debe ver el tenant"
+    );
+
+    sqlx::query("update memberships set active = false where user_id = $1 and tenant_id = $2")
+        .bind(user_m)
+        .bind(tenant)
+        .execute(admin)
+        .await
+        .unwrap();
+
+    let mut tx_inactive = crate::db::begin_scope_tx(app, &user_m_c, None, None)
+        .await
+        .unwrap();
+    let rows_inactive: Vec<String> = sqlx::query_scalar("select name from tenants where id = $1")
+        .bind(tenant)
+        .fetch_all(&mut *tx_inactive)
+        .await
+        .unwrap();
+    tx_inactive.commit().await.unwrap();
+    assert!(
+        rows_inactive.is_empty(),
+        "con membresia desactivada select name from tenants devuelve 0 filas"
+    );
+
+    cleanup(admin, tenant, &[owner, admin_caja_user, user_m]).await;
 }
