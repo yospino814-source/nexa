@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Mapa de Mesas</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              petrol: "#0F6E6E",
+              petrolDark: "#0c5959",
+              petrolLight: "#138888"
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-flex;
+      vertical-align: middle;
+      user-select: none;
+    }
+    .material-symbols-fill {
+      font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+    }
+    /* Estilo barra de desplazamiento táctil fina */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-body antialiased h-full flex flex-col overflow-hidden select-none">
+<!-- 1. BARRA SUPERIOR MÍNIMA OPERATIVA (56px) -->
+<header class="h-14 bg-white border-b border-slate-200/60 px-6 flex items-center justify-between z-30 shrink-0 shadow-sm">
+<!-- Izquierda: Brand / Logo Nexa POS -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-[#0F6E6E] flex items-center justify-center text-white font-black text-base shadow-sm">
+          N
+        </div>
+<span class="font-display text-lg font-bold tracking-tight text-slate-900">
+          Nexa POS
+        </span>
+</div>
+<span class="text-slate-300 font-light">|</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200/60">
+        Mesas &amp; Bar
+      </span>
+</div>
+<!-- Centro: Selector de sucursal & Turno activo -->
+<div class="flex items-center gap-2.5">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100/90 text-slate-700 hover:bg-slate-200/70 transition-colors">
+<span class="material-symbols-outlined text-[18px] text-slate-500">storefront</span>
+<span>Sucursal Principal</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">expand_more</span>
+</button>
+<div class="h-4 w-px bg-slate-200"></div>
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-xs font-medium">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</span>
+<span>Turno Almuerzo Activo · Caja #1</span>
+</div>
+</div>
+<!-- Derecha: Perfil de mesero & Volver -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2.5 pl-2">
+<div class="w-8 h-8 rounded-full bg-teal-800/10 text-[#0F6E6E] border border-teal-600/20 font-bold text-xs flex items-center justify-center" title="Avatar del cajero en turno">
+          MG
+        </div>
+<div class="flex flex-col text-left">
+<span class="text-xs font-bold text-slate-800 leading-tight">Mateo G.</span>
+<span class="text-[11px] font-medium text-slate-500 leading-tight">Mesero</span>
+</div>
+</div>
+<a class="border border-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-slate-100 transition-colors inline-flex items-center gap-1.5 active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined text-[16px]">arrow_back</span>
+<span>Volver al panel</span>
+</a>
+</div>
+</header>
+<!-- 2. BARRA DE RESUMEN OPERATIVO -->
+<div class="bg-white border-b border-slate-200/60 px-8 py-3.5 flex items-center justify-between shadow-xs z-20 shrink-0">
+<!-- Izquierda: Badges de estado -->
+<div class="flex items-center gap-3">
+<!-- 8 Libres -->
+<div class="inline-flex items-center gap-1.5 bg-slate-100/90 text-slate-700 px-3 py-1 rounded-full text-xs font-medium border border-slate-200/60">
+<span class="w-2.5 h-2.5 rounded-full bg-white border border-slate-400 inline-block"></span>
+<span>8 Libres</span>
+</div>
+<!-- 5 Ocupadas -->
+<div class="inline-flex items-center gap-1.5 bg-[#0F6E6E]/15 text-[#0F6E6E] font-semibold px-3 py-1 rounded-full text-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-[#0F6E6E] inline-block"></span>
+<span>5 Ocupadas</span>
+</div>
+<!-- 2 Por cobrar -->
+<div class="inline-flex items-center gap-1.5 bg-amber-500/15 text-amber-800 font-semibold px-3 py-1 rounded-full text-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+<span>2 Por cobrar</span>
+</div>
+<!-- Platos listos para servir: 3 -->
+<div class="inline-flex items-center gap-1.5 bg-emerald-500/15 text-emerald-800 font-bold px-3 py-1 rounded-full text-xs border border-emerald-500/20 animate-pulse">
+<span class="material-symbols-outlined text-[16px] text-emerald-600 material-symbols-fill">skillet</span>
+<span>Platos listos para servir: 3</span>
+</div>
+</div>
+<!-- Derecha: Botón Takeout -->
+<div>
+<button class="border border-slate-300 text-slate-700 font-medium px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors text-sm shadow-xs active:scale-95 duration-150">
+<span class="material-symbols-outlined text-[18px] text-slate-600">shopping_bag</span>
+<span>+ Pedido para llevar (Takeout)</span>
+</button>
+</div>
+</div>
+<!-- 3. ESTRUCTURA PRINCIPAL EN DOS COLUMNAS -->
+<main class="flex-1 flex overflow-hidden bg-slate-50">
+<!-- COLUMNA IZQUIERDA: ÁREA DE SALÓN Y GRILLA TÁCTIL -->
+<section class="flex-1 flex flex-col justify-between overflow-y-auto">
+<div>
+<!-- Pestañas horizontales tipo píldora -->
+<div class="px-8 pt-6 pb-4 flex gap-3">
+<button class="bg-[#0F6E6E] text-white font-semibold px-5 py-2.5 rounded-xl shadow-sm text-sm inline-flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-[18px]">table_restaurant</span>
+<span>Salón Principal (10 mesas)</span>
+</button>
+<button class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors inline-flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-slate-400">deck</span>
+<span>Terraza (3 mesas)</span>
+</button>
+<button class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors inline-flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-slate-400">local_bar</span>
+<span>Barra (2 mesas)</span>
+</button>
+</div>
+<!-- Grilla táctil de mesas (5 Columnas) -->
+<div class="px-8 pb-6 grid grid-cols-5 gap-5">
+<!-- M1 (Ocupada) -->
+<div class="bg-teal-50/80 border-2 border-teal-600 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm relative hover:scale-[1.02] transition-transform cursor-pointer">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-2xl font-black text-teal-900 leading-none">M1</span>
+<span class="block text-xs font-semibold text-teal-700/80 mt-1">Mateo G.</span>
+</div>
+<div class="flex items-center gap-1 bg-emerald-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+<span class="material-symbols-outlined text-[14px]">notifications_active</span>
+<span>2</span>
+</div>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-500 text-[11px] font-medium mb-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span>45 min</span>
+</div>
+<p class="font-extrabold text-base text-teal-950 tracking-tight">$86.000 COP</p>
+</div>
+</div>
+<!-- M2 (Libre) -->
+<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:border-slate-300 transition-all cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-slate-400 leading-none">M2</span>
+<span class="bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-md">Disponible</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">chair</span>
+<span>4 sillas</span>
+</div>
+<span class="text-xs text-slate-400 mt-2 block font-normal">Toque para abrir</span>
+</div>
+</div>
+<!-- M3 (Por cobrar) -->
+<div class="bg-amber-50/80 border-2 border-amber-500 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:scale-[1.02] transition-transform cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-amber-900 leading-none">M3</span>
+<span class="bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5 rounded-md border border-amber-200/60">
+                Cuenta pedida
+              </span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-amber-700/80 text-[11px] font-medium mb-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span>1h 25m</span>
+</div>
+<p class="font-bold text-base text-amber-950 tracking-tight">$142.500 COP</p>
+</div>
+</div>
+<!-- M4 (SELECCIONADA ACTIVA) -->
+<div class="bg-teal-50/90 border-2 border-teal-700 ring-4 ring-teal-600/30 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-md relative cursor-pointer">
+<!-- Badge superior derecho -->
+<div class="flex items-start justify-between">
+<div>
+<span class="text-2xl font-black text-teal-950 leading-none">M4</span>
+<span class="inline-block w-2 h-2 rounded-full bg-[#0F6E6E] ml-1.5 align-middle"></span>
+</div>
+<div class="flex items-center gap-1 bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+<span class="material-symbols-outlined text-[13px]">room_service</span>
+<span>2 listos</span>
+</div>
+</div>
+<div>
+<div class="flex items-center justify-between text-[11px] text-teal-800/90 font-medium mb-1">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span> 1h 10m
+                </span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">group</span> 4 personas
+                </span>
+</div>
+<p class="text-lg font-extrabold text-teal-950 tracking-tight">$115.000 COP</p>
+</div>
+</div>
+<!-- M5 (Libre) -->
+<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:border-slate-300 transition-all cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-slate-400 leading-none">M5</span>
+<span class="bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-md">Disponible</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">chair</span>
+<span>2 sillas</span>
+</div>
+<span class="text-xs text-slate-400 mt-2 block font-normal">Toque para abrir</span>
+</div>
+</div>
+<!-- M6 (Ocupada) -->
+<div class="bg-teal-50/80 border-2 border-teal-600 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:scale-[1.02] transition-transform cursor-pointer">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-2xl font-bold text-teal-900 leading-none">M6</span>
+<span class="block text-xs font-semibold text-teal-700/80 mt-1">Mateo G.</span>
+</div>
+<span class="bg-teal-100/90 text-teal-800 text-[11px] font-semibold px-2 py-0.5 rounded-md">Ocupada</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-500 text-[11px] font-medium mb-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span>25 min</span>
+</div>
+<p class="font-bold text-base text-teal-900 tracking-tight">$48.000 COP</p>
+</div>
+</div>
+<!-- M7 (Libre) -->
+<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:border-slate-300 transition-all cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-slate-400 leading-none">M7</span>
+<span class="bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-md">Disponible</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">chair</span>
+<span>6 sillas</span>
+</div>
+<span class="text-xs text-slate-400 mt-2 block font-normal">Toque para abrir</span>
+</div>
+</div>
+<!-- M8 (Por cobrar) -->
+<div class="bg-amber-50/80 border-2 border-amber-500 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:scale-[1.02] transition-transform cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-amber-900 leading-none">M8</span>
+<span class="bg-amber-100 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-md border border-amber-200">
+                Imprimiendo cuenta
+              </span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-amber-700/80 text-[11px] font-medium mb-1">
+<span class="material-symbols-outlined text-[14px]">receipt_long</span>
+<span>Pendiente pago</span>
+</div>
+<p class="font-bold text-base text-amber-900 tracking-tight">$28.500 COP</p>
+</div>
+</div>
+<!-- M9 (Libre) -->
+<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:border-slate-300 transition-all cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-slate-400 leading-none">M9</span>
+<span class="bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-md">Disponible</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">chair</span>
+<span>4 sillas</span>
+</div>
+<span class="text-xs text-slate-400 mt-2 block font-normal">Toque para abrir</span>
+</div>
+</div>
+<!-- M10 (Libre) -->
+<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between h-40 shadow-sm hover:border-slate-300 transition-all cursor-pointer">
+<div class="flex items-start justify-between">
+<span class="text-2xl font-bold text-slate-400 leading-none">M10</span>
+<span class="bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-md">Disponible</span>
+</div>
+<div>
+<div class="flex items-center gap-1 text-slate-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">chair</span>
+<span>4 sillas</span>
+</div>
+<span class="text-xs text-slate-400 mt-2 block font-normal">Toque para abrir</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Barra de leyenda inferior -->
+<div class="px-8 py-3.5 bg-white/70 border-t border-slate-200/70 flex items-center gap-6 text-xs text-slate-600 font-medium shrink-0">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-md bg-teal-50 border-2 border-teal-600 inline-block"></span>
+<span>Ocupada</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-md bg-white border border-slate-300 inline-block"></span>
+<span>Libre</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-md bg-amber-50 border-2 border-amber-500 inline-block"></span>
+<span>Por cobrar</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block ring-2 ring-emerald-200"></span>
+<span>Platos listos para servir</span>
+</div>
+</div>
+</section>
+<!-- COLUMNA DERECHA: DRAWER LATERAL FIJO (w-[400px]) -->
+<aside class="w-[400px] bg-white border-l border-slate-200/80 shadow-lg flex flex-col justify-between shrink-0 h-full">
+<!-- Contenedor scrollable superior -->
+<div class="flex-1 flex flex-col overflow-hidden px-5 pt-5">
+<!-- Header del pedido -->
+<div class="pb-3 border-b border-slate-100 shrink-0">
+<div class="flex items-start justify-between">
+<div>
+<h2 class="font-display font-bold text-lg text-slate-900 tracking-tight">Mesa M4 · Salón Principal</h2>
+<div class="flex items-center gap-2 mt-1.5 flex-wrap">
+<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">person</span>
+                  Mateo G.
+                </span>
+<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-medium inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">schedule</span>
+                  1h 10m
+                </span>
+<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-medium inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">group</span>
+                  4 personas
+                </span>
+</div>
+</div>
+<button class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" title="Opciones de mesa">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</div>
+<!-- Banner verde de alerta positiva -->
+<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 flex items-center gap-2.5 text-xs font-semibold mt-3">
+<span class="material-symbols-outlined text-emerald-600 text-[18px] material-symbols-fill">room_service</span>
+<span>¡2 platos listos para servir en cocina!</span>
+</div>
+</div>
+<!-- Título de comanda -->
+<div class="py-2.5 flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+<span>Comanda activa</span>
+<span class="text-slate-500 font-medium normal-case">Orden #482</span>
+</div>
+<!-- Lista detallada de la comanda activa -->
+<div class="flex-1 overflow-y-auto py-1 space-y-2.5 pr-1">
+<!-- Item 1: Hamburguesa -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 hover:bg-slate-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-start gap-2">
+<span class="w-6 h-6 rounded-md bg-[#0F6E6E]/10 text-[#0F6E6E] font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  2x
+                </span>
+<div>
+<h4 class="text-xs font-bold text-slate-900 leading-tight">Hamburguesa Clásica Artesanal</h4>
+<p class="text-[11px] text-amber-700 font-medium mt-0.5 italic flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">edit_note</span>
+                    Término medio, sin cebolla
+                  </p>
+</div>
+</div>
+<span class="text-xs font-bold text-slate-900 shrink-0 ml-2">$56.000 COP</span>
+</div>
+<div class="mt-2 flex items-center justify-between pt-1.5 border-t border-slate-200/50">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+<span class="material-symbols-outlined text-[12px]">check_circle</span> Listo en barra de despacho
+              </span>
+<button class="text-slate-400 hover:text-rose-600 transition-colors">
+<span class="material-symbols-outlined text-[14px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Item 2: Papas Rústicas -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 hover:bg-slate-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-start gap-2">
+<span class="w-6 h-6 rounded-md bg-[#0F6E6E]/10 text-[#0F6E6E] font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  1x
+                </span>
+<div>
+<h4 class="text-xs font-bold text-slate-900 leading-tight">Papas Rústicas</h4>
+<p class="text-[11px] text-slate-500 mt-0.5">Porción regular con salsa de la casa</p>
+</div>
+</div>
+<span class="text-xs font-bold text-slate-900 shrink-0 ml-2">$12.000 COP</span>
+</div>
+</div>
+<!-- Item 3: Cerveza Corona -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 hover:bg-slate-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-start gap-2">
+<span class="w-6 h-6 rounded-md bg-[#0F6E6E]/10 text-[#0F6E6E] font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  3x
+                </span>
+<div>
+<h4 class="text-xs font-bold text-slate-900 leading-tight">Cerveza Corona 330 ml</h4>
+<p class="text-[11px] text-teal-700 font-medium mt-0.5 italic flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">ac_unit</span>
+                    Frías con limón
+                  </p>
+</div>
+</div>
+<span class="text-xs font-bold text-slate-900 shrink-0 ml-2">$27.000 COP</span>
+</div>
+</div>
+<!-- Item 4: Limonada de Coco -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 hover:bg-slate-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-start gap-2">
+<span class="w-6 h-6 rounded-md bg-[#0F6E6E]/10 text-[#0F6E6E] font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  1x
+                </span>
+<div>
+<h4 class="text-xs font-bold text-slate-900 leading-tight">Limonada de Coco</h4>
+<p class="text-[11px] text-slate-500 mt-0.5">Preparación artesanal sin azúcar extra</p>
+</div>
+</div>
+<span class="text-xs font-bold text-slate-900 shrink-0 ml-2">$11.000 COP</span>
+</div>
+</div>
+<!-- Item 5: Bebidas adicionales -->
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/70 hover:bg-slate-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-start gap-2">
+<span class="w-6 h-6 rounded-md bg-[#0F6E6E]/10 text-[#0F6E6E] font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  2x
+                </span>
+<div>
+<h4 class="text-xs font-bold text-slate-900 leading-tight">Agua con gas</h4>
+<p class="text-[11px] text-slate-500 mt-0.5">Botella cristal 300 ml</p>
+</div>
+</div>
+<span class="text-xs font-bold text-slate-900 shrink-0 ml-2">$9.000 COP</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Zona de totales y botones de acción táctiles -->
+<div class="px-5 py-4 border-t border-slate-200 bg-white shrink-0 shadow-xs">
+<!-- Subtotales y desglose -->
+<div class="space-y-1.5 mb-3 text-xs">
+<div class="flex justify-between text-slate-600 font-medium">
+<span>Subtotal</span>
+<span>$105.500 COP</span>
+</div>
+<div class="flex justify-between text-slate-600 font-medium">
+<span class="flex items-center gap-1">
+              Propina sugerida (10%)
+              <span class="text-slate-400 cursor-pointer" title="Voluntaria">ⓘ</span>
+</span>
+<span>$10.500 COP</span>
+</div>
+<div class="pt-2 border-t border-slate-100 flex items-baseline justify-between">
+<span class="text-sm font-bold text-slate-800">Total acumulado</span>
+<span class="text-2xl font-extrabold text-slate-900 tracking-tight">$115.000 COP</span>
+</div>
+</div>
+<!-- Botones de acción táctiles grandes (h-14 / 56px) -->
+<div class="space-y-2.5">
+<!-- Botón secundario -->
+<button class="w-full h-14 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-xl text-sm flex items-center justify-center gap-2 border border-slate-200 active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined text-[20px]">add_circle</span>
+<span>+ Agregar platos / Comanda</span>
+</button>
+<!-- Botón primario -->
+<button class="w-full h-14 bg-[#0F6E6E] hover:bg-[#0c5959] text-white font-bold rounded-xl text-base shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined text-[22px]">point_of_sale</span>
+<span>Ver cuenta / Cobrar mesa</span>
+</button>
+</div>
+</div>
+</aside>
+</main>
+</body></html>

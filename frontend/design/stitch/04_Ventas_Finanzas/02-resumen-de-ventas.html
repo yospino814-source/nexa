@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Resumen de Ventas</title>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#0F6E6E',
+              dark: '#0B5252',
+              light: '#E6F4F4',
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"],
+            sans: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-body text-slate-800 antialiased selection:bg-teal-700 selection:text-white">
+<!-- ================= SIDEBAR (Shared Component: SideNavBar) ================= -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-4 z-40 bg-slate-900 border-r border-slate-800 shadow-none justify-between">
+<!-- Brand / Top Cluster -->
+<div class="flex flex-col items-center w-full gap-6">
+<div class="w-10 h-10 rounded-xl bg-teal-700 text-white font-headline font-bold flex items-center justify-center text-lg shadow-sm" title="Nexa POS">
+<span>N</span>
+</div>
+<!-- Main Navigation Tabs -->
+<nav aria-label="Navegación principal" class="flex flex-col items-center gap-2 w-full px-2">
+<!-- Panel -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 group relative" href="#" title="Panel">
+<span class="material-symbols-outlined text-[22px]">dashboard</span>
+<span class="sr-only">Panel</span>
+</a>
+<!-- Ventas -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 group relative" href="#" title="Ventas">
+<span class="material-symbols-outlined text-[22px]">point_of_sale</span>
+<span class="sr-only">Ventas</span>
+</a>
+<!-- Inventario -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 group relative" href="#" title="Inventario">
+<span class="material-symbols-outlined text-[22px]">inventory_2</span>
+<span class="sr-only">Inventario</span>
+</a>
+<!-- Reportes (ACTIVE MATCH: Primary Intent is Ventas Summary Report) -->
+<a aria-current="page" class="text-teal-400 bg-slate-800/80 rounded-xl p-3 flex items-center justify-center relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-teal-500 before:rounded-r shadow-inner" href="#" title="Reportes">
+<span class="material-symbols-outlined text-[22px]">analytics</span>
+<span class="sr-only">Reportes</span>
+</a>
+<!-- Ajustes -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95 group relative" href="#" title="Ajustes">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+<span class="sr-only">Ajustes</span>
+</a>
+</nav>
+</div>
+<!-- Footer Cluster -->
+<div class="flex flex-col items-center gap-2 w-full px-2 border-t border-slate-800/80 pt-4">
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Ayuda">
+<span class="material-symbols-outlined text-[22px]">help</span>
+<span class="sr-only">Ayuda</span>
+</a>
+<a class="text-slate-400 hover:text-rose-400 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Cerrar Sesión">
+<span class="material-symbols-outlined text-[22px]">logout</span>
+<span class="sr-only">Cerrar Sesión</span>
+</a>
+</div>
+</aside>
+<!-- ================= TOPBAR (Shared Component: TopNavBar) ================= -->
+<header class="sticky top-0 right-0 h-16 w-[calc(100%-72px)] ml-[72px] z-30 bg-white border-b border-slate-200/80 shadow-sm flex items-center justify-between px-8">
+<!-- Breadcrumb Hierarchy -->
+<nav aria-label="Ruta de navegación" class="flex items-center gap-2 text-sm">
+<span class="text-slate-400 font-normal">Nexa POS</span>
+<span class="text-slate-300">/</span>
+<a class="text-slate-500 hover:text-slate-700 font-normal transition-colors" href="#">Reportes</a>
+<span class="text-slate-300">/</span>
+<span class="text-slate-900 font-semibold">Resumen de Ventas</span>
+</nav>
+<!-- Right Actions -->
+<div class="flex items-center gap-5">
+<!-- Sucursal Pill Selector -->
+<button class="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-50 hover:bg-slate-100 border border-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span>Sucursal Principal</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">expand_more</span>
+</button>
+<!-- Notifications Icon -->
+<button aria-label="Notificaciones" class="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white">3</span>
+</button>
+<div class="h-6 w-px bg-slate-200"></div>
+<!-- User Profile Header Cluster -->
+<div class="flex items-center gap-3 pl-1">
+<img alt="Avatar de Administrador Propietario" class="w-9 h-9 rounded-full object-cover ring-2 ring-teal-700/20" data-alt="Professional headshot of a business manager or owner wearing formal casual attire, friendly expression, well-lit indoor modern office background with subtle warm lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAKoyu5T1STZCA7gj0e0wjg5JI-ICcMD0LBfxvFYIn90g1kyEHVMwnAHTGknYR8OIWKUtkDVLpESw6yW7AEDsCJwIkWRDp9VqYcE-7vkz5um_KVelyTdMbaFATLUUu30me-C4LoEoeVCHKEgS9G_Id2RnFiJEHvqjJDgB8Yfuc8YYNay7cNo01_zKVKWNj_vcXkVf7jXY9ylyb7MIwFQZxSaX2GhWq81ZCHQZBG3rDU9Qqbqy4zuSWALpcIMQfPfdx1oGDg_-k7aBz9"/>
+<div class="flex flex-col text-left leading-tight hidden sm:block">
+<span class="text-xs font-semibold text-slate-900">Admin Propietario</span>
+<span class="text-[11px] text-slate-400">admin@nexapos.co</span>
+</div>
+</div>
+</div>
+</header>
+<!-- ================= MAIN CONTENT CANVAS ================= -->
+<main class="ml-[72px] p-8 max-w-7xl mx-auto space-y-6">
+<!-- 1. Header & Filters Section -->
+<section class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold tracking-tight text-slate-900 font-headline">Resumen de Ventas y Facturación</h1>
+<p class="text-sm text-slate-500 mt-1">Monitoreo en tiempo real de ingresos brutos, volumen transaccional y desglose por canal de venta.</p>
+</div>
+<!-- Filter Controls Cluster -->
+<div class="flex flex-wrap items-center gap-3">
+<!-- Segmented Time Filter -->
+<div class="inline-flex bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 shadow-inner">
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors">Hoy</button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors">7 días</button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#0F6E6E] text-white shadow-sm transition-all">30 días</button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors">Personalizado</button>
+</div>
+<!-- Store Branch Selector -->
+<button class="flex items-center gap-2 px-3.5 py-2 bg-white rounded-xl border border-slate-200/90 text-slate-700 text-xs font-medium hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-teal-700">storefront</span>
+<span class="max-w-[190px] truncate">Todas las sucursales (Sede Norte, Centro, Chapinero)</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">keyboard_arrow_down</span>
+</button>
+<!-- Export Action -->
+<div class="relative inline-flex shadow-sm rounded-xl">
+<button class="flex items-center gap-2 px-3.5 py-2 bg-white rounded-xl border border-slate-200/90 text-slate-700 text-xs font-medium hover:bg-slate-50 transition-colors">
+<span class="material-symbols-outlined text-[18px] text-slate-500">file_download</span>
+<span>Exportar informe</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">expand_more</span>
+</button>
+</div>
+</div>
+</section>
+<!-- 2. KPI Cards Row (Grid of 4) -->
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+<!-- KPI 1: Total Facturado -->
+<article class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm hover:shadow transition-shadow">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Facturado</span>
+<div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">payments</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="text-2xl font-bold tracking-tight text-slate-900">$48.250.000 COP</div>
+<div class="mt-2.5 flex items-center gap-1.5">
+<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] px-2 py-0.5 rounded-full font-medium">
+<span class="material-symbols-outlined text-[13px] font-bold">trending_up</span>
+              +14.2% vs mes anterior
+            </span>
+</div>
+</div>
+</article>
+<!-- KPI 2: Número de Ventas -->
+<article class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm hover:shadow transition-shadow">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Número de Ventas</span>
+<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">receipt_long</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="text-2xl font-bold tracking-tight text-slate-900">1.240 pedidos</div>
+<div class="mt-2.5 flex items-center text-slate-500 text-xs font-medium">
+<span>Ticket promedio: <strong class="text-slate-700">$38.910 COP</strong></span>
+</div>
+</div>
+</article>
+<!-- KPI 3: Ticket Promedio -->
+<article class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm hover:shadow transition-shadow">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Ticket Promedio</span>
+<div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">shopping_bag</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="text-2xl font-bold tracking-tight text-slate-900">$38.910 COP</div>
+<div class="mt-2.5 flex items-center gap-1.5">
+<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] px-2 py-0.5 rounded-full font-medium">
+<span class="material-symbols-outlined text-[13px] font-bold">trending_up</span>
+              +5.8%
+            </span>
+<span class="text-[11px] text-slate-400">vs semana previa</span>
+</div>
+</div>
+</article>
+<!-- KPI 4: Devoluciones y Anulaciones -->
+<article class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm hover:shadow transition-shadow">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Devoluciones y Anulaciones</span>
+<div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">remove_shopping_cart</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="text-2xl font-bold tracking-tight text-slate-900">6 órdenes · $210.000 COP</div>
+<div class="mt-2.5 flex items-center gap-1.5">
+<span class="inline-flex items-center text-rose-700 bg-rose-50 border border-rose-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
+              Tasa 0.4%
+            </span>
+<span class="text-[11px] text-slate-400">dentro del umbral objetivo</span>
+</div>
+</div>
+</article>
+</section>
+<!-- 3. Daily Sales Chart Section -->
+<section class="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm">
+<!-- Chart Card Header -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+<div class="flex items-center gap-3">
+<h2 class="text-base font-bold text-slate-900 font-headline">Ventas por Día (Últimos 30 días)</h2>
+<span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">Octubre 2024</span>
+</div>
+<!-- Legend & Mode View -->
+<div class="flex flex-wrap items-center gap-5">
+<div class="flex items-center gap-4 text-xs font-medium text-slate-600">
+<span class="inline-flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+              Mostrador POS
+            </span>
+<span class="inline-flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              WhatsApp B2B
+            </span>
+<span class="inline-flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+              Tienda Virtual
+            </span>
+</div>
+<div class="inline-flex rounded-lg border border-slate-200 p-0.5 text-xs text-slate-600 bg-slate-50">
+<button class="px-2.5 py-1 bg-white font-medium text-slate-800 rounded shadow-xs">Barras</button>
+<button class="px-2.5 py-1 hover:text-slate-900">Línea</button>
+</div>
+</div>
+</div>
+<!-- Simulated Interactive Chart Canvas Area -->
+<div class="relative pt-12 pb-4">
+<!-- Peak Day Floating Tooltip (Day 24) -->
+<div class="absolute left-[78%] top-0 -translate-x-1/2 z-20 pointer-events-none">
+<div class="bg-slate-900 text-white rounded-xl shadow-xl px-3.5 py-2 text-xs border border-slate-800 whitespace-nowrap">
+<div class="flex items-center justify-between gap-3 mb-1">
+<span class="font-semibold text-teal-300">Viernes 24 Oct</span>
+<span class="text-[11px] text-slate-300">86 órdenes</span>
+</div>
+<div class="text-sm font-bold text-white tracking-wide">$2.850.000 COP</div>
+<div class="mt-1 pt-1 border-t border-slate-800/80 text-[10px] text-slate-300 flex items-center gap-2">
+<span>POS: $1.420.000</span>
+<span class="text-slate-600">•</span>
+<span>WA: $980.000</span>
+<span class="text-slate-600">•</span>
+<span>Online: $450.000</span>
+</div>
+<!-- Tooltip pointer beak -->
+<div class="w-2.5 h-2.5 bg-slate-900 rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+</div>
+</div>
+<!-- Chart Grid with Y-Axis and 30 Bars -->
+<div class="flex items-stretch h-64 gap-3">
+<!-- Y-Axis Values -->
+<div class="flex flex-col justify-between text-[11px] font-medium text-slate-400 pr-2 select-none text-right w-12">
+<span>$3M COP</span>
+<span>$2M COP</span>
+<span>$1M COP</span>
+<span>$0 COP</span>
+</div>
+<!-- Graphic Columns Area -->
+<div class="relative flex-1 flex flex-col justify-end">
+<!-- Subtle Horizontal Guidelines -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none z-0">
+<div class="w-full border-b border-dashed border-slate-200"></div>
+<div class="w-full border-b border-dashed border-slate-200"></div>
+<div class="w-full border-b border-dashed border-slate-200"></div>
+<div class="w-full border-b border-slate-200"></div>
+</div>
+<!-- 30 Daily Bars -->
+<div class="relative z-10 w-full h-full flex items-end justify-between gap-1 sm:gap-1.5 px-2">
+<!-- Day 1 to 30 Heights calculated relative to $3M ceiling -->
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[38%]" title="Día 01"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[45%]" title="Día 02"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[52%]" title="Día 03"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[40%]" title="Día 04"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[64%]" title="Día 05"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[58%]" title="Día 06"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[32%]" title="Día 07"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[48%]" title="Día 08"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[55%]" title="Día 09"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[70%]" title="Día 10"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[62%]" title="Día 11"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[44%]" title="Día 12"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[50%]" title="Día 13"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[59%]" title="Día 14"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[78%]" title="Día 15 (Quincena)"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[68%]" title="Día 16"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[49%]" title="Día 17"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[53%]" title="Día 18"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[61%]" title="Día 19"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[72%]" title="Día 20"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[65%]" title="Día 21"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[58%]" title="Día 22"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[74%]" title="Día 23"></div>
+<!-- Día 24: Destacado especial (Pico de ventas) -->
+<div class="flex-1 bg-[#0F6E6E] ring-2 ring-teal-400/50 rounded-t h-[95%] shadow-md relative group cursor-pointer" title="Día 24: $2.850.000 COP">
+<span class="absolute -top-3 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-teal-600 animate-ping"></span>
+</div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[80%]" title="Día 25"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[66%]" title="Día 26"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[54%]" title="Día 27"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[62%]" title="Día 28"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[71%]" title="Día 29"></div>
+<div class="flex-1 bg-teal-800/20 hover:bg-[#0F6E6E] rounded-t transition-all duration-200 h-[88%]" title="Día 30"></div>
+</div>
+</div>
+</div>
+<!-- X-Axis Labels -->
+<div class="flex justify-between pl-14 pr-2 mt-3 text-[11px] font-medium text-slate-400 select-none">
+<span>01</span>
+<span>05</span>
+<span>10</span>
+<span>15</span>
+<span>20</span>
+<span class="text-teal-700 font-bold">24 (Pico)</span>
+<span>25</span>
+<span>30</span>
+</div>
+</div>
+</section>
+<!-- 4. Transactions Table Section -->
+<section class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-sm">
+<!-- Table Header & Controls Bar -->
+<div class="p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+<!-- Title and Count -->
+<div class="flex items-center gap-3">
+<h2 class="text-base font-bold text-slate-900 font-headline">Historial de Transacciones</h2>
+<span class="bg-slate-100 text-slate-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-slate-200">
+            1.240 registradas
+          </span>
+</div>
+<!-- Filters: Search + Channel Tabs + Status Selector -->
+<div class="flex flex-wrap items-center gap-3">
+<!-- Search Input -->
+<div class="relative min-w-[280px]">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-slate-400 text-[18px]">search</span>
+<input class="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700 transition" placeholder="Buscar por N° factura, cliente o comprobante..." type="text"/>
+</div>
+<!-- Channel Filter Pills -->
+<div class="inline-flex bg-slate-100 p-0.5 rounded-xl text-xs">
+<button class="px-3 py-1.5 rounded-lg font-medium bg-slate-900 text-white shadow-xs">Todos</button>
+<button class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition-colors">Mostrador POS</button>
+<button class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition-colors">WhatsApp</button>
+<button class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition-colors">Tienda Online</button>
+</div>
+<!-- Status Dropdown -->
+<button class="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 hover:bg-slate-50 transition-colors">
+<span>Todos los estados</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">expand_more</span>
+</button>
+</div>
+</div>
+<!-- Clean Data Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left text-xs text-slate-600 border-collapse">
+<thead>
+<tr class="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
+<th class="py-3.5 px-6" scope="col">Fecha y Hora</th>
+<th class="py-3.5 px-6" scope="col">N° Factura / Orden</th>
+<th class="py-3.5 px-6" scope="col">Canal de Venta</th>
+<th class="py-3.5 px-6" scope="col">Cliente</th>
+<th class="py-3.5 px-6" scope="col">Método de Pago</th>
+<th class="py-3.5 px-6 text-right" scope="col">Total (COP)</th>
+<th class="py-3.5 px-6 text-center" scope="col">Estado</th>
+<th class="py-3.5 px-6 text-center" scope="col">Acciones</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100">
+<!-- Row 1 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 14:32</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10482</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                  Mostrador POS
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">Consumidor Final</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">payments</span>
+                  Efectivo
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$45.000 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Cobrada
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 14:15</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10481</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                  WhatsApp
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">Supermercado El Ahorro</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">account_balance</span>
+                  Transferencia Bancolombia
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$680.000 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Cobrada
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 13:50</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10480</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
+                  Tienda Online
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">María Camila Torres</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">phone_android</span>
+                  Nequi
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$32.000 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Cobrada
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 13:10</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10479</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                  Mostrador POS
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">Carlos Mario Vélez</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">credit_card</span>
+                  Tarjeta Débito
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$124.000 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Cobrada
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 12:45</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10478</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
+                  Tienda Online
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">Tienda La Esquina</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">account_balance_wallet</span>
+                  Daviplata
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$95.000 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
+                  Pendiente de entrega
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="hover:bg-slate-50/60 transition-colors">
+<td class="py-4 px-6 text-slate-500 whitespace-nowrap">Hoy 11:20</td>
+<td class="py-4 px-6 font-semibold text-slate-900 whitespace-nowrap">#FAC-10477</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                  Mostrador POS
+                </span>
+</td>
+<td class="py-4 px-6 text-slate-800 font-medium whitespace-nowrap">Consumidor Final</td>
+<td class="py-4 px-6 text-slate-600 whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-slate-400">payments</span>
+                  Efectivo
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$18.500 COP</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200/60">
+                  Anulada
+                </span>
+</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<div class="flex items-center justify-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors" title="Ver detalle">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Imprimir recibo">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="p-4 px-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+<span class="text-xs text-slate-500 font-medium">
+          Mostrando 1 a 6 de 1.240 ventas
+        </span>
+<nav aria-label="Paginación de transacciones" class="flex items-center gap-1">
+<button class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-400 bg-white border border-slate-200 rounded-lg cursor-not-allowed" disabled="">
+<span class="material-symbols-outlined text-[16px]">chevron_left</span>
+<span>Anterior</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-semibold rounded-lg bg-[#0F6E6E] text-white shadow-xs">1</button>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-100 transition-colors">2</button>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-100 transition-colors">3</button>
+<span class="w-8 h-8 flex items-center justify-center text-xs text-slate-400">...</span>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium rounded-lg text-slate-600 hover:bg-slate-100 transition-colors">124</button>
+<button class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors">
+<span>Siguiente</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</nav>
+</div>
+</section>
+</main>
+</body></html>

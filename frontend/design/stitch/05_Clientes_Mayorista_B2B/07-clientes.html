@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexa POS - Clientes y Gestión de Cartera</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#0F6E6E',
+              dark: '#0b5252',
+              light: '#e6f3f3',
+              border: '#1b8a8a'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+  </style>
+</head>
+<body class="h-full text-slate-900 font-body antialiased bg-slate-50 flex">
+<!-- 1. LEFT SIDE NAVIGATION RAIL (Shared Component: SideNavBar) -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] z-40 flex flex-col items-center py-4 bg-slate-900 border-r border-slate-800 select-none">
+<!-- Brand Anchor -->
+<div class="flex flex-col items-center mb-6">
+<div class="w-10 h-10 rounded-xl bg-teal-700 flex items-center justify-center text-white shadow-sm ring-2 ring-teal-500/20">
+<span class="material-symbols-outlined text-2xl font-bold">point_of_sale</span>
+</div>
+<span class="font-headline text-[10px] font-bold text-slate-300 tracking-wider mt-1.5 uppercase">Nexa</span>
+</div>
+<!-- Navigation Items -->
+<nav class="flex flex-col items-center gap-2 flex-1 w-full px-2">
+<!-- Dashboard -->
+<a class="group relative flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors duration-150 active:scale-95" href="#" title="Dashboard">
+<span class="material-symbols-outlined text-[22px]">dashboard</span>
+<span class="text-[9px] font-medium mt-0.5 opacity-80">Inicio</span>
+</a>
+<!-- Ventas -->
+<a class="group relative flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors duration-150 active:scale-95" href="#" title="Ventas">
+<span class="material-symbols-outlined text-[22px]">point_of_sale</span>
+<span class="text-[9px] font-medium mt-0.5 opacity-80">Ventas</span>
+</a>
+<!-- Clientes (Active Tab mapped directly to Directorio de Clientes) -->
+<a class="group relative flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-teal-700 text-white shadow-sm transition-transform active:scale-95" href="#" title="Clientes">
+<span class="material-symbols-outlined text-[22px]">group</span>
+<span class="text-[9px] font-medium mt-0.5">Clientes</span>
+<!-- Lateral Active Indicator Pip -->
+<span class="absolute -left-2 w-1.5 h-6 bg-teal-400 rounded-r-full"></span>
+</a>
+<!-- Inventario -->
+<a class="group relative flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors duration-150 active:scale-95" href="#" title="Inventario">
+<span class="material-symbols-outlined text-[22px]">inventory_2</span>
+<span class="text-[9px] font-medium mt-0.5 opacity-80">Stock</span>
+</a>
+<!-- Reportes -->
+<a class="group relative flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors duration-150 active:scale-95" href="#" title="Reportes">
+<span class="material-symbols-outlined text-[22px]">analytics</span>
+<span class="text-[9px] font-medium mt-0.5 opacity-80">Métricas</span>
+</a>
+</nav>
+<!-- Footer Action / Settings -->
+<div class="mt-auto pt-2 flex flex-col items-center gap-2">
+<a class="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors duration-150 active:scale-95" href="#" title="Configuración">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+</a>
+</div>
+</aside>
+<!-- 2. MAIN APPLICATION WRAPPER (Offset by sidebar 72px) -->
+<div class="pl-[72px] flex-1 flex flex-col min-h-screen">
+<!-- TOP NAVIGATION BAR (Shared Component: TopNavBar) -->
+<header class="fixed top-0 left-[72px] right-0 h-16 z-30 bg-white border-b border-slate-200/60 shadow-sm flex items-center justify-between px-8">
+<!-- Breadcrumb & Context -->
+<div class="flex items-center gap-3">
+<div class="flex items-center text-xs font-medium text-slate-500">
+<span class="hover:text-slate-700 cursor-pointer">Comercial</span>
+<span class="material-symbols-outlined text-sm mx-1 text-slate-400">chevron_right</span>
+<span class="text-teal-700 font-semibold font-headline">Directorio de Clientes</span>
+</div>
+</div>
+<!-- Center & Trailing Actions -->
+<div class="flex items-center gap-4">
+<!-- Branch Selector -->
+<div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100/80 border border-slate-200/80 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-base text-teal-700">storefront</span>
+<span>Sucursal Principal Bogotá</span>
+<span class="material-symbols-outlined text-sm text-slate-400">expand_more</span>
+</div>
+<div class="h-5 w-[1px] bg-slate-200 hidden md:block"></div>
+<!-- Notification Bell -->
+<button class="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors duration-150">
+<span class="material-symbols-outlined text-xl">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+</button>
+<!-- Help Icon -->
+<button class="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors duration-150">
+<span class="material-symbols-outlined text-xl">help_outline</span>
+</button>
+<div class="h-5 w-[1px] bg-slate-200"></div>
+<!-- User Profile Pill -->
+<div class="flex items-center gap-2.5 pl-1 cursor-pointer">
+<div class="w-8 h-8 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs font-bold tracking-tight ring-2 ring-teal-600/20">
+            AP
+          </div>
+<div class="hidden lg:flex flex-col text-left">
+<span class="text-xs font-semibold text-slate-900 leading-none">Admin Propietario</span>
+<span class="text-[10px] text-slate-500 leading-tight mt-0.5">admin@nexapos.co</span>
+</div>
+</div>
+</div>
+</header>
+<!-- 3. PAGE CONTENT CONTAINER -->
+<main class="mt-16 p-8 flex-1 flex flex-col gap-6">
+<!-- Header & Quick Filters -->
+<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold font-headline tracking-tight text-slate-900">
+            Clientes y Gestión de Cartera
+          </h1>
+<p class="text-sm text-slate-500 mt-1">
+            Auditoría de fiado comercial, control de límites de crédito, plazos y recaudo centralizado en sucursales.
+          </p>
+</div>
+<!-- Primary CTA -->
+<div class="flex items-center gap-3">
+<button class="inline-flex items-center gap-2 bg-[#0F6E6E] hover:bg-[#0b5252] text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-all duration-150 active:scale-95">
+<span class="material-symbols-outlined text-xl">person_add</span>
+<span>+ Nuevo Cliente</span>
+</button>
+</div>
+</div>
+<!-- Metric Summary Cards (3 Bento KPIs) -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Card 1 -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm flex items-start justify-between">
+<div>
+<span class="text-xs font-semibold tracking-wider uppercase text-slate-500">Total Clientes Registrados</span>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-extrabold tracking-tight text-slate-900">342</span>
+<span class="text-xs text-slate-500 font-medium">clientes</span>
+</div>
+<div class="mt-3 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full w-max">
+<span class="material-symbols-outlined text-sm font-bold">trending_up</span>
+<span>+8.5% este mes</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl">group</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm flex items-start justify-between">
+<div>
+<span class="text-xs font-semibold tracking-wider uppercase text-slate-500">Clientes Nuevos del Mes</span>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-extrabold tracking-tight text-slate-900">28</span>
+<span class="text-xs text-slate-500 font-medium">incorporados</span>
+</div>
+<div class="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full w-max">
+<span class="material-symbols-outlined text-sm text-teal-600">how_to_reg</span>
+<span>Captación en mostrador activa</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl">person_add_alt</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm flex items-start justify-between">
+<div>
+<span class="text-xs font-semibold tracking-wider uppercase text-slate-500">Cartera Activa / Fiado Pendiente</span>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-extrabold tracking-tight text-slate-900">$8.450.000 COP</span>
+</div>
+<div class="mt-3 flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full w-max">
+<span class="material-symbols-outlined text-sm font-semibold">account_balance_wallet</span>
+<span>24 clientes con cupo activo</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl">pending_actions</span>
+</div>
+</div>
+</section>
+<!-- Search Bar and Filter Segment -->
+<section class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+<!-- Input Search -->
+<div class="relative flex-1 max-w-lg">
+<span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700 transition" placeholder="Buscar por nombre, cédula o teléfono..." type="text"/>
+</div>
+<!-- Segmented Filter Chips -->
+<div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0F6E6E] text-white shadow-xs">
+            Todos (342)
+          </button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors">
+            Con crédito activo (24)
+          </button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors">
+            Sin deuda (318)
+          </button>
+<button class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors">
+            Mayoristas (16)
+          </button>
+</div>
+</section>
+<!-- Dynamic Layout: Main Table + Detail Drawer -->
+<div class="flex flex-col 2xl:flex-row items-start gap-6">
+<!-- Table Container -->
+<div class="flex-1 w-full bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+<th class="py-3.5 px-6">Cliente</th>
+<th class="py-3.5 px-4">Teléfono / Ciudad</th>
+<th class="py-3.5 px-4 text-center">Compras</th>
+<th class="py-3.5 px-4">Total Facturado</th>
+<th class="py-3.5 px-4">Crédito / Fiado Usado</th>
+<th class="py-3.5 px-4">Estado Cartera</th>
+<th class="py-3.5 px-6 text-right">Acciones</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 text-sm">
+<!-- Row 1: Selected (Pedro Antonio Gomez) -->
+<tr class="bg-teal-50/40 hover:bg-teal-50/60 transition-colors border-l-4 border-l-teal-700">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-teal-800 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                        PG
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">Pedro Antonio Gómez</div>
+<div class="text-xs text-slate-500 mt-0.5">Tienda La Esquina · <span class="text-slate-400">CC 79.452.110</span></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">310 456 7890</div>
+<div class="text-slate-400">Bogotá</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">42</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $12.850.000 COP
+                  </td>
+<td class="py-4 px-4">
+<div class="w-40">
+<div class="flex justify-between text-xs mb-1">
+<span class="font-medium text-slate-800">$150.000</span>
+<span class="text-slate-400">$300.000 COP</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-teal-600 rounded-full" style="width: 50%"></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Al día
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0F6E6E] text-white shadow-xs">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+<!-- Row 2: María Camila Torres -->
+<tr class="hover:bg-slate-50 transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-purple-700 text-white flex items-center justify-center font-bold text-xs">
+                        MC
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">María Camila Torres</div>
+<div class="text-xs text-slate-400 mt-0.5">CC 1.020.455.890</div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">315 892 1144</div>
+<div class="text-slate-400">Medellín</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">18</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $3.240.000 COP
+                  </td>
+<td class="py-4 px-4 text-xs text-slate-400">
+                    Sin cupo asignado ($0)
+                  </td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                      Contado
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+<!-- Row 3: Carlos Mario Restrepo -->
+<tr class="hover:bg-slate-50 transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold text-xs">
+                        CR
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">Carlos Mario Restrepo</div>
+<div class="text-xs text-slate-500 mt-0.5">Minimercado El Triunfo · <span class="text-slate-400">NIT 900.842.115-3</span></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">300 214 5588</div>
+<div class="text-slate-400">Cali</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">65</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $38.900.000 COP
+                  </td>
+<td class="py-4 px-4">
+<div class="w-40">
+<div class="flex justify-between text-xs mb-1">
+<span class="font-medium text-amber-700">$1.700.000</span>
+<span class="text-slate-400">$2.000.000 COP</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-amber-500 rounded-full" style="width: 85%"></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                      Próximo a cupo
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+<!-- Row 4: Esperanza Riaño -->
+<tr class="hover:bg-slate-50 transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold text-xs">
+                        ER
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">Esperanza Riaño</div>
+<div class="text-xs text-slate-400 mt-0.5">CC 51.874.220</div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">312 901 3344</div>
+<div class="text-slate-400">Bogotá</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">9</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $1.150.000 COP
+                  </td>
+<td class="py-4 px-4">
+<div class="w-40">
+<div class="flex justify-between text-xs mb-1">
+<span class="font-bold text-rose-600">$400.000</span>
+<span class="text-slate-400">$400.000 COP</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-rose-600 rounded-full" style="width: 100%"></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+<span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                      Saldo Vencido (12 días)
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+<!-- Row 5: Jorge Andrés Jaramillo -->
+<tr class="hover:bg-slate-50 transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-slate-700 text-white flex items-center justify-center font-bold text-xs">
+                        JA
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">Jorge Andrés Jaramillo</div>
+<div class="text-xs text-slate-500 mt-0.5">Panadería La Floresta · <span class="text-slate-400">NIT 901.240.339-1</span></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">317 632 8900</div>
+<div class="text-slate-400">Bucaramanga</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">31</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $16.400.000 COP
+                  </td>
+<td class="py-4 px-4">
+<div class="w-40">
+<div class="flex justify-between text-xs mb-1">
+<span class="font-medium text-slate-800">$250.000</span>
+<span class="text-slate-400">$1.000.000 COP</span>
+</div>
+<div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-teal-600 rounded-full" style="width: 25%"></div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Al día
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+<!-- Row 6: Andrea Morales -->
+<tr class="hover:bg-slate-50 transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                        AM
+                      </div>
+<div>
+<div class="font-semibold text-slate-900 leading-tight">Andrea Morales</div>
+<div class="text-xs text-slate-400 mt-0.5">CC 1.018.992.341</div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 text-slate-600 text-xs">
+<div class="font-medium text-slate-800">320 441 2288</div>
+<div class="text-slate-400">Barranquilla</div>
+</td>
+<td class="py-4 px-4 text-center">
+<span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold">5</span>
+</td>
+<td class="py-4 px-4 font-semibold text-slate-900">
+                    $780.000 COP
+                  </td>
+<td class="py-4 px-4 text-xs text-slate-400">
+                    Sin cupo ($0)
+                  </td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                      Contado
+                    </span>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors">
+                      Ver ficha
+                    </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="p-4 bg-slate-50/50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
+<div>
+              Mostrando <span class="font-semibold text-slate-700">1</span> a <span class="font-semibold text-slate-700">6</span> de <span class="font-semibold text-slate-700">342</span> clientes
+            </div>
+<div class="flex items-center gap-1">
+<button class="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-700 disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-base">chevron_left</span>
+</button>
+<button class="w-7 h-7 rounded-lg bg-teal-700 text-white font-bold text-xs flex items-center justify-center">1</button>
+<button class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-medium text-xs flex items-center justify-center">2</button>
+<button class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-medium text-xs flex items-center justify-center">3</button>
+<span class="px-1 text-slate-400">...</span>
+<button class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-medium text-xs flex items-center justify-center">57</button>
+<button class="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-slate-900">
+<span class="material-symbols-outlined text-base">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- 4. SLIDABLE DETAIL DRAWER PANEL (Fixed 420px width) -->
+<aside class="w-full 2xl:w-[420px] bg-white rounded-2xl border border-slate-200/80 shadow-xl p-6 flex flex-col gap-6 relative">
+<!-- Drawer Header & Close -->
+<div class="flex items-start justify-between pb-4 border-b border-slate-100">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-2xl bg-teal-800 text-white flex items-center justify-center text-base font-bold shadow-sm">
+                PG
+              </div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-bold text-slate-900 text-base leading-snug">Pedro Antonio Gómez</h3>
+<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">VIP</span>
+</div>
+<p class="text-xs text-slate-500 font-medium mt-0.5">Tienda La Esquina · CC 79.452.110</p>
+</div>
+</div>
+<button class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+<span class="material-symbols-outlined text-xl">close</span>
+</button>
+</div>
+<!-- Contact Details snippet -->
+<div class="grid grid-cols-1 gap-2.5 text-xs">
+<div class="flex items-center gap-2 text-slate-600">
+<span class="material-symbols-outlined text-base text-slate-400">call</span>
+<span class="font-semibold text-slate-800">310 456 7890</span>
+</div>
+<div class="flex items-center gap-2 text-slate-600">
+<span class="material-symbols-outlined text-base text-slate-400">mail</span>
+<span>pedro.gomez@laesquina.co</span>
+</div>
+<div class="flex items-center gap-2 text-slate-600">
+<span class="material-symbols-outlined text-base text-slate-400">location_on</span>
+<span>Calle 45 # 12-30, Chapinero (Bogotá)</span>
+</div>
+</div>
+<!-- Fiado / Credit Block (Highlight Box) -->
+<div class="bg-slate-50/80 rounded-xl border border-slate-200 p-4">
+<div class="flex items-center justify-between mb-3">
+<span class="text-xs font-bold uppercase tracking-wider text-slate-500">Cartera y Fiado</span>
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Al día
+              </span>
+</div>
+<!-- Numbers -->
+<div class="flex items-baseline justify-between">
+<div>
+<span class="text-xs text-slate-500">Deuda actual:</span>
+<div class="text-2xl font-black text-slate-900">$150.000 COP</div>
+</div>
+<div class="text-right">
+<span class="text-xs text-slate-500">Cupo total:</span>
+<div class="text-sm font-bold text-slate-700">$300.000 COP</div>
+</div>
+</div>
+<!-- Progress bar -->
+<div class="mt-3">
+<div class="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+<div class="h-full bg-teal-700 rounded-full" style="width: 50%"></div>
+</div>
+<div class="flex justify-between items-center text-[10px] font-medium text-slate-500 mt-1">
+<span>50% utilizado</span>
+<span>Disponible: $150.000 COP</span>
+</div>
+</div>
+<!-- Due date -->
+<div class="mt-3 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs">
+<span class="text-slate-500">Próximo vencimiento:</span>
+<span class="font-semibold text-emerald-700">30 Octubre 2026</span>
+</div>
+<!-- Record payment button -->
+<button class="mt-4 w-full bg-[#0F6E6E] hover:bg-[#0b5252] text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-98">
+<span class="material-symbols-outlined text-base">payments</span>
+<span>+ Registrar Abono de Dinero</span>
+</button>
+</div>
+<!-- Purchase History List -->
+<div>
+<div class="flex items-center justify-between mb-3">
+<h4 class="text-xs font-bold uppercase tracking-wider text-slate-600">Últimas Compras</h4>
+<a class="text-xs text-teal-700 hover:underline font-semibold" href="#">Ver todas (42)</a>
+</div>
+<div class="space-y-2.5">
+<!-- Purchase 1 -->
+<div class="p-3 rounded-xl border border-slate-100 hover:border-slate-200 bg-white transition-all flex items-center justify-between">
+<div>
+<div class="text-xs font-semibold text-slate-900">Factura #10482</div>
+<div class="text-[11px] text-slate-400">Ayer · 16:45 PM</div>
+<div class="text-[10px] text-slate-500 mt-0.5">Contado - Efectivo</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-slate-900">$45.000 COP</div>
+<span class="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">Pagado</span>
+</div>
+</div>
+<!-- Purchase 2 -->
+<div class="p-3 rounded-xl border border-slate-100 hover:border-slate-200 bg-white transition-all flex items-center justify-between">
+<div>
+<div class="text-xs font-semibold text-slate-900">Factura #10390</div>
+<div class="text-[11px] text-slate-400">Hace 5 días</div>
+<div class="text-[10px] text-teal-700 font-semibold mt-0.5">Crédito a 15 días</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-slate-900">$150.000 COP</div>
+<span class="text-[10px] text-amber-700 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">Pendiente</span>
+</div>
+</div>
+<!-- Purchase 3 -->
+<div class="p-3 rounded-xl border border-slate-100 hover:border-slate-200 bg-white transition-all flex items-center justify-between">
+<div>
+<div class="text-xs font-semibold text-slate-900">Factura #10210</div>
+<div class="text-[11px] text-slate-400">12 Oct 2026</div>
+<div class="text-[10px] text-slate-500 mt-0.5">Tarjeta Débito</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-slate-900">$210.000 COP</div>
+<span class="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">Pagado ✓</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Drawer Footer Actions -->
+<div class="mt-auto pt-3 border-t border-slate-100 grid grid-cols-2 gap-2">
+<button class="py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-base">edit</span>
+<span>Editar Cliente</span>
+</button>
+<button class="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors">
+<span class="material-symbols-outlined text-base">chat</span>
+<span>Recordatorio</span>
+</button>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body></html>

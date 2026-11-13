@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>App del Repartidor - Nexa POS</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: '#0F6E6E',
+              dark: '#0a4b4b',
+              light: '#e6f3f3',
+              hover: '#0c5858'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "2xl": "1rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+    /* Touch optimization */
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="h-full font-body text-slate-900 bg-slate-100 flex justify-center antialiased">
+<!-- Mobile Container Mockup (approx 390px viewport width) -->
+<div class="w-full max-w-[420px] bg-slate-50 min-h-screen flex flex-col relative shadow-2xl pb-24 overflow-x-hidden border-x border-slate-200/60">
+<!-- TopAppBar (Anchored JSON Component & Custom Driver Header) -->
+<header class="docked full-width top-0 sticky z-40 h-14 bg-white border-b border-slate-200/60 shadow-sm flex items-center justify-between px-4 w-full">
+<!-- Left: Driver Profile Badge -->
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-full bg-[#0F6E6E] text-white flex items-center justify-center font-bold text-xs tracking-wider shadow-inner ring-2 ring-teal-700/20">
+          CR
+        </div>
+<div class="flex flex-col text-left">
+<span class="font-headline font-bold text-slate-900 text-sm leading-tight">Carlos Rodríguez</span>
+<span class="text-[11px] font-medium text-slate-500 leading-tight">Ruta Norte · Van #2</span>
+</div>
+</div>
+<!-- Right: Sync status & Quick alert icon -->
+<div class="flex items-center gap-2">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-[11px] font-semibold">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</span>
+<span>Sincronizado</span>
+</div>
+<button aria-label="Notificaciones" class="w-9 h-9 flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition-transform duration-150" type="button">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+</div>
+</header>
+<!-- Offline-First Banner -->
+<div class="bg-teal-900/90 text-teal-50 px-3.5 py-1.5 flex items-center justify-between text-[11px] font-medium border-b border-teal-950/40">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-teal-300 text-sm">cloud_done</span>
+<span>Modo sin conexión listo — Cobros se sincronizan solos</span>
+</div>
+<span class="text-teal-300 font-semibold tracking-wide uppercase text-[9px] bg-teal-950/40 px-1.5 py-0.5 rounded">Activo</span>
+</div>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-3.5 py-3 space-y-3.5">
+<!-- 2. Resumen del Día y Progreso de Ruta -->
+<section class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
+<div class="flex items-center justify-between mb-2.5">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[#0F6E6E] text-base">route</span>
+<h2 class="font-headline font-bold text-slate-900 text-sm tracking-tight">Hoy · Ruta Norte</h2>
+</div>
+<span class="px-2.5 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold border border-slate-200">
+            12 entregas
+          </span>
+</div>
+<!-- Progress Indicator -->
+<div class="mb-3.5">
+<div class="flex justify-between items-center text-xs font-medium mb-1.5 text-slate-600">
+<span>5 de 12 entregadas</span>
+<span class="font-bold text-[#0F6E6E]">42%</span>
+</div>
+<div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden p-0.5 border border-slate-200/60">
+<div class="bg-[#0F6E6E] h-full rounded-full transition-all duration-500 ease-out" style="width: 42%;"></div>
+</div>
+</div>
+<!-- Metrics Grid (Colombian Pesos Format) -->
+<div class="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+<div class="bg-slate-50/80 rounded-xl p-2.5 border border-slate-200/60">
+<p class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">A recaudar hoy</p>
+<p class="font-headline text-base font-bold text-slate-900 mt-0.5">$2.340.000 <span class="text-[10px] text-slate-500 font-normal">COP</span></p>
+<p class="text-[10px] text-slate-500 mt-0.5 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-slate-400">payments</span>
+              Efectivo en ruta
+            </p>
+</div>
+<div class="bg-emerald-50/50 rounded-xl p-2.5 border border-emerald-200/60">
+<p class="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider">Ya recaudado</p>
+<p class="font-headline text-base font-bold text-emerald-700 mt-0.5">$980.000 <span class="text-[10px] text-emerald-600 font-normal">COP</span></p>
+<p class="text-[10px] text-emerald-700 font-medium mt-0.5 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-emerald-600">verified</span>
+              En caja física
+            </p>
+</div>
+</div>
+</section>
+<!-- 3. Parada Actual Destacada: Próxima Entrega (#6) -->
+<section class="bg-gradient-to-b from-teal-50/50 to-white rounded-2xl p-4 shadow-md border-2 border-[#0F6E6E] relative overflow-hidden">
+<!-- Header Badge Tag -->
+<div class="flex items-center justify-between gap-2 mb-2">
+<span class="inline-flex items-center gap-1 bg-[#0F6E6E] text-white text-[11px] font-bold tracking-wide uppercase px-2.5 py-1 rounded-md shadow-xs">
+<span class="material-symbols-outlined text-xs">local_shipping</span>
+            EN CURSO · PARADA #6
+          </span>
+<span class="text-[11px] font-semibold text-[#0F6E6E] flex items-center gap-1 bg-teal-100/70 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-xs text-[#0F6E6E]">navigation</span>
+            A 850m (3 min)
+          </span>
+</div>
+<!-- Customer Identity -->
+<div class="mb-3">
+<h3 class="font-headline text-lg font-bold text-slate-900 leading-snug">
+            Minimercado El Ahorro
+          </h3>
+<p class="text-xs text-slate-600 font-medium flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-sm text-slate-400">location_on</span>
+            Barrio Laureles · Cra 76 #32-14
+          </p>
+</div>
+<!-- Quick 1-Touch Ergonomic Action Buttons (>44px height) -->
+<div class="grid grid-cols-2 gap-2 mb-3.5">
+<a class="h-11 flex items-center justify-center gap-2 rounded-xl border-2 border-[#0F6E6E] bg-white text-[#0F6E6E] font-semibold text-xs shadow-xs hover:bg-teal-50 active:scale-95 transition-all" href="#">
+<span class="material-symbols-outlined text-base">near_me</span>
+<span>Cómo llegar</span>
+</a>
+<a class="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold text-xs shadow-xs hover:bg-slate-100 active:scale-95 transition-all" href="tel:+573001234567">
+<span class="material-symbols-outlined text-base text-slate-500">call</span>
+<span>Llamar al cliente</span>
+</a>
+</div>
+<!-- Cobro en Destino Card -->
+<div class="bg-white p-3 rounded-xl border border-slate-200/90 shadow-xs mb-3">
+<div class="flex items-center justify-between text-xs text-slate-500 mb-1">
+<span class="font-medium">Monto a cobrar</span>
+<span class="font-mono text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">Factura #NX-1048</span>
+</div>
+<div class="flex items-baseline justify-between">
+<div class="text-2xl font-extrabold font-headline text-slate-900 tracking-tight">
+              $186.000 <span class="text-xs font-semibold text-slate-500">COP</span>
+</div>
+<span class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">payments</span>
+              Efectivo contra entrega
+            </span>
+</div>
+</div>
+<!-- Interactive Cargo Checklist -->
+<div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 mb-3.5">
+<div class="flex items-center justify-between mb-2">
+<p class="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-teal-700">inventory_2</span>
+              Bultos a descargar (3)
+            </p>
+<span class="text-[10px] text-teal-800 font-medium">Verificar en puerta</span>
+</div>
+<div class="space-y-1.5 text-xs text-slate-700">
+<label class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/70 cursor-pointer active:bg-slate-100 transition-colors">
+<div class="flex items-center gap-2">
+<input checked="" class="w-4 h-4 rounded text-[#0F6E6E] focus:ring-0 focus:ring-offset-0 border-slate-300" type="checkbox"/>
+<span class="font-medium text-slate-800">2x Caja Coca-Cola 400ml</span>
+</div>
+<span class="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">Bebidas</span>
+</label>
+<label class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/70 cursor-pointer active:bg-slate-100 transition-colors">
+<div class="flex items-center gap-2">
+<input checked="" class="w-4 h-4 rounded text-[#0F6E6E] focus:ring-0 focus:ring-offset-0 border-slate-300" type="checkbox"/>
+<span class="font-medium text-slate-800">1x Bulto Arroz Diana 500g</span>
+</div>
+<span class="text-[10px] font-medium bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">Abarrotes</span>
+</label>
+<label class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/70 cursor-pointer active:bg-slate-100 transition-colors">
+<div class="flex items-center gap-2">
+<input checked="" class="w-4 h-4 rounded text-[#0F6E6E] focus:ring-0 focus:ring-offset-0 border-slate-300" type="checkbox"/>
+<span class="font-medium text-slate-800">1x Canastilla Leche Alquería 1L</span>
+</div>
+<span class="text-[10px] font-medium bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">Lácteos</span>
+</label>
+</div>
+</div>
+<!-- Big Touch Confirmation Button (>54px) -->
+<button class="h-14 w-full bg-[#0F6E6E] hover:bg-teal-800 active:bg-teal-900 text-white font-headline font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all duration-150" type="button">
+<span class="material-symbols-outlined text-xl">payments</span>
+<span>Cobrar $186.000 y Confirmar Entrega</span>
+</button>
+<!-- Secondary Novedad Trigger -->
+<button class="w-full text-center mt-2.5 py-1 text-slate-500 hover:text-rose-600 active:text-rose-700 text-xs font-semibold transition-colors flex items-center justify-center gap-1" type="button">
+<span class="material-symbols-outlined text-sm">report_problem</span>
+<span>Reportar novedad (Cliente cerrado / Rechazó)</span>
+</button>
+</section>
+<!-- 4. Itinerario de Ruta (Siguientes y Previas) -->
+<section class="space-y-2.5">
+<div class="flex items-center justify-between px-1">
+<h3 class="font-headline font-bold text-xs uppercase tracking-wider text-slate-500">
+            Itinerario de Ruta
+          </h3>
+<span class="text-xs text-[#0F6E6E] font-semibold cursor-pointer">Ver mapa completo</span>
+</div>
+<!-- Next Stop #7 -->
+<div class="bg-white rounded-xl p-3 border border-slate-200 shadow-xs flex items-center justify-between">
+<div class="flex items-start gap-3">
+<span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 mt-0.5">
+              #7
+            </span>
+<div>
+<h4 class="font-headline font-semibold text-slate-900 text-xs leading-tight">Autoservicio La Esquina</h4>
+<p class="text-[11px] text-slate-500">Robledo · Pedido $145.000 COP</p>
+</div>
+</div>
+<div class="flex flex-col items-end gap-1">
+<span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold border border-slate-200">
+              Pendiente
+            </span>
+<span class="text-[10px] text-slate-400">~15 min</span>
+</div>
+</div>
+<!-- Next Stop #8 -->
+<div class="bg-white rounded-xl p-3 border border-slate-200 shadow-xs flex items-center justify-between">
+<div class="flex items-start gap-3">
+<span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 mt-0.5">
+              #8
+            </span>
+<div>
+<h4 class="font-headline font-semibold text-slate-900 text-xs leading-tight">Abarrotes Don Pedro</h4>
+<p class="text-[11px] text-slate-500">Castilla · Pedido $210.000 COP</p>
+</div>
+</div>
+<div class="flex flex-col items-end gap-1">
+<span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold border border-slate-200">
+              Pendiente
+            </span>
+<span class="text-[10px] text-slate-400">~35 min</span>
+</div>
+</div>
+<!-- Previous Stop #5 (Completed) -->
+<div class="bg-emerald-50/40 rounded-xl p-3 border border-emerald-200/60 shadow-xs flex items-center justify-between opacity-90">
+<div class="flex items-start gap-3">
+<span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center border border-emerald-200 mt-0.5">
+<span class="material-symbols-outlined text-sm">check</span>
+</span>
+<div>
+<div class="flex items-center gap-1.5">
+<h4 class="font-headline font-semibold text-slate-800 text-xs leading-tight">Tienda Doña Rosa</h4>
+<span class="text-[10px] text-slate-500">(#5)</span>
+</div>
+<p class="text-[11px] text-slate-500">Recaudado $85.000 COP</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="px-2 py-0.5 bg-emerald-100/90 text-emerald-800 rounded text-[10px] font-semibold border border-emerald-200 flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[11px]">done_all</span>
+              11:20 AM
+            </span>
+</div>
+</div>
+<!-- Previous Stop #4 (Reported Incident) -->
+<div class="bg-amber-50/40 rounded-xl p-3 border border-amber-200/70 shadow-xs flex items-center justify-between opacity-85">
+<div class="flex items-start gap-3">
+<span class="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center border border-amber-200 mt-0.5">
+<span class="material-symbols-outlined text-sm">error_outline</span>
+</span>
+<div>
+<div class="flex items-center gap-1.5">
+<h4 class="font-headline font-semibold text-slate-800 text-xs leading-tight">Cigarrería La 70</h4>
+<span class="text-[10px] text-slate-500">(#4)</span>
+</div>
+<p class="text-[11px] text-amber-700 font-medium">Local cerrado (Reprogramado tarde)</p>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-semibold border border-amber-200">
+              Novedad
+            </span>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Shared JSON Anchor Component) -->
+<!-- Destination count: 3 | Labels: "Ruta", "Historial", "Perfil" | Icons: "local_shipping", "history", "person" -->
+<!-- Active intent: "Ruta" (exact match) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 h-16 bg-white shadow-lg border-t border-slate-200/60 max-w-[420px] left-1/2 -translate-x-1/2">
+<!-- Tab 1: Ruta (Active) -->
+<a class="flex flex-col items-center justify-center text-[#0F6E6E] font-semibold py-1 active:scale-95 transition-transform duration-150 flex-1" href="#">
+<span class="material-symbols-outlined text-[22px] fill">local_shipping</span>
+<span class="font-label text-xs font-medium text-[#0F6E6E] mt-0.5">Ruta</span>
+</a>
+<!-- Tab 2: Historial (Inactive) -->
+<a class="flex flex-col items-center justify-center text-slate-400 hover:text-[#0F6E6E] py-1 active:scale-95 transition-transform duration-150 flex-1" href="#">
+<span class="material-symbols-outlined text-[22px]">history</span>
+<span class="font-label text-xs font-medium text-slate-600 mt-0.5">Historial</span>
+</a>
+<!-- Tab 3: Perfil (Inactive) -->
+<a class="flex flex-col items-center justify-center text-slate-400 hover:text-[#0F6E6E] py-1 active:scale-95 transition-transform duration-150 flex-1" href="#">
+<span class="material-symbols-outlined text-[22px]">person</span>
+<span class="font-label text-xs font-medium text-slate-600 mt-0.5">Perfil</span>
+</a>
+</nav>
+</div>
+</body></html>

@@ -1,0 +1,272 @@
+[
+  {
+    "module": "01_Operacion_POS_Caja",
+    "file": "13-pos-mostrador",
+    "title": "POS Mostrador Táctil (Split 60/40)",
+    "layout": "Operación",
+    "screenId": "bf3a616e01624c509592f905aa9cf841",
+    "htmlPath": "01_Operacion_POS_Caja/13-pos-mostrador.html",
+    "imgPath": "01_Operacion_POS_Caja/13-pos-mostrador.png"
+  },
+  {
+    "module": "01_Operacion_POS_Caja",
+    "file": "14-cobro-y-comprobante",
+    "title": "Modal de Pago Rápido y Factura",
+    "layout": "Operación",
+    "screenId": "9af55854cb6140a7a9a0319b027e9e30",
+    "htmlPath": "01_Operacion_POS_Caja/14-cobro-y-comprobante.html",
+    "imgPath": "01_Operacion_POS_Caja/14-cobro-y-comprobante.png"
+  },
+  {
+    "module": "01_Operacion_POS_Caja",
+    "file": "17-caja",
+    "title": "Caja y Arqueo Ciego COP",
+    "layout": "Operación",
+    "screenId": "aeb19efd716e4001b05036bf2d905e84",
+    "htmlPath": "01_Operacion_POS_Caja/17-caja.html",
+    "imgPath": "01_Operacion_POS_Caja/17-caja.png"
+  },
+  {
+    "module": "02_Restaurante_Gastronomia",
+    "file": "21-mapa-de-mesas",
+    "title": "Mapa de Salón y Estado de Mesas",
+    "layout": "Operación",
+    "screenId": "4555f0b43f944065ad89800da1abc327",
+    "htmlPath": "02_Restaurante_Gastronomia/21-mapa-de-mesas.html",
+    "imgPath": "02_Restaurante_Gastronomia/21-mapa-de-mesas.png"
+  },
+  {
+    "module": "02_Restaurante_Gastronomia",
+    "file": "22-comanda",
+    "title": "Comanda Táctil para Meseros (Split 60/40)",
+    "layout": "Operación",
+    "screenId": "199f069b7b0148e4892b91d930317923",
+    "htmlPath": "02_Restaurante_Gastronomia/22-comanda.html",
+    "imgPath": "02_Restaurante_Gastronomia/22-comanda.png"
+  },
+  {
+    "module": "02_Restaurante_Gastronomia",
+    "file": "23-cocina-kds",
+    "title": "Monitor KDS de Cocina",
+    "layout": "Operación",
+    "screenId": "6a44a2fcffdf4586882ffe28aafe999e",
+    "htmlPath": "02_Restaurante_Gastronomia/23-cocina-kds.html",
+    "imgPath": "02_Restaurante_Gastronomia/23-cocina-kds.png"
+  },
+  {
+    "module": "02_Restaurante_Gastronomia",
+    "file": "24-cuenta-de-mesa",
+    "title": "Cuenta de Mesa y División de Pagos",
+    "layout": "Operación",
+    "screenId": "ad36bd1f3c75436cbc06a9d3ff6400dc",
+    "htmlPath": "02_Restaurante_Gastronomia/24-cuenta-de-mesa.html",
+    "imgPath": "02_Restaurante_Gastronomia/24-cuenta-de-mesa.png"
+  },
+  {
+    "module": "02_Restaurante_Gastronomia",
+    "file": "25-recetas-e-insumos",
+    "title": "Recetas y Escandallo de Insumos",
+    "layout": "Administración",
+    "screenId": "7c05d5b6e681405b9621cf41eef8a6aa",
+    "htmlPath": "02_Restaurante_Gastronomia/25-recetas-e-insumos.html",
+    "imgPath": "02_Restaurante_Gastronomia/25-recetas-e-insumos.png"
+  },
+  {
+    "module": "03_Inventario_Compras",
+    "file": "05-stock-info",
+    "title": "Stock Info y Control de Existencias",
+    "layout": "Administración",
+    "screenId": "332d36329fdb4410b2d94814428360b9",
+    "htmlPath": "03_Inventario_Compras/05-stock-info.html",
+    "imgPath": "03_Inventario_Compras/05-stock-info.png"
+  },
+  {
+    "module": "03_Inventario_Compras",
+    "file": "08-compras",
+    "title": "Compras a Proveedores y Scan IA",
+    "layout": "Administración",
+    "screenId": "b8522a32c7b64b7e9f0403cb95f6396f",
+    "htmlPath": "03_Inventario_Compras/08-compras.html",
+    "imgPath": "03_Inventario_Compras/08-compras.png"
+  },
+  {
+    "module": "03_Inventario_Compras",
+    "file": "15-ficha-de-producto",
+    "title": "Ficha de Producto y Rentabilidad",
+    "layout": "Administración",
+    "screenId": "811e4d0588cf415daf771af6b543c894",
+    "htmlPath": "03_Inventario_Compras/15-ficha-de-producto.html",
+    "imgPath": "03_Inventario_Compras/15-ficha-de-producto.png"
+  },
+  {
+    "module": "03_Inventario_Compras",
+    "file": "16-movimientos-de-inventario",
+    "title": "Movimientos Kardex y Ajustes de Stock",
+    "layout": "Administración",
+    "screenId": "57bb64f6741544609298425cf9098874",
+    "htmlPath": "03_Inventario_Compras/16-movimientos-de-inventario.html",
+    "imgPath": "03_Inventario_Compras/16-movimientos-de-inventario.png"
+  },
+  {
+    "module": "04_Ventas_Finanzas",
+    "file": "01-panel-principal",
+    "title": "Dashboard y Panel Principal",
+    "layout": "Administración",
+    "screenId": "538a77bf17ac4fc480c7803ef9717b51",
+    "htmlPath": "04_Ventas_Finanzas/01-panel-principal.html",
+    "imgPath": "04_Ventas_Finanzas/01-panel-principal.png"
+  },
+  {
+    "module": "04_Ventas_Finanzas",
+    "file": "02-resumen-de-ventas",
+    "title": "Resumen Analítico de Ventas y Canales",
+    "layout": "Administración",
+    "screenId": "595431320fe84f79905127790736564e",
+    "htmlPath": "04_Ventas_Finanzas/02-resumen-de-ventas.html",
+    "imgPath": "04_Ventas_Finanzas/02-resumen-de-ventas.png"
+  },
+  {
+    "module": "04_Ventas_Finanzas",
+    "file": "03-ventas-por-producto",
+    "title": "Rendimiento y Margen por Producto",
+    "layout": "Administración",
+    "screenId": "ea19973d5b4940e0bf3b4e747add898c",
+    "htmlPath": "04_Ventas_Finanzas/03-ventas-por-producto.html",
+    "imgPath": "04_Ventas_Finanzas/03-ventas-por-producto.png"
+  },
+  {
+    "module": "04_Ventas_Finanzas",
+    "file": "04-ordenes",
+    "title": "Gestión Omnicanal de Órdenes",
+    "layout": "Administración",
+    "screenId": "a6bf701756b34d87a7e5df9e5abe9cb6",
+    "htmlPath": "04_Ventas_Finanzas/04-ordenes.html",
+    "imgPath": "04_Ventas_Finanzas/04-ordenes.png"
+  },
+  {
+    "module": "04_Ventas_Finanzas",
+    "file": "06-gastos",
+    "title": "Control de Gastos y Egresos Operativos",
+    "layout": "Administración",
+    "screenId": "989fd010d1c14ed49daff13ba4ea23e9",
+    "htmlPath": "04_Ventas_Finanzas/06-gastos.html",
+    "imgPath": "04_Ventas_Finanzas/06-gastos.png"
+  },
+  {
+    "module": "05_Clientes_Mayorista_B2B",
+    "file": "07-clientes",
+    "title": "Directorio de Clientes y Cartera / Fiado",
+    "layout": "Administración",
+    "screenId": "9b0b360e96544d51a2600488ed1f4f52",
+    "htmlPath": "05_Clientes_Mayorista_B2B/07-clientes.html",
+    "imgPath": "05_Clientes_Mayorista_B2B/07-clientes.png"
+  },
+  {
+    "module": "05_Clientes_Mayorista_B2B",
+    "file": "26-rutas",
+    "title": "Rutas de Despacho y Logística Mayorista",
+    "layout": "Administración",
+    "screenId": "c3f74ea4c1d04500bdd893d6c7f82084",
+    "htmlPath": "05_Clientes_Mayorista_B2B/26-rutas.html",
+    "imgPath": "05_Clientes_Mayorista_B2B/26-rutas.png"
+  },
+  {
+    "module": "05_Clientes_Mayorista_B2B",
+    "file": "27-pedido-mayorista",
+    "title": "Pedido Mayorista B2B (Asistente 3 Pasos)",
+    "layout": "Tablet / Operación",
+    "screenId": "e1e7c38f50e444df98501083ec26d9d4",
+    "htmlPath": "05_Clientes_Mayorista_B2B/27-pedido-mayorista.html",
+    "imgPath": "05_Clientes_Mayorista_B2B/27-pedido-mayorista.png"
+  },
+  {
+    "module": "05_Clientes_Mayorista_B2B",
+    "file": "28-app-del-repartidor",
+    "title": "App Móvil del Repartidor en Ruta",
+    "layout": "Móvil / Operación",
+    "screenId": "c0495aedd04d4039a94a159116380dcd",
+    "htmlPath": "05_Clientes_Mayorista_B2B/28-app-del-repartidor.html",
+    "imgPath": "05_Clientes_Mayorista_B2B/28-app-del-repartidor.png"
+  },
+  {
+    "module": "06_Ecommerce_Publico",
+    "file": "29-catalogo-publico",
+    "title": "Catálogo Web Público de la Tienda",
+    "layout": "Público Móvil",
+    "screenId": "4b55c89b860445189edbb9ed0c209b41",
+    "htmlPath": "06_Ecommerce_Publico/29-catalogo-publico.html",
+    "imgPath": "06_Ecommerce_Publico/29-catalogo-publico.png"
+  },
+  {
+    "module": "06_Ecommerce_Publico",
+    "file": "30-carrito-y-checkout",
+    "title": "Carrito y Checkout Web / WhatsApp",
+    "layout": "Público Móvil",
+    "screenId": "ee29d501dd57443b8f1d79391a9d1f25",
+    "htmlPath": "06_Ecommerce_Publico/30-carrito-y-checkout.html",
+    "imgPath": "06_Ecommerce_Publico/30-carrito-y-checkout.png"
+  },
+  {
+    "module": "06_Ecommerce_Publico",
+    "file": "31-seguimiento-del-pedido",
+    "title": "Tracking y Seguimiento en Tiempo Real",
+    "layout": "Público Móvil",
+    "screenId": "b868b984d7f24922a33c58ae17c1a0bb",
+    "htmlPath": "06_Ecommerce_Publico/31-seguimiento-del-pedido.html",
+    "imgPath": "06_Ecommerce_Publico/31-seguimiento-del-pedido.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "09-crear-cuenta",
+    "title": "Registro de Organización",
+    "layout": "Público",
+    "screenId": "7da79e2ae4b4490e934efccb0d5d2d3f",
+    "htmlPath": "07_Configuracion_DIAN/09-crear-cuenta.html",
+    "imgPath": "07_Configuracion_DIAN/09-crear-cuenta.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "11-iniciar-sesion",
+    "title": "Iniciar Sesión y Selección de Sucursal",
+    "layout": "Público",
+    "screenId": "6eb72e52392c4ac09c44b12385b8ad39",
+    "htmlPath": "07_Configuracion_DIAN/11-iniciar-sesion.html",
+    "imgPath": "07_Configuracion_DIAN/11-iniciar-sesion.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "12-configuracion-inicial",
+    "title": "Onboarding Inicial (3 Pasos)",
+    "layout": "Público",
+    "screenId": "f7fd6515e4ed4f748db8a10bb548e75e",
+    "htmlPath": "07_Configuracion_DIAN/12-configuracion-inicial.html",
+    "imgPath": "07_Configuracion_DIAN/12-configuracion-inicial.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "18-negocio-y-sucursales",
+    "title": "Configuración de Negocio y Sucursales",
+    "layout": "Administración",
+    "screenId": "9a8ae899bbea4776a5db61c2288e0a91",
+    "htmlPath": "07_Configuracion_DIAN/18-negocio-y-sucursales.html",
+    "imgPath": "07_Configuracion_DIAN/18-negocio-y-sucursales.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "19-usuarios-y-roles",
+    "title": "Usuarios, Roles y Permisos de Acceso",
+    "layout": "Administración",
+    "screenId": "28e860c6b5b34fa9806115d2a91329db",
+    "htmlPath": "07_Configuracion_DIAN/19-usuarios-y-roles.html",
+    "imgPath": "07_Configuracion_DIAN/19-usuarios-y-roles.png"
+  },
+  {
+    "module": "07_Configuracion_DIAN",
+    "file": "20-pagos-impuestos-y-facturacion",
+    "title": "Pagos, Impuestos (IVA/INC) y DIAN",
+    "layout": "Administración",
+    "screenId": "605aac5bd3354999b12a5863c92f12ed",
+    "htmlPath": "07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.html",
+    "imgPath": "07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.png"
+  }
+]

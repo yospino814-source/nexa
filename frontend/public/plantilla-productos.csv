@@ -1,0 +1,4 @@
+sku,codigo_barras,nombre,categoria,unidad,impuesto,costo,precio,cantidad_inicial,sku_padre,atributos
+PROD-001,7701234567890,Café Especial Molido 250g,Bebidas,UND,IVA19,12000,18000,20,,
+CAM-001,,Camiseta Tipo Polo,Ropa,UND,IVA19,25000,45000,0,,
+CAM-001-M-AZUL,7701234567891,Camiseta Tipo Polo Azul M,Ropa,UND,IVA19,25000,45000,15,CAM-001,Talla=M|Color=Azul

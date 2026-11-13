@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-50">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nexa POS - Portal Maestro de Módulos UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            petroleum: {
+              50: '#f0fdfa',
+              100: '#ccfbf1',
+              500: '#14b8a6',
+              600: '#0d9488',
+              700: '#0F6E6E',
+              800: '#0c5858',
+              900: '#083333'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; vertical-align: middle; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 antialiased flex flex-col">
+
+  <!-- Header Institucional Nexa POS -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div class="w-11 h-11 rounded-2xl bg-petroleum-700 text-white font-extrabold flex items-center justify-center text-xl shadow-md shadow-petroleum-700/20 ring-2 ring-petroleum-500/20">
+          N
+        </div>
+        <div>
+          <div class="flex items-center gap-2.5">
+            <h1 class="text-xl font-black text-slate-900 tracking-tight">Nexa POS</h1>
+            <span class="bg-petroleum-50 text-petroleum-700 border border-petroleum-200/80 text-xs font-bold px-2.5 py-0.5 rounded-full">Suite Completa</span>
+            <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> 30 Pantallas
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 font-medium">Catálogo Maestro de Módulos UI · Generado con Stitch MCP · Diseño Atómico Uniforme</p>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-3">
+        <a href="documentacion_backend/Index.html" target="_blank" class="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">
+          <span class="material-symbols-outlined text-sm">menu_book</span> Docs Backend
+        </a>
+        <a href="manifest.json" target="_blank" class="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">
+          <span class="material-symbols-outlined text-sm">data_object</span> Manifest JSON
+        </a>
+      </div>
+    </div>
+
+    <!-- Filtros de Módulo -->
+    <div class="max-w-7xl mx-auto px-6 py-2.5 border-t border-slate-100 flex items-center gap-2 overflow-x-auto custom-scrollbar">
+      <button onclick="filterModule('ALL')" class="module-tab active-tab px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all bg-petroleum-700 text-white shadow-xs" data-target="ALL">
+        Todos los Módulos (30)
+      </button>
+      
+        <button onclick="filterModule('01_Operacion_POS_Caja')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="01_Operacion_POS_Caja">
+          01. Operación POS & Caja
+        </button>
+      
+        <button onclick="filterModule('02_Restaurante_Gastronomia')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="02_Restaurante_Gastronomia">
+          02. Gastronomía & Restaurante
+        </button>
+      
+        <button onclick="filterModule('03_Inventario_Compras')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="03_Inventario_Compras">
+          03. Inventario & Compras Inteligentes
+        </button>
+      
+        <button onclick="filterModule('04_Ventas_Finanzas')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="04_Ventas_Finanzas">
+          04. Ventas, Reportes & Finanzas
+        </button>
+      
+        <button onclick="filterModule('05_Clientes_Mayorista_B2B')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="05_Clientes_Mayorista_B2B">
+          05. Clientes, Cartera & Preventa B2B
+        </button>
+      
+        <button onclick="filterModule('06_Ecommerce_Publico')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="06_Ecommerce_Publico">
+          06. E-commerce & Tienda Pública
+        </button>
+      
+        <button onclick="filterModule('07_Configuracion_DIAN')" class="module-tab px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all whitespace-nowrap" data-target="07_Configuracion_DIAN">
+          07. Configuración, Roles & DIAN
+        </button>
+      
+    </div>
+  </header>
+
+  <!-- Contenedor Principal -->
+  <main class="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
+
+    <!-- KPI Summary Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-petroleum-50 text-petroleum-700 flex items-center justify-center">
+          <span class="material-symbols-outlined text-2xl">layers</span>
+        </div>
+        <div>
+          <div class="text-2xl font-black text-slate-900">7 Módulos</div>
+          <div class="text-xs text-slate-500 font-medium">Estructura Modular Completa</div>
+        </div>
+      </div>
+      
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+          <span class="material-symbols-outlined text-2xl">grid_view</span>
+        </div>
+        <div>
+          <div class="text-2xl font-black text-slate-900">30 Pantallas</div>
+          <div class="text-xs text-slate-500 font-medium">HTML/CSS + Capturas HD</div>
+        </div>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+          <span class="material-symbols-outlined text-2xl">palette</span>
+        </div>
+        <div>
+          <div class="text-2xl font-black text-slate-900">#0F6E6E</div>
+          <div class="text-xs text-slate-500 font-medium">Design System Oficial</div>
+        </div>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+          <span class="material-symbols-outlined text-2xl">payments</span>
+        </div>
+        <div>
+          <div class="text-2xl font-black text-slate-900">COP $</div>
+          <div class="text-xs text-slate-500 font-medium">Pesos sin decimales</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grilla de Pantallas -->
+    <div id="screensGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="01_Operacion_POS_Caja">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('01_Operacion_POS_Caja/13-pos-mostrador.html', 'POS Mostrador Táctil (Split 60/40)', 'Operación')">
+            <img src="01_Operacion_POS_Caja/13-pos-mostrador.png" alt="POS Mostrador Táctil (Split 60/40)" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                13-pos-mostrador.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                01. Operación POS & Caja
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                POS Mostrador Táctil (Split 60/40)
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: bf3a616e01624c50...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="01_Operacion_POS_Caja/13-pos-mostrador.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="01_Operacion_POS_Caja/13-pos-mostrador.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('01_Operacion_POS_Caja/13-pos-mostrador.html', 'POS Mostrador Táctil (Split 60/40)', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="01_Operacion_POS_Caja">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('01_Operacion_POS_Caja/14-cobro-y-comprobante.html', 'Modal de Pago Rápido y Factura', 'Operación')">
+            <img src="01_Operacion_POS_Caja/14-cobro-y-comprobante.png" alt="Modal de Pago Rápido y Factura" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                14-cobro-y-comprobante.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                01. Operación POS & Caja
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Modal de Pago Rápido y Factura
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 9af55854cb6140a7...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="01_Operacion_POS_Caja/14-cobro-y-comprobante.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="01_Operacion_POS_Caja/14-cobro-y-comprobante.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('01_Operacion_POS_Caja/14-cobro-y-comprobante.html', 'Modal de Pago Rápido y Factura', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="01_Operacion_POS_Caja">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('01_Operacion_POS_Caja/17-caja.html', 'Caja y Arqueo Ciego COP', 'Operación')">
+            <img src="01_Operacion_POS_Caja/17-caja.png" alt="Caja y Arqueo Ciego COP" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                17-caja.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                01. Operación POS & Caja
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Caja y Arqueo Ciego COP
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: aeb19efd716e4001...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="01_Operacion_POS_Caja/17-caja.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="01_Operacion_POS_Caja/17-caja.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('01_Operacion_POS_Caja/17-caja.html', 'Caja y Arqueo Ciego COP', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="02_Restaurante_Gastronomia">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('02_Restaurante_Gastronomia/21-mapa-de-mesas.html', 'Mapa de Salón y Estado de Mesas', 'Operación')">
+            <img src="02_Restaurante_Gastronomia/21-mapa-de-mesas.png" alt="Mapa de Salón y Estado de Mesas" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                21-mapa-de-mesas.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                02. Gastronomía & Restaurante
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Mapa de Salón y Estado de Mesas
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 4555f0b43f944065...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="02_Restaurante_Gastronomia/21-mapa-de-mesas.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="02_Restaurante_Gastronomia/21-mapa-de-mesas.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('02_Restaurante_Gastronomia/21-mapa-de-mesas.html', 'Mapa de Salón y Estado de Mesas', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="02_Restaurante_Gastronomia">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('02_Restaurante_Gastronomia/22-comanda.html', 'Comanda Táctil para Meseros (Split 60/40)', 'Operación')">
+            <img src="02_Restaurante_Gastronomia/22-comanda.png" alt="Comanda Táctil para Meseros (Split 60/40)" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                22-comanda.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                02. Gastronomía & Restaurante
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Comanda Táctil para Meseros (Split 60/40)
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 199f069b7b0148e4...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="02_Restaurante_Gastronomia/22-comanda.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="02_Restaurante_Gastronomia/22-comanda.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('02_Restaurante_Gastronomia/22-comanda.html', 'Comanda Táctil para Meseros (Split 60/40)', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="02_Restaurante_Gastronomia">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('02_Restaurante_Gastronomia/23-cocina-kds.html', 'Monitor KDS de Cocina', 'Operación')">
+            <img src="02_Restaurante_Gastronomia/23-cocina-kds.png" alt="Monitor KDS de Cocina" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                23-cocina-kds.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                02. Gastronomía & Restaurante
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Monitor KDS de Cocina
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 6a44a2fcffdf4586...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="02_Restaurante_Gastronomia/23-cocina-kds.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="02_Restaurante_Gastronomia/23-cocina-kds.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('02_Restaurante_Gastronomia/23-cocina-kds.html', 'Monitor KDS de Cocina', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="02_Restaurante_Gastronomia">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('02_Restaurante_Gastronomia/24-cuenta-de-mesa.html', 'Cuenta de Mesa y División de Pagos', 'Operación')">
+            <img src="02_Restaurante_Gastronomia/24-cuenta-de-mesa.png" alt="Cuenta de Mesa y División de Pagos" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                24-cuenta-de-mesa.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                02. Gastronomía & Restaurante
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Cuenta de Mesa y División de Pagos
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: ad36bd1f3c75436c...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="02_Restaurante_Gastronomia/24-cuenta-de-mesa.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="02_Restaurante_Gastronomia/24-cuenta-de-mesa.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('02_Restaurante_Gastronomia/24-cuenta-de-mesa.html', 'Cuenta de Mesa y División de Pagos', 'Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="02_Restaurante_Gastronomia">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('02_Restaurante_Gastronomia/25-recetas-e-insumos.html', 'Recetas y Escandallo de Insumos', 'Administración')">
+            <img src="02_Restaurante_Gastronomia/25-recetas-e-insumos.png" alt="Recetas y Escandallo de Insumos" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                25-recetas-e-insumos.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                02. Gastronomía & Restaurante
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Recetas y Escandallo de Insumos
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 7c05d5b6e681405b...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="02_Restaurante_Gastronomia/25-recetas-e-insumos.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="02_Restaurante_Gastronomia/25-recetas-e-insumos.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('02_Restaurante_Gastronomia/25-recetas-e-insumos.html', 'Recetas y Escandallo de Insumos', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="03_Inventario_Compras">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('03_Inventario_Compras/05-stock-info.html', 'Stock Info y Control de Existencias', 'Administración')">
+            <img src="03_Inventario_Compras/05-stock-info.png" alt="Stock Info y Control de Existencias" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                05-stock-info.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                03. Inventario & Compras Inteligentes
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Stock Info y Control de Existencias
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 332d36329fdb4410...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="03_Inventario_Compras/05-stock-info.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="03_Inventario_Compras/05-stock-info.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('03_Inventario_Compras/05-stock-info.html', 'Stock Info y Control de Existencias', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="03_Inventario_Compras">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('03_Inventario_Compras/08-compras.html', 'Compras a Proveedores y Scan IA', 'Administración')">
+            <img src="03_Inventario_Compras/08-compras.png" alt="Compras a Proveedores y Scan IA" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                08-compras.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                03. Inventario & Compras Inteligentes
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Compras a Proveedores y Scan IA
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: b8522a32c7b64b7e...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="03_Inventario_Compras/08-compras.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="03_Inventario_Compras/08-compras.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('03_Inventario_Compras/08-compras.html', 'Compras a Proveedores y Scan IA', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="03_Inventario_Compras">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('03_Inventario_Compras/15-ficha-de-producto.html', 'Ficha de Producto y Rentabilidad', 'Administración')">
+            <img src="03_Inventario_Compras/15-ficha-de-producto.png" alt="Ficha de Producto y Rentabilidad" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                15-ficha-de-producto.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                03. Inventario & Compras Inteligentes
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Ficha de Producto y Rentabilidad
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 811e4d0588cf415d...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="03_Inventario_Compras/15-ficha-de-producto.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="03_Inventario_Compras/15-ficha-de-producto.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('03_Inventario_Compras/15-ficha-de-producto.html', 'Ficha de Producto y Rentabilidad', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="03_Inventario_Compras">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('03_Inventario_Compras/16-movimientos-de-inventario.html', 'Movimientos Kardex y Ajustes de Stock', 'Administración')">
+            <img src="03_Inventario_Compras/16-movimientos-de-inventario.png" alt="Movimientos Kardex y Ajustes de Stock" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                16-movimientos-de-inventario.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                03. Inventario & Compras Inteligentes
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Movimientos Kardex y Ajustes de Stock
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 57bb64f674154460...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="03_Inventario_Compras/16-movimientos-de-inventario.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="03_Inventario_Compras/16-movimientos-de-inventario.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('03_Inventario_Compras/16-movimientos-de-inventario.html', 'Movimientos Kardex y Ajustes de Stock', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="04_Ventas_Finanzas">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('04_Ventas_Finanzas/01-panel-principal.html', 'Dashboard y Panel Principal', 'Administración')">
+            <img src="04_Ventas_Finanzas/01-panel-principal.png" alt="Dashboard y Panel Principal" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                01-panel-principal.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                04. Ventas, Reportes & Finanzas
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Dashboard y Panel Principal
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 538a77bf17ac4fc4...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="04_Ventas_Finanzas/01-panel-principal.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="04_Ventas_Finanzas/01-panel-principal.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('04_Ventas_Finanzas/01-panel-principal.html', 'Dashboard y Panel Principal', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="04_Ventas_Finanzas">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('04_Ventas_Finanzas/02-resumen-de-ventas.html', 'Resumen Analítico de Ventas y Canales', 'Administración')">
+            <img src="04_Ventas_Finanzas/02-resumen-de-ventas.png" alt="Resumen Analítico de Ventas y Canales" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                02-resumen-de-ventas.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                04. Ventas, Reportes & Finanzas
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Resumen Analítico de Ventas y Canales
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 595431320fe84f79...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="04_Ventas_Finanzas/02-resumen-de-ventas.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="04_Ventas_Finanzas/02-resumen-de-ventas.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('04_Ventas_Finanzas/02-resumen-de-ventas.html', 'Resumen Analítico de Ventas y Canales', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="04_Ventas_Finanzas">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('04_Ventas_Finanzas/03-ventas-por-producto.html', 'Rendimiento y Margen por Producto', 'Administración')">
+            <img src="04_Ventas_Finanzas/03-ventas-por-producto.png" alt="Rendimiento y Margen por Producto" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                03-ventas-por-producto.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                04. Ventas, Reportes & Finanzas
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Rendimiento y Margen por Producto
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: ea19973d5b4940e0...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="04_Ventas_Finanzas/03-ventas-por-producto.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="04_Ventas_Finanzas/03-ventas-por-producto.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('04_Ventas_Finanzas/03-ventas-por-producto.html', 'Rendimiento y Margen por Producto', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="04_Ventas_Finanzas">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('04_Ventas_Finanzas/04-ordenes.html', 'Gestión Omnicanal de Órdenes', 'Administración')">
+            <img src="04_Ventas_Finanzas/04-ordenes.png" alt="Gestión Omnicanal de Órdenes" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                04-ordenes.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                04. Ventas, Reportes & Finanzas
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Gestión Omnicanal de Órdenes
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: a6bf701756b34d87...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="04_Ventas_Finanzas/04-ordenes.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="04_Ventas_Finanzas/04-ordenes.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('04_Ventas_Finanzas/04-ordenes.html', 'Gestión Omnicanal de Órdenes', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="04_Ventas_Finanzas">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('04_Ventas_Finanzas/06-gastos.html', 'Control de Gastos y Egresos Operativos', 'Administración')">
+            <img src="04_Ventas_Finanzas/06-gastos.png" alt="Control de Gastos y Egresos Operativos" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                06-gastos.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                04. Ventas, Reportes & Finanzas
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Control de Gastos y Egresos Operativos
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 989fd010d1c14ed4...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="04_Ventas_Finanzas/06-gastos.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="04_Ventas_Finanzas/06-gastos.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('04_Ventas_Finanzas/06-gastos.html', 'Control de Gastos y Egresos Operativos', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="05_Clientes_Mayorista_B2B">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('05_Clientes_Mayorista_B2B/07-clientes.html', 'Directorio de Clientes y Cartera / Fiado', 'Administración')">
+            <img src="05_Clientes_Mayorista_B2B/07-clientes.png" alt="Directorio de Clientes y Cartera / Fiado" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                07-clientes.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                05. Clientes, Cartera & Preventa B2B
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Directorio de Clientes y Cartera / Fiado
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 9b0b360e96544d51...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="05_Clientes_Mayorista_B2B/07-clientes.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="05_Clientes_Mayorista_B2B/07-clientes.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('05_Clientes_Mayorista_B2B/07-clientes.html', 'Directorio de Clientes y Cartera / Fiado', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="05_Clientes_Mayorista_B2B">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('05_Clientes_Mayorista_B2B/26-rutas.html', 'Rutas de Despacho y Logística Mayorista', 'Administración')">
+            <img src="05_Clientes_Mayorista_B2B/26-rutas.png" alt="Rutas de Despacho y Logística Mayorista" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                26-rutas.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                05. Clientes, Cartera & Preventa B2B
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Rutas de Despacho y Logística Mayorista
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: c3f74ea4c1d04500...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="05_Clientes_Mayorista_B2B/26-rutas.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="05_Clientes_Mayorista_B2B/26-rutas.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('05_Clientes_Mayorista_B2B/26-rutas.html', 'Rutas de Despacho y Logística Mayorista', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="05_Clientes_Mayorista_B2B">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('05_Clientes_Mayorista_B2B/27-pedido-mayorista.html', 'Pedido Mayorista B2B (Asistente 3 Pasos)', 'Tablet / Operación')">
+            <img src="05_Clientes_Mayorista_B2B/27-pedido-mayorista.png" alt="Pedido Mayorista B2B (Asistente 3 Pasos)" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                27-pedido-mayorista.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Tablet / Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                05. Clientes, Cartera & Preventa B2B
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Pedido Mayorista B2B (Asistente 3 Pasos)
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: e1e7c38f50e444df...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="05_Clientes_Mayorista_B2B/27-pedido-mayorista.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="05_Clientes_Mayorista_B2B/27-pedido-mayorista.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('05_Clientes_Mayorista_B2B/27-pedido-mayorista.html', 'Pedido Mayorista B2B (Asistente 3 Pasos)', 'Tablet / Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="05_Clientes_Mayorista_B2B">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('05_Clientes_Mayorista_B2B/28-app-del-repartidor.html', 'App Móvil del Repartidor en Ruta', 'Móvil / Operación')">
+            <img src="05_Clientes_Mayorista_B2B/28-app-del-repartidor.png" alt="App Móvil del Repartidor en Ruta" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                28-app-del-repartidor.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Móvil / Operación
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                05. Clientes, Cartera & Preventa B2B
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                App Móvil del Repartidor en Ruta
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: c0495aedd04d4039...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="05_Clientes_Mayorista_B2B/28-app-del-repartidor.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="05_Clientes_Mayorista_B2B/28-app-del-repartidor.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('05_Clientes_Mayorista_B2B/28-app-del-repartidor.html', 'App Móvil del Repartidor en Ruta', 'Móvil / Operación')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="06_Ecommerce_Publico">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('06_Ecommerce_Publico/29-catalogo-publico.html', 'Catálogo Web Público de la Tienda', 'Público Móvil')">
+            <img src="06_Ecommerce_Publico/29-catalogo-publico.png" alt="Catálogo Web Público de la Tienda" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                29-catalogo-publico.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público Móvil
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                06. E-commerce & Tienda Pública
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Catálogo Web Público de la Tienda
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 4b55c89b86044518...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="06_Ecommerce_Publico/29-catalogo-publico.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="06_Ecommerce_Publico/29-catalogo-publico.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('06_Ecommerce_Publico/29-catalogo-publico.html', 'Catálogo Web Público de la Tienda', 'Público Móvil')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="06_Ecommerce_Publico">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('06_Ecommerce_Publico/30-carrito-y-checkout.html', 'Carrito y Checkout Web / WhatsApp', 'Público Móvil')">
+            <img src="06_Ecommerce_Publico/30-carrito-y-checkout.png" alt="Carrito y Checkout Web / WhatsApp" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                30-carrito-y-checkout.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público Móvil
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                06. E-commerce & Tienda Pública
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Carrito y Checkout Web / WhatsApp
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: ee29d501dd57443b...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="06_Ecommerce_Publico/30-carrito-y-checkout.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="06_Ecommerce_Publico/30-carrito-y-checkout.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('06_Ecommerce_Publico/30-carrito-y-checkout.html', 'Carrito y Checkout Web / WhatsApp', 'Público Móvil')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="06_Ecommerce_Publico">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('06_Ecommerce_Publico/31-seguimiento-del-pedido.html', 'Tracking y Seguimiento en Tiempo Real', 'Público Móvil')">
+            <img src="06_Ecommerce_Publico/31-seguimiento-del-pedido.png" alt="Tracking y Seguimiento en Tiempo Real" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                31-seguimiento-del-pedido.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público Móvil
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                06. E-commerce & Tienda Pública
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Tracking y Seguimiento en Tiempo Real
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: b868b984d7f24922...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="06_Ecommerce_Publico/31-seguimiento-del-pedido.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="06_Ecommerce_Publico/31-seguimiento-del-pedido.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('06_Ecommerce_Publico/31-seguimiento-del-pedido.html', 'Tracking y Seguimiento en Tiempo Real', 'Público Móvil')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/09-crear-cuenta.html', 'Registro de Organización', 'Público')">
+            <img src="07_Configuracion_DIAN/09-crear-cuenta.png" alt="Registro de Organización" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                09-crear-cuenta.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Registro de Organización
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 7da79e2ae4b4490e...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/09-crear-cuenta.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/09-crear-cuenta.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/09-crear-cuenta.html', 'Registro de Organización', 'Público')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/11-iniciar-sesion.html', 'Iniciar Sesión y Selección de Sucursal', 'Público')">
+            <img src="07_Configuracion_DIAN/11-iniciar-sesion.png" alt="Iniciar Sesión y Selección de Sucursal" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                11-iniciar-sesion.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Iniciar Sesión y Selección de Sucursal
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 6eb72e52392c4ac0...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/11-iniciar-sesion.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/11-iniciar-sesion.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/11-iniciar-sesion.html', 'Iniciar Sesión y Selección de Sucursal', 'Público')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/12-configuracion-inicial.html', 'Onboarding Inicial (3 Pasos)', 'Público')">
+            <img src="07_Configuracion_DIAN/12-configuracion-inicial.png" alt="Onboarding Inicial (3 Pasos)" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                12-configuracion-inicial.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Público
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Onboarding Inicial (3 Pasos)
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: f7fd6515e4ed4f74...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/12-configuracion-inicial.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/12-configuracion-inicial.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/12-configuracion-inicial.html', 'Onboarding Inicial (3 Pasos)', 'Público')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/18-negocio-y-sucursales.html', 'Configuración de Negocio y Sucursales', 'Administración')">
+            <img src="07_Configuracion_DIAN/18-negocio-y-sucursales.png" alt="Configuración de Negocio y Sucursales" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                18-negocio-y-sucursales.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Configuración de Negocio y Sucursales
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 9a8ae899bbea4776...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/18-negocio-y-sucursales.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/18-negocio-y-sucursales.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/18-negocio-y-sucursales.html', 'Configuración de Negocio y Sucursales', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/19-usuarios-y-roles.html', 'Usuarios, Roles y Permisos de Acceso', 'Administración')">
+            <img src="07_Configuracion_DIAN/19-usuarios-y-roles.png" alt="Usuarios, Roles y Permisos de Acceso" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                19-usuarios-y-roles.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Usuarios, Roles y Permisos de Acceso
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 28e860c6b5b34fa9...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/19-usuarios-y-roles.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/19-usuarios-y-roles.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/19-usuarios-y-roles.html', 'Usuarios, Roles y Permisos de Acceso', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+        <div class="screen-card bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md hover:border-petroleum-600/50 transition-all flex flex-col overflow-hidden group" data-module="07_Configuracion_DIAN">
+          
+          <!-- Thumbnail con botón de preview rápido -->
+          <div class="relative bg-slate-100 aspect-video overflow-hidden border-b border-slate-100 cursor-pointer" onclick="openPreview('07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.html', 'Pagos, Impuestos (IVA/INC) y DIAN', 'Administración')">
+            <img src="07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.png" alt="Pagos, Impuestos (IVA/INC) y DIAN" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <span class="bg-white text-slate-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-base">visibility</span> Vista Previa
+              </span>
+            </div>
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                20-pagos-impuestos-y-facturacion.html
+              </span>
+            </div>
+            <div class="absolute top-3 right-3">
+              <span class="bg-petroleum-700/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                Administración
+              </span>
+            </div>
+          </div>
+
+          <!-- Información y Acciones -->
+          <div class="p-5 flex-1 flex flex-col justify-between">
+            <div>
+              <div class="text-[11px] font-bold text-petroleum-700 uppercase tracking-wider mb-1">
+                07. Configuración, Roles & DIAN
+              </div>
+              <h3 class="text-base font-bold text-slate-900 group-hover:text-petroleum-700 transition-colors line-clamp-1 mb-1">
+                Pagos, Impuestos (IVA/INC) y DIAN
+              </h3>
+              <p class="text-xs text-slate-400 font-mono mb-4">
+                ID: 605aac5bd3354999...
+              </p>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <a href="07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.html" target="_blank" class="flex-1 text-center py-2 px-3 bg-petroleum-700 hover:bg-petroleum-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-sm">open_in_new</span> Abrir UI
+              </a>
+              <a href="07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.png" target="_blank" title="Ver Captura HD" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">image</span>
+              </a>
+              <button onclick="openPreview('07_Configuracion_DIAN/20-pagos-impuestos-y-facturacion.html', 'Pagos, Impuestos (IVA/INC) y DIAN', 'Administración')" title="Preview Interactivo" class="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all">
+                <span class="material-symbols-outlined text-base">devices</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+    </div>
+  </main>
+
+  <!-- Modal Interactivo de Vista Previa -->
+  <div id="previewModal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm hidden flex flex-col items-center justify-center p-4 sm:p-6">
+    <div class="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+      
+      <!-- Barra superior del modal -->
+      <div class="h-16 px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-petroleum-50 text-petroleum-700 flex items-center justify-center">
+            <span class="material-symbols-outlined text-lg">preview</span>
+          </div>
+          <div>
+            <h2 id="modalTitle" class="text-sm font-bold text-slate-900">Vista Previa</h2>
+            <p id="modalSubtitle" class="text-[11px] text-slate-500 font-medium">Nexa POS Pantalla</p>
+          </div>
+        </div>
+
+        <!-- Selector de Resolución (Responsive Simulator) -->
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+          <button onclick="setViewport('100%')" class="viewport-btn active-viewport px-3 py-1 rounded-lg text-xs font-bold bg-white text-slate-800 shadow-xs" data-width="100%">
+            Desktop (100%)
+          </button>
+          <button onclick="setViewport('768px')" class="viewport-btn px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900" data-width="768px">
+            Tablet (768px)
+          </button>
+          <button onclick="setViewport('390px')" class="viewport-btn px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900" data-width="390px">
+            Móvil (390px)
+          </button>
+        </div>
+
+        <!-- Botón cerrar y abrir nueva pestaña -->
+        <div class="flex items-center gap-2">
+          <a id="modalExternalLink" href="#" target="_blank" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl" title="Abrir en pestaña nueva">
+            <span class="material-symbols-outlined text-lg">open_in_new</span>
+          </a>
+          <button onclick="closePreview()" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl" title="Cerrar modal">
+            <span class="material-symbols-outlined text-xl">close</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Área de Iframe -->
+      <div class="flex-1 bg-slate-100 flex items-center justify-center p-4 overflow-hidden relative">
+        <div id="iframeContainer" class="h-full w-full transition-all duration-300 flex items-center justify-center">
+          <iframe id="previewIframe" src="" class="w-full h-full bg-white rounded-xl shadow-md border border-slate-200"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+    <p class="font-medium">Nexa POS · Arquitectura de Software POS Omnicanal · Diseñado con Stitch MCP</p>
+    <p class="text-[11px] text-slate-400 mt-1">Todos los módulos cuentan con respaldo en código Rust (nexa-backend) y DDL de base de datos PostgreSQL</p>
+  </footer>
+
+  <script>
+    function filterModule(target) {
+      document.querySelectorAll('.module-tab').forEach(tab => {
+        if (tab.getAttribute('data-target') === target) {
+          tab.classList.add('bg-petroleum-700', 'text-white', 'shadow-xs');
+          tab.classList.remove('text-slate-600');
+        } else {
+          tab.classList.remove('bg-petroleum-700', 'text-white', 'shadow-xs');
+          tab.classList.add('text-slate-600');
+        }
+      });
+
+      document.querySelectorAll('.screen-card').forEach(card => {
+        if (target === 'ALL' || card.getAttribute('data-module') === target) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    function openPreview(url, title, layout) {
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalSubtitle').textContent = layout + ' · ' + url;
+      document.getElementById('modalExternalLink').href = url;
+      document.getElementById('previewIframe').src = url;
+      document.getElementById('previewModal').classList.remove('hidden');
+    }
+
+    function closePreview() {
+      document.getElementById('previewModal').classList.add('hidden');
+      document.getElementById('previewIframe').src = '';
+    }
+
+    function setViewport(width) {
+      document.querySelectorAll('.viewport-btn').forEach(btn => {
+        if (btn.getAttribute('data-width') === width) {
+          btn.classList.add('bg-white', 'text-slate-800', 'shadow-xs');
+          btn.classList.remove('text-slate-600');
+        } else {
+          btn.classList.remove('bg-white', 'text-slate-800', 'shadow-xs');
+          btn.classList.add('text-slate-600');
+        }
+      });
+      document.getElementById('iframeContainer').style.width = width;
+    }
+
+    // Cerrar con Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePreview();
+    });
+  </script>
+</body>
+</html>

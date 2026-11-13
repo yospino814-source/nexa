@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Gastos y Egresos Operativos | Nexa POS</title>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              700: "#0F6E6E",
+              800: "#0c5959",
+              600: "#138585",
+              50: "#F0FDFD"
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 20px;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .material-symbols-outlined.fill-icon {
+      font-variation-settings: 'FILL' 1;
+    }
+  </style>
+</head>
+<body class="font-body text-slate-900 bg-slate-50 antialiased min-h-screen flex flex-col">
+<!-- ==================== SIDEBAR COMPONENT (72px rail) ==================== -->
+<aside class="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-4 z-40 bg-slate-900 dark:bg-slate-950 border-r border-slate-800 shadow-none">
+<div class="w-[72px] h-full flex flex-col justify-between items-center py-5">
+<!-- Brand Logo Anchor -->
+<div class="flex flex-col items-center gap-6">
+<a class="w-10 h-10 rounded-xl bg-teal-700 text-white font-headline font-bold flex items-center justify-center text-lg active:scale-95 transition-transform duration-150" href="#" title="Nexa POS">
+          N
+        </a>
+<!-- Main Navigation Links -->
+<nav class="flex flex-col items-center gap-3">
+<!-- 1. Dashboard -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Panel">
+<span class="material-symbols-outlined">dashboard</span>
+</a>
+<!-- 2. Ventas -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Ventas">
+<span class="material-symbols-outlined">point_of_sale</span>
+</a>
+<!-- 3. Inventario -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Inventario">
+<span class="material-symbols-outlined">inventory_2</span>
+</a>
+<!-- 4. Reportes / Finanzas (ACTIVE ACCORDING TO TASK: Finanzas / Control de Gastos) -->
+<a class="text-teal-400 bg-slate-800/80 rounded-xl p-3 flex items-center justify-center relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-teal-500 before:rounded-r active:scale-95 transition-transform" href="#" title="Reportes y Finanzas">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">analytics</span>
+</a>
+<!-- 5. Ajustes -->
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Ajustes">
+<span class="material-symbols-outlined">settings</span>
+</a>
+</nav>
+</div>
+<!-- Footer Rail Links -->
+<div class="flex flex-col items-center gap-3">
+<a class="text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Ayuda">
+<span class="material-symbols-outlined">help</span>
+</a>
+<a class="text-slate-400 hover:text-rose-400 hover:bg-slate-800/50 rounded-xl p-3 flex items-center justify-center transition-colors active:scale-95" href="#" title="Cerrar Sesión">
+<span class="material-symbols-outlined">logout</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- ==================== TOPBAR COMPONENT ==================== -->
+<header class="sticky top-0 right-0 h-16 w-[calc(100%-72px)] ml-[72px] z-30 bg-white border-b border-slate-200/60 shadow-sm">
+<div class="flex justify-between items-center px-8 h-full w-full">
+<!-- Breadcrumb & Brand Context -->
+<div class="flex items-center gap-3 text-sm">
+<span class="font-headline text-slate-900 font-semibold text-base">Nexa POS</span>
+<span class="text-slate-300">/</span>
+<nav class="flex items-center gap-2 text-slate-500 font-medium">
+<span>Panel Administrativo</span>
+<span class="text-slate-300">/</span>
+<span>Finanzas</span>
+<span class="text-slate-300">/</span>
+<span class="text-slate-900 font-semibold">Control de Gastos</span>
+</nav>
+</div>
+<!-- Right Controls & User Profile -->
+<div class="flex items-center gap-4">
+<!-- Date Selector Filter -->
+<div class="relative hidden sm:flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-slate-400 pointer-events-none">calendar_month</span>
+<select class="pl-9 pr-8 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer focus:ring-1 focus:ring-teal-700 focus:outline-none">
+<option selected="">Octubre 2026</option>
+<option>Septiembre 2026</option>
+<option>Agosto 2026</option>
+<option>Julio 2026</option>
+</select>
+</div>
+<!-- Branch / Location Selector -->
+<div class="flex items-center gap-2 px-3 py-1.5 bg-teal-50 text-teal-800 border border-teal-200/60 rounded-lg text-xs font-semibold">
+<span class="material-symbols-outlined text-teal-700 text-sm">storefront</span>
+<span>Sucursal Principal</span>
+</div>
+<div class="h-5 w-px bg-slate-200"></div>
+<!-- Notification Bell -->
+<button class="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Notificaciones" type="button">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white"></span>
+</button>
+<!-- User Profile Avatar Pill -->
+<div class="flex items-center gap-3 pl-2">
+<div class="w-9 h-9 rounded-full bg-teal-700 text-white font-semibold flex items-center justify-center text-sm shadow-sm ring-2 ring-slate-100">
+            AP
+          </div>
+<div class="hidden lg:flex flex-col text-left">
+<span class="text-xs font-bold text-slate-900 leading-tight">Admin Propietario</span>
+<span class="text-[11px] text-slate-500">admin@nexapos.co</span>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN CONTENT WRAPPER ==================== -->
+<main class="ml-[72px] flex-1 bg-slate-50 p-8 space-y-8">
+<!-- 1. Header & Actions -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold tracking-tight text-slate-900 font-headline">Gestión y Registro de Gastos</h1>
+<p class="text-sm text-slate-500 mt-1">Control de flujo de caja de salida, costos fijos y variables para optimización del margen neto.</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium text-sm shadow-sm flex items-center gap-2 transition-all active:scale-98" type="button">
+<span class="material-symbols-outlined text-slate-500">download</span>
+          Exportar Reporte Excel / PDF
+        </button>
+<button class="px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-[#0c5959] text-white font-bold text-sm shadow-sm flex items-center gap-2 transition-all active:scale-95" onclick="document.getElementById('modal-registro-gasto').classList.remove('hidden')" type="button">
+<span class="material-symbols-outlined">add</span>
+          + Registrar gasto
+        </button>
+</div>
+</div>
+<!-- 2. Tarjetas Resumen (Grid 2 Columnas) -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Card 1: Total Gastos -->
+<div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Total Gastos del Mes (Octubre)</span>
+<div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-700">
+<span class="material-symbols-outlined">payments</span>
+</div>
+</div>
+<div class="flex items-baseline gap-3">
+<span class="text-3xl font-extrabold text-slate-900 tracking-tight">$14.850.000 COP</span>
+</div>
+<div class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+<span class="material-symbols-outlined text-xs">savings</span>
+            Presupuesto mensual: $18.000.000 COP · 82% ejecutado
+          </div>
+</div>
+<!-- Budget Progress Bar -->
+<div class="mt-6 pt-4 border-t border-slate-100">
+<div class="flex justify-between text-xs font-semibold text-slate-600 mb-2">
+<span>Ejecución del Límite de Gasto</span>
+<span class="text-teal-700">82.5%</span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-teal-700 rounded-full transition-all duration-500" style="width: 82.5%"></div>
+</div>
+<p class="text-[11px] text-slate-400 mt-2">Saldo disponible proyectado para la semana restante: $3.150.000 COP</p>
+</div>
+</div>
+<!-- Card 2: Mayor Centro de Costo -->
+<div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Mayor Centro de Costo</span>
+<div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-700">
+<span class="material-symbols-outlined">group</span>
+</div>
+</div>
+<div class="flex items-baseline gap-3">
+<span class="text-3xl font-extrabold text-slate-900 tracking-tight">$6.500.000 COP</span>
+</div>
+<p class="text-base font-semibold text-slate-700 mt-1">Nómina y Seguridad Social</p>
+<div class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200/50 text-xs font-medium">
+<span class="material-symbols-outlined text-xs">trending_up</span>
+            Representa el 43.7% del egreso total · +3.2% vs sep
+          </div>
+</div>
+<div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+<span>Próxima dispersión quincenal programada:</span>
+<span class="font-bold text-slate-800">31 Oct 2026</span>
+</div>
+</div>
+</div>
+<!-- 3. Gráfico de Barras Horizontal por Categoría -->
+<div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+<div>
+<h2 class="text-lg font-bold text-slate-900">Distribución de Egresos por Categoría</h2>
+<p class="text-sm text-slate-500">Desglose proporcional del gasto operativo consolidado en el período activo.</p>
+</div>
+<span class="text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg self-start sm:self-auto">Total: 6 Categorías</span>
+</div>
+<!-- Horizontal Stacked Visual List -->
+<div class="space-y-4">
+<!-- Item 1 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+              Nómina y Personal
+            </span>
+<span class="text-slate-700 font-bold">$6.500.000 COP <span class="text-slate-400 font-normal">(43.7%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-slate-700 rounded-full" style="width: 43.7%"></div>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-teal-700"></span>
+              Arriendo Local Sede Norte
+            </span>
+<span class="text-slate-700 font-bold">$3.500.000 COP <span class="text-slate-400 font-normal">(23.5%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-teal-700 rounded-full" style="width: 23.5%"></div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-teal-500"></span>
+              Proveedores e Insumos Menores
+            </span>
+<span class="text-slate-700 font-bold">$2.200.000 COP <span class="text-slate-400 font-normal">(14.8%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-teal-500 rounded-full" style="width: 14.8%"></div>
+</div>
+</div>
+<!-- Item 4 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+              Servicios Públicos (Enel, Acueducto, Gas)
+            </span>
+<span class="text-slate-700 font-bold">$1.450.000 COP <span class="text-slate-400 font-normal">(9.8%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-amber-500 rounded-full" style="width: 9.8%"></div>
+</div>
+</div>
+<!-- Item 5 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+              Mantenimiento y Aseo
+            </span>
+<span class="text-slate-700 font-bold">$750.000 COP <span class="text-slate-400 font-normal">(5.0%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-slate-400 rounded-full" style="width: 5.0%"></div>
+</div>
+</div>
+<!-- Item 6 -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-xs font-semibold">
+<span class="text-slate-800 flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              Otros imprevistos
+            </span>
+<span class="text-slate-700 font-bold">$450.000 COP <span class="text-slate-400 font-normal">(3.0%)</span></span>
+</div>
+<div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-rose-500 rounded-full" style="width: 3.0%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Tabla de Historial de Gastos -->
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+<!-- Filtros y Barra de Búsqueda -->
+<div class="p-6 border-b border-slate-200/70 flex flex-col lg:flex-row gap-4 justify-between items-stretch lg:items-center">
+<!-- Search Input -->
+<div class="relative flex-1 max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-700 focus:bg-white transition-all" placeholder="Buscar gasto, concepto, proveedor..." type="text"/>
+</div>
+<!-- Select Dropdowns Filter Group -->
+<div class="flex flex-wrap items-center gap-3">
+<!-- Categoria -->
+<div class="relative">
+<select class="pl-3 pr-8 py-2 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-700 cursor-pointer transition-colors">
+<option>Todas las categorías</option>
+<option>Nómina</option>
+<option>Arriendo</option>
+<option>Servicios Públicos</option>
+<option>Aseo y Mantenimiento</option>
+<option>Insumos Operativos</option>
+</select>
+</div>
+<!-- Metodo de Pago -->
+<div class="relative">
+<select class="pl-3 pr-8 py-2 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-700 cursor-pointer transition-colors">
+<option>Todos los métodos de pago</option>
+<option>Transferencia Bancaria</option>
+<option>Débito Automático</option>
+<option>Nequi Empresa</option>
+<option>Efectivo / Caja Menor</option>
+</select>
+</div>
+<!-- Rango de Fechas -->
+<button class="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 flex items-center gap-2 transition-colors" type="button">
+<span class="material-symbols-outlined text-sm text-slate-500">date_range</span>
+<span>01 Oct - 31 Oct 2026</span>
+</button>
+</div>
+</div>
+<!-- Table View -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-slate-50/75 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+<th class="py-3.5 px-6">Fecha</th>
+<th class="py-3.5 px-6">Concepto del Gasto</th>
+<th class="py-3.5 px-6">Categoría</th>
+<th class="py-3.5 px-6 text-right">Monto (COP)</th>
+<th class="py-3.5 px-6">Método de Pago</th>
+<th class="py-3.5 px-6 text-center">Soporte / Factura</th>
+<th class="py-3.5 px-6 text-right">Acciones</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 text-sm text-slate-700">
+<!-- Row 1 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">25 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Pago Arriendo Mes Noviembre Local 102</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200/50">
+                  Arriendo
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$3.500.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Transferencia Bancolombia</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Contrato_Recibo.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">24 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Factura Enel Codensa Energía Eléctrica</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/50">
+                  Servicios
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$820.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Débito Automático</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Factura_Enel.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">20 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Quincena Empleados Turno Mañana</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200/50">
+                  Nómina
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$3.250.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Dispersión Bancaria</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Comprobante_Nomina.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">18 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Insumos de Aseo y Desinfección Cafetería</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                  Aseo
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$185.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Caja Menor / Efectivo</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Factura_Aseo.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">15 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Mantenimiento Preventivo Congelador</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200/50">
+                  Mantenimiento
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$350.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Nequi Empresa</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Soporte_Tecnico.jpg
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">12 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Factura Acueducto y Alcantarillado Bogotá</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/50">
+                  Servicios
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$430.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Nequi Empresa</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Recibo_Agua.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 7 -->
+<tr class="hover:bg-slate-50/80 transition-colors">
+<td class="py-4 px-6 font-medium text-slate-900 whitespace-nowrap text-xs">08 Oct 2026</td>
+<td class="py-4 px-6 font-semibold text-slate-900">Compra de Bolsas Biodegradables y Rollos POS</td>
+<td class="py-4 px-6 whitespace-nowrap">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/50">
+                  Operación
+                </span>
+</td>
+<td class="py-4 px-6 text-right font-bold text-slate-900 whitespace-nowrap">$220.000 COP</td>
+<td class="py-4 px-6 text-xs text-slate-600 whitespace-nowrap">Efectivo</td>
+<td class="py-4 px-6 text-center whitespace-nowrap">
+<a class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors border border-teal-200/50" href="#">
+<span class="material-symbols-outlined text-sm">attach_file</span>
+                  Factura_Bolsas.pdf
+                </a>
+</td>
+<td class="py-4 px-6 text-right whitespace-nowrap">
+<div class="inline-flex items-center gap-1 text-slate-400">
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Editar" type="button">
+<span class="material-symbols-outlined text-base">edit</span>
+</button>
+<button class="p-1.5 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="Más opciones" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Paginación -->
+<div class="px-6 py-4 bg-slate-50/50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+<span class="text-xs text-slate-500 font-medium">Mostrando 7 de 28 egresos registrados</span>
+<div class="inline-flex items-center gap-2">
+<button class="px-3 py-1.5 text-xs font-semibold text-slate-400 bg-white border border-slate-200 rounded-lg opacity-50 cursor-not-allowed" disabled="" type="button">
+            Anterior
+          </button>
+<div class="flex items-center gap-1">
+<span class="w-8 h-8 flex items-center justify-center text-xs font-bold text-white bg-teal-700 rounded-lg">1</span>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">2</button>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">3</button>
+<button class="w-8 h-8 flex items-center justify-center text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">4</button>
+</div>
+<button class="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors" type="button">
+            Siguiente
+          </button>
+</div>
+</div>
+</div>
+</main>
+<!-- ==================== MODAL OVERLAY: REGISTRAR NUEVO GASTO ==================== -->
+<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm transition-opacity" id="modal-registro-gasto">
+<div class="bg-white rounded-2xl border border-slate-200 w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+<!-- Modal Header -->
+<div class="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
+<div>
+<h3 class="text-lg font-bold text-slate-900 font-headline">Nuevo Gasto Operativo</h3>
+<p class="text-xs text-slate-500 mt-0.5">Registra un egreso de caja o cuenta bancaria con su comprobante de respaldo.</p>
+</div>
+<button class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors" onclick="document.getElementById('modal-registro-gasto').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Modal Body -->
+<form class="p-6 space-y-4" onsubmit="event.preventDefault(); document.getElementById('modal-registro-gasto').classList.add('hidden');">
+<!-- Concepto -->
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Concepto del Gasto</label>
+<input class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-700 focus:bg-white text-slate-900 placeholder-slate-400" placeholder="ej. Pago servicio internet fibra óptica" required="" type="text"/>
+</div>
+<!-- Grid 2 Cols: Categoria & Monto -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Categoría</label>
+<select class="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-700 text-slate-800">
+<option>Nómina</option>
+<option>Arriendo</option>
+<option>Servicios Públicos</option>
+<option>Insumos Menores</option>
+<option>Mantenimiento</option>
+<option>Otros</option>
+</select>
+</div>
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Monto en COP</label>
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">$</span>
+<input class="w-full pl-8 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-700 text-slate-900 font-semibold" placeholder="0 COP" required="" type="text"/>
+</div>
+</div>
+</div>
+<!-- Grid 2 Cols: Fecha & Metodo -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Fecha de pago</label>
+<input class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-700 text-slate-800" type="date" value="2026-10-26"/>
+</div>
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Método de pago</label>
+<select class="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-700 text-slate-800">
+<option>Efectivo / Caja Menor</option>
+<option>Bancolombia</option>
+<option>Nequi Empresa</option>
+<option>Tarjeta Débito</option>
+</select>
+</div>
+</div>
+<!-- File Upload Drag & Drop Zone -->
+<div>
+<label class="block text-xs font-bold text-slate-700 mb-1">Adjuntar comprobante o foto de factura</label>
+<div class="border-2 border-dashed border-slate-200 hover:border-teal-700 rounded-xl p-5 text-center bg-slate-50/50 hover:bg-teal-50/20 transition-all cursor-pointer">
+<div class="flex flex-col items-center gap-1.5">
+<div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+<span class="material-symbols-outlined text-xl">upload_file</span>
+</div>
+<p class="text-xs font-semibold text-slate-700">Arrastra aquí o haz clic para subir</p>
+<p class="text-[11px] text-slate-400">PDF, JPG o PNG hasta 10MB</p>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+<button class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-semibold transition-colors" onclick="document.getElementById('modal-registro-gasto').classList.add('hidden')" type="button">
+            Cancelar
+          </button>
+<button class="px-6 py-2.5 rounded-xl bg-teal-700 hover:bg-[#0c5959] text-white font-bold text-sm shadow-sm transition-all active:scale-95" type="submit">
+            Guardar Gasto
+          </button>
+</div>
+</form>
+</div>
+</div>
+</body></html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Iniciar Sesión - Nexa POS</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#0F6E6E",
+            "primary-dark": "#0c5858",
+            "primary-light": "#e6f4f4",
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          spacing: {},
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          },
+          fontSize: {}
+        },
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .material-symbols-outlined.fill-1 {
+      font-variation-settings: 'FILL' 1;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 font-body text-slate-900 min-h-screen flex flex-col justify-between items-center py-8 px-4 antialiased selection:bg-teal-100 selection:text-teal-900">
+<!-- Main Container -->
+<main class="w-full max-w-md mx-auto my-auto space-y-6">
+<!-- 1. Header de Marca -->
+<header class="text-center flex flex-col items-center">
+<div class="flex items-center justify-center gap-3">
+<!-- Isotipo estilizado -->
+<div class="w-12 h-12 rounded-xl bg-[#0F6E6E] shadow-md shadow-teal-900/20 flex items-center justify-center text-white font-extrabold text-2xl tracking-tighter">
+<svg class="w-7 h-7 text-white" fill="none" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M6 19V5L18 19V5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.75"></path>
+</svg>
+</div>
+<span class="font-display font-bold text-2xl tracking-tight text-slate-900">Nexa POS</span>
+</div>
+<h1 class="font-headline font-extrabold text-2xl text-slate-900 mt-4 tracking-tight">Bienvenido de nuevo</h1>
+<p class="text-slate-500 text-sm mt-1">Ingresa a tu cuenta para gestionar ventas y caja</p>
+</header>
+<!-- 2. Tarjeta Principal de Formulario y Acceso -->
+<section class="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-xl shadow-slate-200/50 space-y-5">
+<form class="space-y-4" onsubmit="event.preventDefault();">
+<!-- Campo: Email -->
+<div>
+<label class="text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-1.5 block" for="email">
+            CORREO ELECTRÓNICO
+          </label>
+<div class="relative flex items-center">
+<span class="absolute left-3.5 text-slate-400 pointer-events-none flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="mail">mail</span>
+</span>
+<input autocomplete="email" class="w-full bg-white border border-[#0F6E6E] ring-1 ring-[#0F6E6E] rounded-xl pl-11 pr-3.5 py-2.5 text-sm text-slate-800 font-medium placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F6E6E] transition-all" id="email" name="email" placeholder="nombre@empresa.com" type="email" value="carlos.restrepo@mistiendas.com"/>
+</div>
+</div>
+<!-- Campo: Contraseña -->
+<div>
+<div class="flex items-center justify-between mb-1.5">
+<label class="text-[11px] font-bold tracking-wider text-slate-500 uppercase" for="password">
+              CONTRASEÑA
+            </label>
+<a class="text-[#0F6E6E] hover:underline text-xs font-medium transition-colors" href="#">
+              ¿Olvidaste tu contraseña?
+            </a>
+</div>
+<div class="relative flex items-center">
+<span class="absolute left-3.5 text-slate-400 pointer-events-none flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="lock">lock</span>
+</span>
+<input autocomplete="current-password" class="w-full bg-white border border-slate-200 focus:border-[#0F6E6E] focus:ring-1 focus:ring-[#0F6E6E] rounded-xl pl-11 pr-11 py-2.5 text-sm text-slate-800 font-medium placeholder-slate-400 transition-all outline-none" id="password" name="password" placeholder="Tu clave de acceso" type="password" value="supersecretpassword123"/>
+<button aria-label="Alternar visibilidad de contraseña" class="absolute right-3 text-slate-400 hover:text-slate-600 focus:outline-none p-1 flex items-center justify-center" onclick="togglePasswordVisibility()" type="button">
+<span class="material-symbols-outlined text-[20px]" data-icon="visibility" id="pwd-icon">visibility</span>
+</button>
+</div>
+</div>
+<!-- Recordar sesión -->
+<div class="flex items-center pt-0.5">
+<label class="flex items-center gap-2.5 cursor-pointer select-none">
+<input checked="" class="w-4 h-4 rounded text-[#0F6E6E] focus:ring-[#0F6E6E] focus:ring-offset-0 border-slate-300 transition-colors" type="checkbox"/>
+<span class="text-xs text-slate-600 font-medium">Recordar esta sesión en este dispositivo</span>
+</label>
+</div>
+<!-- 3. Selector de Sucursal Integrado -->
+<div class="pt-3">
+<div class="relative flex py-2 items-center">
+<div class="flex-grow border-t border-slate-200"></div>
+<span class="flex-shrink mx-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold px-2 bg-white">
+              O selecciona tu sede asignada:
+            </span>
+<div class="flex-grow border-t border-slate-200"></div>
+</div>
+<span class="text-xs font-semibold text-slate-700 mt-2 mb-2.5 block">¿Dónde vas a trabajar hoy?</span>
+<div aria-label="Sede de Trabajo" class="space-y-2.5" role="radiogroup">
+<!-- Sede 1 [Seleccionada / Activa] -->
+<div aria-checked="true" class="branch-option border-2 border-[#0F6E6E] bg-teal-50/50 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all shadow-sm" onclick="selectBranch(this)" role="radio" tabindex="0">
+<div class="flex items-center gap-3">
+<div class="bg-[#0F6E6E] text-white p-2 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="storefront">storefront</span>
+</div>
+<div>
+<h4 class="font-semibold text-slate-900 text-sm leading-tight">Tienda Centro - Carrera 7</h4>
+<p class="text-xs text-slate-500 mt-0.5">Bogotá D.C. · Punto POS #1</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-teal-100 text-[#0F6E6E] font-semibold text-xs px-2.5 py-1 rounded-full whitespace-nowrap">
+                  Administrador
+                </span>
+<span class="status-indicator text-[#0F6E6E] flex items-center">
+<span class="material-symbols-outlined text-[20px] fill-1" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</span>
+</div>
+</div>
+<!-- Sede 2 [Disponible] -->
+<div aria-checked="false" class="branch-option border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all" onclick="selectBranch(this)" role="radio" tabindex="0">
+<div class="flex items-center gap-3">
+<div class="bg-slate-100 text-slate-400 p-2 rounded-lg flex items-center justify-center branch-icon-wrap">
+<span class="material-symbols-outlined text-[20px]" data-icon="storefront">storefront</span>
+</div>
+<div>
+<h4 class="font-medium text-slate-800 text-sm leading-tight">Tienda Norte - Calle 140</h4>
+<p class="text-xs text-slate-400 mt-0.5">Bogotá D.C. · Punto POS #2</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap">
+                  Cajero
+                </span>
+<span class="status-indicator hidden text-[#0F6E6E]">
+<span class="material-symbols-outlined text-[20px] fill-1" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</span>
+</div>
+</div>
+<!-- Sede 3 [Disponible] -->
+<div aria-checked="false" class="branch-option border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all" onclick="selectBranch(this)" role="radio" tabindex="0">
+<div class="flex items-center gap-3">
+<div class="bg-slate-100 text-slate-400 p-2 rounded-lg flex items-center justify-center branch-icon-wrap">
+<span class="material-symbols-outlined text-[20px]" data-icon="warehouse">warehouse</span>
+</div>
+<div>
+<h4 class="font-medium text-slate-800 text-sm leading-tight">Bodega Principal Soacha</h4>
+<p class="text-xs text-slate-400 mt-0.5">Soacha, Cund. · Centro Logístico</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap">
+                  Bodeguero
+                </span>
+<span class="status-indicator hidden text-[#0F6E6E]">
+<span class="material-symbols-outlined text-[20px] fill-1" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Botón de Acción Principal -->
+<button class="w-full bg-[#0F6E6E] hover:bg-[#0c5858] text-white py-3.5 px-4 rounded-xl font-bold text-sm tracking-wide shadow-md shadow-teal-900/15 flex items-center justify-center gap-2 transition-all mt-6 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-[#0F6E6E] focus:ring-offset-2" type="submit">
+<span>Entrar a Nexa</span>
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</form>
+</section>
+<!-- 5. Enlaces y Certificaciones de Seguridad -->
+<div class="text-center space-y-3">
+<p class="text-xs text-slate-600">
+        ¿No tienes una cuenta aún? 
+        <a class="text-[#0F6E6E] font-bold hover:underline ml-1" href="#">Crea tu organización aquí</a>
+</p>
+<div class="text-xs text-slate-400 flex items-center justify-center gap-1.5 flex-wrap px-2">
+<span class="material-symbols-outlined text-[16px] text-slate-400" data-icon="lock">lock</span>
+<span>Nexa POS Colombia · Seguridad y cifrado SSL de 256 bits · Servidores DIAN certificados</span>
+</div>
+</div>
+</main>
+<!-- Shared Minimal Footer Component from JSON Anchor -->
+<footer class="w-full py-6 px-4 flex flex-col md:flex-row items-center justify-between gap-4 max-w-5xl mx-auto bg-transparent font-body text-xs text-on-surface-variant">
+<div class="text-slate-500 text-center md:text-left">
+      © 2025 Nexa POS. Todos los derechos reservados. Conexión segura TLS 1.3 de grado bancario.
+    </div>
+<div class="flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-on-surface transition-colors hover:text-[#0F6E6E]" href="#">Términos de servicio</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors hover:text-[#0F6E6E]" href="#">Privacidad</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors hover:text-[#0F6E6E]" href="#">Soporte técnico</a>
+</div>
+</footer>
+<script>
+    // Micro-interacción: Mostrar / Ocultar contraseña
+    function togglePasswordVisibility() {
+      const pwdInput = document.getElementById('password');
+      const icon = document.getElementById('pwd-icon');
+      if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        icon.textContent = 'visibility_off';
+      } else {
+        pwdInput.type = 'password';
+        icon.textContent = 'visibility';
+      }
+    }
+
+    // Micro-interacción: Selección interactiva de Sede
+    function selectBranch(element) {
+      const allBranches = document.querySelectorAll('.branch-option');
+      allBranches.forEach(branch => {
+        branch.setAttribute('aria-checked', 'false');
+        branch.className = 'branch-option border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all';
+        
+        const iconWrap = branch.querySelector('.branch-icon-wrap') || branch.querySelector('.rounded-lg');
+        if (iconWrap) {
+          iconWrap.className = 'branch-icon-wrap bg-slate-100 text-slate-400 p-2 rounded-lg flex items-center justify-center';
+        }
+        
+        const title = branch.querySelector('h4');
+        if (title) title.className = 'font-medium text-slate-800 text-sm leading-tight';
+
+        const indicator = branch.querySelector('.status-indicator');
+        if (indicator) indicator.classList.add('hidden');
+      });
+
+      // Activar el elemento seleccionado
+      element.setAttribute('aria-checked', 'true');
+      element.className = 'branch-option border-2 border-[#0F6E6E] bg-teal-50/50 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all shadow-sm';
+
+      const activeIconWrap = element.querySelector('.branch-icon-wrap') || element.querySelector('.rounded-lg');
+      if (activeIconWrap) {
+        activeIconWrap.className = 'bg-[#0F6E6E] text-white p-2 rounded-lg flex items-center justify-center';
+      }
+
+      const activeTitle = element.querySelector('h4');
+      if (activeTitle) activeTitle.className = 'font-semibold text-slate-900 text-sm leading-tight';
+
+      const activeIndicator = element.querySelector('.status-indicator');
+      if (activeIndicator) activeIndicator.classList.remove('hidden');
+    }
+  </script>
+</body></html>

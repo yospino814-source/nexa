@@ -1,0 +1,2133 @@
+// Tipos "de cable": la forma exacta del JSON que devuelve nexa-backend.
+//
+// - `Decimal` de rust_decimal se serializa como string ("3500.00").
+// - `Uuid` llega como string.
+// - Los codigos (status, sale_type, tax_code) son `tima_codigo` de
+//   tbl_tipos_maestra (ver supabase/migrations/20260924000100_core_tenancy.sql).
+//
+// Los tipos marcados "PROPUESTO" aun no existen en el backend: son el contrato
+// que el frontend necesita y que el backend debe implementar.
+
+export type Decimal = string;
+export type Uuid = string;
+
+export type TaxCode = "IVA19" | "IVA5" | "INC8";
+
+/** GET /v1/catalog?branch_id= — src/catalog.rs::CatalogItem */
+export type CatalogItem = {
+  product_id: Uuid;
+  name: string;
+  category: string | null;
+  barcode?: string | null;
+  price: Decimal | null;
+  tax_code: TaxCode | null;
+  /** Fraccion: 0.19 para IVA 19%. `null` = exento. */
+  tax_rate: Decimal | null;
+  /** Unidades disponibles (on_hand - reserved); `null` si no aplica. */
+  available: Decimal | null;
+  tier_barcodes?: TierBarcode[];
+};
+
+export type OrderStatus =
+  | "CREADA"
+  | "EN_PREPARACION"
+  | "LISTA"
+  | "ENTREGADA"
+  | "COBRADA"
+  | "CERRADA"
+  | "CANCELADA";
+
+export type SaleType = "MESA" | "MOSTRADOR" | "DOMICILIO" | "MAYORISTA";
+
+/** src/orders.rs::Order */
+export type Order = {
+  id: Uuid;
+  sale_type: SaleType;
+  status: OrderStatus;
+  table_id: Uuid | null;
+  branch_id: Uuid;
+  waiter_id: Uuid | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
+  customer_name?: string | null;
+  subtotal: Decimal;
+  discount_total?: Decimal;
+  inc_amount: Decimal;
+  tip_amount: Decimal;
+  total_amount: Decimal;
+  /** F1.11: total devuelto de la venta. */
+  refunded_amount?: Decimal;
+  /** F1.12: motivo de anulación. */
+  void_reason?: string | null;
+};
+
+/** src/orders.rs::OrderItem */
+export type OrderItem = {
+  id: Uuid;
+  product_id?: Uuid | null;
+  custom_name?: string | null;
+  name?: string;
+  tier_id?: Uuid | null;
+  units_per_package?: Decimal;
+  qty: Decimal;
+  unit_price: Decimal;
+  list_price?: Decimal;
+  discount_manual?: Decimal;
+  discount_promotion?: Decimal;
+  discount_order?: Decimal;
+  discount_coupon?: Decimal;
+  promotion_id?: Uuid | null;
+  price_override_reason?: string | null;
+  line_discount?: Decimal;
+  line_total: Decimal;
+  /** Tasa congelada al agregar la linea: "0.19" = 19%. "0" = exento. */
+  tax_rate: Decimal;
+  tax_amount: Decimal;
+  station_id: number | null;
+  status_id: number | null;
+};
+
+export type Role =
+  | "DUENO"
+  | "ADMIN_CAJA"
+  | "CAJERO"
+  | "MESERO"
+  | "COCINA"
+  | "SUPERVISOR"
+  | "BODEGA"
+  | "REPARTIDOR";
+
+/** GET /v1/context — alcance resuelto por membresia (src/routes.rs::context). */
+export type SessionContext = {
+  uid: Uuid | null;
+  tenant: Uuid | null;
+  /** `null` = membresia de todo el negocio sin sucursal fija. */
+  branch: Uuid | null;
+  role: Role;
+  permissions?: string[];
+};
+
+/** GET /v1/branches — src/tenancy.rs::BranchAccess */
+export type BranchAccess = {
+  id: Uuid;
+  name: string;
+  code: string | null;
+  /** Rol del usuario en esta sucursal. */
+  role: Role;
+};
+
+// ------------------------------------------------------ venta de mostrador
+
+export type PaymentMethod = "EFECTIVO" | "DATAFONO" | "QR" | "CREDITO";
+
+export type CreditFrequency = "SEMANAL" | "QUINCENAL" | "MENSUAL";
+export type CreditInterestType = "SIMPLE" | "CUOTA_FIJA";
+
+export type CreditPlan = {
+  installments: number;
+  frequency: CreditFrequency;
+  first_due_date: string;
+  interest_rate_monthly: Decimal;
+  interest_type: CreditInterestType;
+};
+
+export type ScheduleInstallment = {
+  n: number;
+  due_date: string;
+  amount: Decimal;
+};
+
+export type SchedulePreview = {
+  interest_total: Decimal;
+  total: Decimal;
+  installments: ScheduleInstallment[];
+};
+
+export type SchedulePreviewParams = {
+  principal: Decimal;
+  installments: number;
+  frequency: CreditFrequency;
+  first_due_date: string;
+  interest_rate_monthly: Decimal;
+  interest_type: CreditInterestType;
+};
+
+/**
+ * POST /v1/sales — src/sales.rs::SaleRequest.
+ *
+ * `id` lo genera el cliente y es la clave de idempotencia: un reintento con
+ * el mismo id y cuerpo devuelve la misma venta (200) sin cobrar dos veces.
+ */
+export type QuoteItemInput = {
+  product_id?: Uuid | null;
+  custom_name?: string | null;
+  qty: Decimal;
+  unit_price_override?: Decimal | null;
+  discount_pct?: Decimal | null;
+  tier_id?: Uuid | null;
+  price_override_reason?: string | null;
+  /** Impuesto del ítem libre (F1.9). */
+  custom_tax?: CustomTax | null;
+};
+
+export type CustomTax = "IVA19" | "IVA5" | "INC8" | "EXENTO";
+
+export type QuoteRequest = {
+  branch_id: Uuid;
+  items: QuoteItemInput[];
+  tip_amount?: Decimal | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
+  coupon_code?: string | null;
+};
+
+export type LineDiscountBreakdown = {
+  manual: Decimal;
+  promotion: Decimal;
+  order: Decimal;
+  coupon: Decimal;
+  total: Decimal;
+};
+
+export type QuoteLine = {
+  index: number;
+  product_id?: Uuid | null;
+  name: string;
+  qty: Decimal;
+  units_per_package: Decimal;
+  list_price: Decimal;
+  unit_price: Decimal;
+  gross: Decimal;
+  discount: LineDiscountBreakdown;
+  promotion_id?: Uuid | null;
+  line_total: Decimal;
+  tax_rate: Decimal;
+  tax_amount: Decimal;
+};
+
+export type PromoApplied = {
+  id: Uuid;
+  name: string;
+  amount: Decimal;
+};
+
+export type CouponApplied = {
+  id: Uuid;
+  code: string;
+  amount: Decimal;
+};
+
+export type CouponError = {
+  code: string;
+  message: string;
+};
+
+export type QuoteResponse = {
+  lines: QuoteLine[];
+  subtotal_gross: Decimal;
+  discount_total: Decimal;
+  subtotal: Decimal;
+  tax_total: Decimal;
+  tip_amount: Decimal;
+  total: Decimal;
+  promotions: PromoApplied[];
+  coupon?: CouponApplied | null;
+  coupon_error?: CouponError | null;
+};
+
+export type CheckoutRequest = {
+  id: Uuid;
+  branch_id: Uuid;
+  items: QuoteItemInput[];
+  /**
+   * En EFECTIVO `amount` es lo que entrega el cliente (el vuelto lo calcula
+   * el servidor). En los demas metodos, el monto cobrado. Maximo un EFECTIVO.
+   */
+  payments: { method: PaymentMethod; amount: Decimal; reference?: string | null }[];
+  quoted_total: Decimal;
+  tip_amount?: Decimal | null;
+  /** F1.10: mesero que recibe la propina. */
+  tip_waiter_id?: Uuid | null;
+  customer_id?: Uuid | null;
+  customer_alias?: string | null;
+  coupon_code?: string | null;
+  credit_plan?: CreditPlan | null;
+  credit_override_reason?: string | null;
+};
+
+export type SaleRequest = CheckoutRequest;
+
+/** src/sales.rs::Payment */
+export type Payment = {
+  id: Uuid;
+  method: PaymentMethod;
+  /** Monto aplicado a la orden. */
+  amount: Decimal;
+  /** Solo EFECTIVO: lo recibido del cliente. */
+  tendered: Decimal | null;
+  reference: string | null;
+};
+
+export type FiscalStatus = "PENDIENTE" | "ENVIADO" | "ACEPTADO" | "RECHAZADO" | "ANULADO";
+
+/** Respuesta de POST /v1/sales (201 nueva, 200 reintento). */
+export type CheckoutResponse = {
+  order: Order;
+  items: OrderItem[];
+  payments: Payment[];
+  /** Consecutivo del comprobante (POS-000123), sin huecos. */
+  receipt_number: string;
+  change_due: Decimal;
+  /** Documento equivalente electronico DIAN; PENDIENTE hasta que se transmita. */
+  fiscal_status: FiscalStatus;
+};
+
+// ------------------------------------------------------------------- caja
+
+/** src/registers.rs::Register */
+export type CashRegister = {
+  id: Uuid;
+  branch_id: Uuid;
+  location_id?: Uuid | null;
+  name: string;
+  code: string;
+  default_opening: Decimal;
+  active: boolean;
+  open_session: null | {
+    id: Uuid;
+    opened_by: Uuid;
+    opened_by_name: string | null;
+    opened_at: string;
+  };
+};
+
+// ------------------------------------------------------------- bodegas y ubicaciones (F2.8)
+
+export type LocationKind =
+  | "PISO_VENTA"
+  | "BODEGA"
+  | "PRODUCCION"
+  | "RECEPCION"
+  | "DESPACHO"
+  | "CUARENTENA"
+  | "AVERIADOS";
+
+export type LocationRow = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  name: string;
+  kind: LocationKind;
+  sellable: boolean;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreateLocationInput = {
+  branch_id: Uuid;
+  name: string;
+  kind: LocationKind;
+  sellable: boolean;
+  is_default?: boolean;
+};
+
+export type UpdateLocationInput = {
+  name?: string;
+  kind?: LocationKind;
+  sellable?: boolean;
+  is_default?: boolean;
+  active?: boolean;
+};
+
+/** src/cash.rs::CashSession */
+export type CashSession = {
+  id: Uuid;
+  branch_id: Uuid;
+  register_id: Uuid;
+  register_name: string;
+  register_code: string;
+  opened_by: Uuid;
+  opening_amount: Decimal;
+  opened_at: string;
+  closed_by: Uuid | null;
+  closed_at: string | null;
+  expected_cash: Decimal | null;
+  counted_cash: Decimal | null;
+  /** counted - expected (negativo = faltante). */
+  difference: Decimal | null;
+  notes: string | null;
+};
+
+export type CashMovementKind =
+  | "INGRESO"
+  | "ABONO_CARTERA"
+  | "ABONO_SEPARADO"
+  | "RECARGA_SALDO"
+  | "RETIRO"
+  | "DEVOLUCION"
+  | "PROPINA_PAGADA"
+  | "PAGO_PROVEEDOR"
+  | "GASTO";
+
+export type CashMovementReasonCode = "CONSIGNACION" | "GASTO_MENOR" | "PRESTAMO" | "OTRO";
+
+export type MovementByKind = {
+  kind: CashMovementKind;
+  code: string;
+  label: string;
+  amount: Decimal;
+  count: number;
+  is_inflow: boolean;
+};
+
+/** GET /v1/cash-sessions/current y POST /v1/cash-sessions/{id}/close */
+export type CashSummary = {
+  session: CashSession;
+  sales_count: number;
+  sales_total: Decimal;
+  by_method: { method: PaymentMethod; amount: Decimal; count: number }[];
+  movements_by_kind: MovementByKind[];
+  /** Ingresos de efectivo que no son ventas. */
+  cash_in: Decimal;
+  /** Retiros de efectivo de la gaveta. */
+  cash_out: Decimal;
+  /** Base + efectivo cobrado + ingresos - retiros. */
+  expected_cash: Decimal;
+  tips_total: Decimal;
+  tips_paid: Decimal;
+  tips_pending: Decimal;
+  state_token: string;
+};
+
+/** GET /v1/cash-sessions/{id}/activity — src/cash.rs::ActivityResponse */
+export type CashActivityReport = {
+  state_token: string;
+  items: CashActivity[];
+};
+
+/** Fila individual de bitacora del turno — src/cash.rs::ActivityEntry */
+export type CashActivity = {
+  at: string;
+  kind: "APERTURA" | "VENTA" | CashMovementKind | "CIERRE";
+  /** Numero de comprobante, motivo del movimiento o nota del cierre. */
+  detail: string | null;
+  /** Metodos de pago de la venta: "EFECTIVO", "DATAFONO+QR"... */
+  methods: string | null;
+  amount: Decimal;
+  user_name: string | null;
+};
+
+/** GET /v1/cash-sessions?branch_id= — src/cash.rs::SessionRow */
+export type CashSessionRow = {
+  id: Uuid;
+  opened_by: Uuid;
+  opened_by_name: string | null;
+  opening_amount: Decimal;
+  opened_at: string;
+  closed_at: string | null;
+  expected_cash: Decimal | null;
+  counted_cash: Decimal | null;
+  difference: Decimal | null;
+  sales_count: number;
+  sales_total: Decimal;
+};
+
+// ------------------------------------------------------------- inventario
+
+export type MovementType =
+  | "REPOSICION"
+  | "DESCUENTO"
+  | "AJUSTE_ENTRADA"
+  | "AJUSTE_SALIDA"
+  | "TRASLADO_ENTRADA"
+  | "TRASLADO_SALIDA"
+  | "DEVOLUCION"
+  | "AJUSTE";
+
+/** GET /v1/inventory/movements (kardex) — src/inventory.rs::Movement */
+export type Movement = {
+  id: Uuid;
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  movement_type: MovementType;
+  qty: Decimal;
+  /** Efecto con signo sobre el stock; null en ajustes heredados sin direccion. */
+  delta: Decimal | null;
+  /** Existencia despues del movimiento. */
+  balance_after: Decimal | null;
+  cause: string | null;
+  /** "venta" (ref_id = orden) o "TRASLADO" (ref_id compartido por las dos patas). */
+  ref_type: string | null;
+  ref_id: Uuid | null;
+  user_name: string | null;
+  branch_id: Uuid;
+  created_at: string;
+};
+
+export type StockStatus = "AGOTADO" | "BAJO" | "OK";
+
+export type ProductKind = "FISICO" | "SERVICIO" | "PREPARADO";
+export type ProductUsage = "VENTA" | "INSUMO" | "INTERNO";
+
+export type ProductRow = {
+  id: Uuid;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  kind: ProductKind;
+  usage: ProductUsage;
+  price: Decimal | null;
+  cost_price: Decimal | null;
+  tax_code: string;
+  on_hand: Decimal;
+  category_name: string | null;
+  has_variants: boolean;
+  parent_id: Uuid | null;
+  archived: boolean;
+};
+
+export type LocationStock = {
+  location_id: Uuid;
+  location_name: string;
+  on_hand: Decimal;
+  reserved: Decimal;
+  min_qty: Decimal | null;
+  avg_cost: Decimal;
+};
+
+export type ProductDetail = {
+  id: Uuid;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  kind: ProductKind;
+  usage: ProductUsage;
+  price: Decimal | null;
+  cost_price: Decimal | null;
+  tax_code: string;
+  on_hand: Decimal;
+  category_name: string | null;
+  has_variants: boolean;
+  parent_id: Uuid | null;
+  archived: boolean;
+  archived_at?: string | null;
+  unit_measure_code: string;
+  purchase_uom_code: string | null;
+  purchase_factor: Decimal;
+  reorder_qty: Decimal | null;
+  max_qty: Decimal | null;
+  track_lots: boolean;
+  allow_price_override: boolean;
+  description: string | null;
+  variants: ProductRow[];
+  tier_prices: ProductTierPrice[];
+  option_groups: OptionGroupDetail[];
+  stock_by_location: LocationStock[];
+};
+
+export type ArchivePlanItem = {
+  location_id: Uuid;
+  location_name: string;
+  on_hand: Decimal;
+  avg_cost: Decimal;
+  value: Decimal;
+};
+
+export type ArchiveNeedsConfirmData = {
+  plan: ArchivePlanItem[];
+  total_value: Decimal;
+};
+
+export type OptionItem = {
+  id: Uuid;
+  group_id: Uuid;
+  name: string;
+  price_delta: Decimal;
+  input_product_id?: Uuid | null;
+  input_qty?: Decimal | null;
+  sort_order: number;
+  active: boolean;
+};
+
+export type OptionGroupDetail = {
+  id: Uuid;
+  name: string;
+  min_select: number;
+  max_select: number;
+  active: boolean;
+  options: OptionItem[];
+};
+
+export type OptionInput = {
+  id?: Uuid;
+  name: string;
+  price_delta?: Decimal;
+  input_product_id?: Uuid | null;
+  input_qty?: Decimal | null;
+  sort_order?: number;
+  active?: boolean;
+};
+
+export type CreateOptionGroupInput = {
+  name: string;
+  min_select?: number;
+  max_select?: number;
+  active?: boolean;
+  options?: OptionInput[];
+};
+
+export type UpdateProductOptionGroupInput = {
+  group_id: Uuid;
+  sort_order?: number;
+};
+
+export type ProductInput = {
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  kind?: ProductKind;
+  usage?: ProductUsage;
+  unit_measure_code: string;
+  purchase_uom_code?: string | null;
+  purchase_factor?: Decimal;
+  tax_code: string;
+  cost_price?: Decimal | null;
+  base_price?: Decimal | null;
+  reorder_qty?: Decimal | null;
+  max_qty?: Decimal | null;
+  track_lots?: boolean;
+  allow_price_override?: boolean;
+  has_variants?: boolean;
+  description?: string | null;
+};
+
+export type CreateVariantInput = {
+  sku?: string | null;
+  barcode?: string | null;
+  attrs: Record<string, string>;
+  price: Decimal;
+  cost_price?: Decimal | null;
+};
+
+export type UpdateBranchProductInput = {
+  branch_id: Uuid;
+  price: Decimal;
+  category_id?: Uuid | null;
+  is_available?: boolean;
+};
+
+export type ProductListParams = {
+  branch_id?: Uuid;
+  q?: string;
+  category_id?: Uuid;
+  usage?: string;
+  archived?: boolean;
+  page?: number;
+  page_size?: number;
+};
+
+export type ProductListResponse = {
+  items: ProductRow[];
+  total_count: number;
+};
+
+/** GET /v1/inventory/stock?branch_id= — src/inventory.rs::StockLevel */
+export type StockLevel = {
+  product_id: Uuid;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  category: string | null;
+  unit: string | null;
+  kind?: ProductKind;
+  usage?: ProductUsage;
+  /** Precio de venta en la sucursal, sin impuesto. */
+  price: Decimal | null;
+  cost_price: Decimal | null;
+  on_hand: Decimal;
+  reserved: Decimal;
+  available: Decimal;
+  /** Punto de reorden. */
+  min_qty: Decimal;
+  status: StockStatus;
+  updated_at: string | null;
+  archived?: boolean;
+  track_lots?: boolean;
+};
+
+/** GET /v1/inventory/alerts?branch_id= — src/inventory.rs::StockAlert */
+export type StockAlert = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  location_name: string;
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  kind: "BAJO" | "NEGATIVO";
+  qty: Decimal;
+  created_at: string;
+  resolved_at: string | null;
+};
+
+// ------------------------------------------------------------- compras y proveedores
+
+export type PurchaseStatus =
+  | "PENDIENTE"
+  | "APROBADA"
+  | "PARCIAL"
+  | "RECIBIDA"
+  | "ANULADA";
+
+/** src/procurement.rs::Supplier */
+export type Supplier = {
+  id: Uuid;
+  name: string;
+  tax_id: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
+  archived_at?: string | null;
+};
+
+export type CreateSupplierInput = {
+  name: string;
+  tax_id?: string | null;
+  contact_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
+};
+
+export type UpdateSupplierInput = {
+  name: string;
+  tax_id?: string | null;
+  contact_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active?: boolean;
+  doc_type?: "NIT" | "CC" | "CE";
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  iva_responsible?: boolean;
+  self_withholding?: boolean;
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  delivery_days?: number | null;
+  category?: "MERCANCIA" | "TRANSPORTE" | "SERVICIOS";
+  bank_name?: string | null;
+  bank_account_type?: "AHORROS" | "CORRIENTE" | null;
+  bank_account_number?: string | null;
+};
+
+export type SupplierProductItemInput = {
+  product_id: Uuid;
+  supplier_code?: string | null;
+  min_order_qty?: Decimal | null;
+  preferred: boolean;
+};
+
+export type SupplierProductDetail = {
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  supplier_code: string | null;
+  last_cost: Decimal | null;
+  min_order_qty: Decimal | null;
+  preferred: boolean;
+};
+
+export type SupplierDetailResponse = {
+  supplier: Supplier;
+  products: SupplierProductDetail[];
+  open_orders: number;
+  balance: Decimal;
+};
+
+/** src/procurement.rs::PurchaseItemDetail */
+export type PurchaseItem = {
+  id: Uuid;
+  product_id: Uuid;
+  product_name: string;
+  sku: string | null;
+  qty: Decimal;
+  unit_cost: Decimal;
+  line_total: Decimal;
+  tax_code: TaxCode | null;
+  tax_rate: Decimal | null;
+  qty_received?: Decimal;
+  discount_alloc?: Decimal;
+  freight_alloc?: Decimal;
+  tax_amount?: Decimal;
+  landed_unit_cost?: Decimal | null;
+  new_sale_price?: Decimal | null;
+  purchase_factor?: Decimal;
+  purchase_unit?: string | null;
+  track_lots?: boolean;
+  notes?: string | null;
+};
+
+/** src/procurement.rs::PurchaseRow / PurchaseDetail */
+export type Purchase = {
+  id: Uuid;
+  branch_id: Uuid;
+  location_id?: Uuid;
+  supplier_id: Uuid;
+  supplier_name: string;
+  document_number: string | null;
+  supplier_invoice_date: string | null;
+  expected_at?: string | null;
+  status: PurchaseStatus;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  approved_by?: Uuid | null;
+  approved_at?: string | null;
+  subtotal: Decimal;
+  tax_amount: Decimal;
+  total_amount: Decimal;
+  items_count: number;
+  received_at: string | null;
+  notes: string | null;
+  created_at: string;
+  items?: PurchaseItem[];
+};
+
+export type PurchaseItemInput = {
+  product_id: Uuid;
+  qty: Decimal;
+  unit_cost: Decimal;
+  new_sale_price?: Decimal | null;
+};
+
+export type CreatePurchaseInput = {
+  id: Uuid;
+  branch_id: Uuid;
+  supplier_id: Uuid;
+  location_id?: Uuid;
+  expected_at?: string | null;
+  document_number?: string | null;
+  supplier_invoice_date?: string | null;
+  notes?: string | null;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type UpdatePurchaseInput = {
+  branch_id: Uuid;
+  supplier_id: Uuid;
+  location_id?: Uuid;
+  expected_at?: string | null;
+  document_number?: string | null;
+  supplier_invoice_date?: string | null;
+  notes?: string | null;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  payment_terms?: "CONTADO" | "CREDITO";
+  credit_days?: number;
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type CostPreviewRequest = {
+  supplier_id: Uuid;
+  discount_amount?: Decimal;
+  freight_amount?: Decimal;
+  freight_mode?: "PRORRATEAR" | "GASTO";
+  iva_to_cost?: boolean;
+  items: PurchaseItemInput[];
+};
+
+export type CostPreviewLine = {
+  product_id: Uuid;
+  product_name: string;
+  qty: Decimal;
+  unit_cost: Decimal;
+  purchase_factor: Decimal;
+  discount_alloc: Decimal;
+  freight_alloc: Decimal;
+  tax_amount: Decimal;
+  landed_unit_cost: Decimal;
+  current_price: Decimal | null;
+  new_sale_price: Decimal | null;
+  resulting_margin_pct: Decimal | null;
+};
+
+export type CostPreviewResponse = {
+  lines: CostPreviewLine[];
+  subtotal: Decimal;
+  discount_total: Decimal;
+  freight_total: Decimal;
+  tax_total: Decimal;
+  total: Decimal;
+  warnings: string[];
+};
+
+export type ReceiveItemInput = {
+  purchase_item_id: Uuid;
+  qty: Decimal;
+  lot_code?: string | null;
+  expires_at?: string | null;
+};
+
+export type ReceivePurchaseRequest = {
+  id: Uuid;
+  items: ReceiveItemInput[];
+};
+
+export type PurchaseFilter = {
+  branch_id?: Uuid;
+  from?: string;
+  to?: string;
+  supplier_id?: Uuid;
+  status?: PurchaseStatus;
+  limit?: number;
+};
+
+/** src/procurement.rs::PurchaseSummary */
+export type PurchaseSummary = {
+  total_purchased_month: Decimal;
+  to_receive_month?: Decimal;
+  to_pay_balance?: Decimal;
+  active_suppliers: number;
+};
+
+/** src/procurement.rs::PurchaseSuggestionItem (F2.17) */
+export type PurchaseSuggestionItem = {
+  product_id: Uuid;
+  name: string;
+  on_hand: Decimal;
+  min_qty: Decimal;
+  suggested_qty: Decimal;
+  purchase_uom: string | null;
+  last_cost: Decimal | null;
+};
+
+/** src/procurement.rs::PurchaseSuggestionGroup (F2.17) */
+export type PurchaseSuggestionGroup = {
+  supplier: { id: Uuid; name: string } | null;
+  items: PurchaseSuggestionItem[];
+};
+
+/** src/procurement.rs::CreateFromSuggestionsRequest (F2.17) */
+export type CreateFromSuggestionsInput = {
+  branch_id: Uuid;
+  supplier_ids: Uuid[];
+};
+
+// ---------------------------------------------------------------- PLATAFORMA (Fase 0)
+
+export type Permission = {
+  code: string;
+  module: string;
+  description: string;
+};
+
+export type RolePermissionItem = {
+  code: string;
+  module: string;
+  description: string;
+  allowed: boolean;
+  is_override: boolean;
+};
+
+export type RolePermissionsResponse = {
+  role: string;
+  permissions: RolePermissionItem[];
+};
+
+export type UpdateRolePermissionsInput = {
+  overrides: {
+    permission_code: string;
+    allowed: boolean;
+  }[];
+};
+
+export type PosSettings = {
+  allow_price_override: boolean;
+  max_discount_pct: number;
+  refund_requires_approval: boolean;
+  allow_anonymous_sales?: boolean;
+  auto_print?: boolean;
+};
+
+export type CashSettings = {
+  require_session: boolean;
+  close_tolerance: Decimal;
+  blind_close?: boolean;
+};
+
+export type InventorySettings = {
+  allow_negative_stock: boolean;
+  track_raw_materials: boolean;
+  low_stock_default?: number;
+  costing?: "PROMEDIO" | "PEPS";
+};
+
+export type TipsSettings = {
+  enabled?: boolean;
+  suggested_pct: number[];
+  distribute_evenly: boolean;
+};
+
+export type PrintSettings = {
+  ticket_width_mm: number;
+  header_text: string | null;
+  footer_text: string | null;
+};
+
+export type BranchSettings = {
+  pos: PosSettings;
+  cash: CashSettings;
+  inventory: InventorySettings;
+  tips: TipsSettings;
+  print: PrintSettings;
+};
+
+export type AuditEntry = {
+  id: string;
+  tenant_id: Uuid;
+  branch_id: Uuid | null;
+  user_id: Uuid | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+};
+
+export type AuditFilter = {
+  branch_id?: Uuid;
+  user_id?: Uuid;
+  action?: string;
+  entity?: string;
+  entity_id?: Uuid;
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
+export type TenantUser = {
+  id: Uuid;
+  email: string | null;
+  full_name: string | null;
+  role: Role;
+  branches: {
+    id: Uuid;
+    name: string;
+  }[];
+  active: boolean;
+  created_at: string;
+};
+
+export type Invitation = {
+  id: Uuid;
+  email: string;
+  full_name?: string | null;
+  role: Role;
+  role_name?: string | null;
+  branch_id?: Uuid | null;
+  branch_name?: string | null;
+  status: "PENDIENTE" | "ACEPTADA" | "REVOCADA" | "CANCELADA";
+  created_at: string;
+};
+
+export type InviteUserInput = {
+  email: string;
+  full_name: string;
+  role: Role;
+  branch_id?: Uuid | null;
+};
+
+export type MyInvitation = {
+  id: Uuid;
+  tenant_name: string;
+  branch_name: string | null;
+  role_code: string;
+  role_name: string;
+  created_at: string;
+};
+
+export type AcceptInvitationResult = {
+  tenant_id: Uuid;
+  branch_id: Uuid | null;
+  role: string;
+};
+
+export type UpdateUserRoleInput = {
+  role: Role;
+  branch_id?: Uuid | null;
+};
+
+export type UpdateUserStatusInput = {
+  active: boolean;
+};
+
+export type LoginAttemptInput = {
+  email: string;
+  success?: boolean;
+  failure_reason?: string;
+};
+
+// ---------------------------------------------------------------- clientes
+
+export type DocType = "CC" | "NIT" | "CE" | "PP" | "TI" | "PEP" | "PPT" | "NIUP";
+
+export type Customer = {
+  id: Uuid;
+  doc_type: DocType | null;
+  doc_number: string | null;
+  dv: string | null;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  price_tier_id: Uuid | null;
+  person_type?: "NATURAL" | "JURIDICA";
+  tax_regime?: "RESPONSABLE_IVA" | "NO_RESPONSABLE";
+  fiscal_responsibilities?: string[];
+  ciiu?: string | null;
+  withholding_agent?: boolean;
+  city_code?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
+  pinned_note?: string | null;
+  credit_limit?: Decimal;
+  credit_block_days?: number;
+  archived_at?: string | null;
+  balance?: Decimal;
+  max_days_overdue?: number;
+};
+
+export type CustomerDetail = Customer & {
+  balance: Decimal;
+  credit_available: Decimal;
+  wallet_balance: Decimal;
+  missing_fiscal: string[];
+};
+
+export type CustomerUpsertResponse = {
+  customer: CustomerDetail;
+  result: "CREATED" | "UPDATED" | "UNCHANGED";
+};
+
+export type CreateCustomerInput = {
+  name: string;
+  doc_type?: DocType | null;
+  doc_number?: string | null;
+  dv?: string | null;
+  person_type?: "NATURAL" | "JURIDICA" | null;
+  phone?: string | null;
+  email?: string | null;
+  price_tier_id?: Uuid | null;
+  tax_regime?: "RESPONSABLE_IVA" | "NO_RESPONSABLE";
+  fiscal_responsibilities?: string[];
+  ciiu?: string | null;
+  withholding_agent?: boolean;
+  city_code?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
+  pinned_note?: string | null;
+  credit_limit?: Decimal;
+  credit_block_days?: number;
+};
+
+export type CustomerQuery = {
+  q?: string;
+  status?: "AL_DIA" | "EN_MORA" | "ARCHIVADO" | "TODOS" | string;
+  page?: number;
+  page_size?: number;
+  limit?: number;
+};
+
+// ---------------------------------------------------- F3.3 Abonos y cuotas
+
+export type ReceivableStatus =
+  | "ABIERTA"
+  | "PARCIAL"
+  | "PAGADA"
+  | "CASTIGADA"
+  | "REFINANCIADA";
+
+export type ReceivablePaymentMethod =
+  | "EFECTIVO"
+  | "DATAFONO"
+  | "QR"
+  | "TRANSFERENCIA"
+  | "SALDO";
+
+export type Receivable = {
+  id: Uuid;
+  branch_id: Uuid;
+  branch_name: string;
+  customer_id: Uuid;
+  customer_name: string;
+  source: "VENTA" | "ACUERDO" | string;
+  order_id: Uuid | null;
+  receipt_number: string | null;
+  principal: Decimal;
+  amount_total: Decimal;
+  amount_paid: Decimal;
+  balance: Decimal;
+  status: ReceivableStatus | string;
+  due_date: string;
+  days_overdue: number;
+  created_at: string;
+};
+
+export type ReceivableInstallment = {
+  n: number;
+  due_date: string;
+  amount: Decimal;
+  amount_paid: Decimal;
+  paid: boolean;
+  days_overdue: number;
+};
+
+export type ReceivablePaymentAllocation = {
+  n: number;
+  amount: Decimal;
+};
+
+export type ReceivablePayment = {
+  id: Uuid;
+  amount: Decimal;
+  method: ReceivablePaymentMethod | string;
+  reference: string | null;
+  allocation: ReceivablePaymentAllocation[];
+  created_at: string;
+  created_by_name: string;
+};
+
+export type ReceivableDetail = Receivable & {
+  installments: ReceivableInstallment[];
+  payments: ReceivablePayment[];
+};
+
+export type PayReceivableInput = {
+  id: Uuid;
+  amount: Decimal;
+  method: ReceivablePaymentMethod | string;
+  reference?: string | null;
+};
+
+export type ReceivablePaymentResponse = {
+  id: Uuid;
+  receivable_id: Uuid;
+  amount: Decimal;
+  method: string;
+  reference: string | null;
+  allocation: ReceivablePaymentAllocation[];
+  created_at: string;
+  balance_before: Decimal;
+  balance_after: Decimal;
+  next_due: { n: number; due_date: string; amount_pending: Decimal } | null;
+};
+
+export type ReceivablesFilter = {
+  customer_id?: Uuid;
+  status?: ReceivableStatus | string;
+  overdue?: boolean;
+};
+
+export type AgingSummary = {
+  al_dia: Decimal;
+  d1_30: Decimal;
+  d31_60: Decimal;
+  d61_90: Decimal;
+  d91_120: Decimal;
+  d120_mas: Decimal;
+};
+
+export type TopDebtor = {
+  customer_id: Uuid;
+  name: string;
+  balance: Decimal;
+  max_days_overdue: number;
+};
+
+export type ReceivablesSummaryResponse = {
+  total_balance: Decimal;
+  overdue_balance: Decimal;
+  due_this_week: Decimal;
+  collected_this_month: Decimal;
+  aging: AgingSummary;
+  top_debtors: TopDebtor[];
+};
+
+export type StatementEntry = {
+  date: string;
+  type: "CARGO" | "ABONO" | "DEVOLUCION";
+  reference: string;
+  debit: Decimal;
+  credit: Decimal;
+  balance: Decimal;
+};
+
+export type CustomerStatementResponse = {
+  opening_balance: Decimal;
+  entries: StatementEntry[];
+  closing_balance: Decimal;
+};
+
+export type WhatsappLinkResponse = {
+  url: string;
+};
+
+/** GET /v1/reports/dashboard?branch_id=&from=&to= */
+export type DashboardDateRange = {
+  from: string;
+  to: string;
+};
+
+export type DashboardKpis = {
+  gross_sale: Decimal;
+  net_sale: Decimal;
+  sales_count: number;
+  avg_ticket: Decimal;
+  gross_margin: Decimal;
+  margin_pct: Decimal;
+  refunds: Decimal;
+  tips: Decimal;
+  cost_missing_lines: number;
+};
+
+export type DashboardHourlyPoint = {
+  hour: number;
+  gross_sale: Decimal;
+  sales_count: number;
+};
+
+export type DashboardDailyPoint = {
+  date: string;
+  gross_sale: Decimal;
+  sales_count: number;
+};
+
+export type DashboardTopProduct = {
+  product_id: Uuid | null;
+  name: string;
+  qty: Decimal;
+  line_total: Decimal;
+};
+
+export type DashboardPaymentMethod = {
+  method: PaymentMethod | string;
+  amount: Decimal;
+  count: number;
+};
+
+export type DashboardLowStockItem = {
+  product_id: Uuid;
+  name: string;
+  location_name: string;
+  on_hand: Decimal;
+  min_qty: Decimal;
+};
+
+export type DashboardOverdueReceivables = {
+  count: number;
+  amount: Decimal;
+};
+
+export type DashboardResponse = {
+  period: DashboardDateRange;
+  previous: DashboardDateRange;
+  kpis: DashboardKpis;
+  kpis_previous: DashboardKpis;
+  by_hour: DashboardHourlyPoint[];
+  by_day: DashboardDailyPoint[];
+  top_products: DashboardTopProduct[];
+  payment_methods: DashboardPaymentMethod[];
+  low_stock: DashboardLowStockItem[];
+  overdue_receivables: DashboardOverdueReceivables;
+};
+
+export type DashboardQuery = {
+  branchId?: Uuid | null;
+  from?: string | null;
+  to?: string | null;
+};
+
+// ---------------------------------------------------------------- reportes S7 / F7.3
+
+export type ReportQuery = {
+  branchId?: Uuid | null;
+  from?: string | null;
+  to?: string | null;
+};
+
+export type ReportCsvSlug =
+  | "sales-by-day"
+  | "sales-by-product"
+  | "sales-by-category"
+  | "sales-by-cashier"
+  | "sales-by-method"
+  | "inventory-valuation"
+  | "inventory-rotation"
+  | "purchases-by-supplier";
+
+/** GET /v1/reports/sales-by-day */
+export type SalesByDayRow = {
+  fecha: string;
+  ventas: number;
+  venta_bruta: Decimal;
+  devoluciones: Decimal;
+  venta_neta: Decimal;
+  ticket_promedio: Decimal;
+  margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByDayResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByDayRow[];
+};
+
+/** GET /v1/reports/sales-by-product */
+export type SalesByProductRow = {
+  product_id: Uuid | null;
+  sku: string | null;
+  producto: string;
+  categoria: string;
+  cantidad: Decimal;
+  venta_sin_impuesto: Decimal;
+  costo: Decimal;
+  margen: Decimal;
+  pct_margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByProductResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByProductRow[];
+};
+
+/** GET /v1/reports/sales-by-category */
+export type SalesByCategoryRow = {
+  categoria: string;
+  cantidad: Decimal;
+  venta_sin_impuesto: Decimal;
+  costo: Decimal;
+  margen: Decimal;
+  pct_margen: Decimal;
+  cost_missing_lines: number;
+};
+
+export type SalesByCategoryResponse = {
+  period: DashboardDateRange;
+  cost_missing_lines: number;
+  rows: SalesByCategoryRow[];
+};
+
+/** GET /v1/reports/sales-by-cashier */
+export type SalesByCashierRow = {
+  cashier_id: Uuid | null;
+  cajero: string;
+  ventas: number;
+  venta_bruta: Decimal;
+  ticket_promedio: Decimal;
+};
+
+export type SalesByCashierResponse = {
+  period: DashboardDateRange;
+  rows: SalesByCashierRow[];
+};
+
+/** GET /v1/reports/sales-by-method */
+export type SalesByMethodRow = {
+  metodo: PaymentMethod | string;
+  etiqueta: string;
+  pagos: number;
+  monto: Decimal;
+};
+
+export type SalesByMethodResponse = {
+  period: DashboardDateRange;
+  rows: SalesByMethodRow[];
+};
+
+/** GET /v1/reports/sales-heatmap */
+export type SalesHeatmapRow = {
+  dia: number;
+  hora: number;
+  ventas: number;
+  venta_bruta: Decimal;
+};
+
+export type SalesHeatmapResponse = {
+  period: DashboardDateRange;
+  rows: SalesHeatmapRow[];
+};
+
+/** GET /v1/reports/inventory-valuation */
+export type InventoryValuationRow = {
+  product_id: Uuid;
+  location_id: Uuid;
+  sucursal: string;
+  producto: string;
+  ubicacion: string;
+  existencias: Decimal;
+  costo_promedio: Decimal;
+  valor: Decimal;
+};
+
+export type InventoryValuationResponse = {
+  period: DashboardDateRange;
+  total_valor: Decimal;
+  rows: InventoryValuationRow[];
+};
+
+/** GET /v1/reports/inventory-rotation */
+export type InventoryRotationRow = {
+  product_id: Uuid;
+  producto: string;
+  vendidas_30d: Decimal;
+  existencias: Decimal;
+  dias_inventario: Decimal | null;
+};
+
+export type InventoryRotationResponse = {
+  period: DashboardDateRange;
+  rows: InventoryRotationRow[];
+};
+
+/** GET /v1/reports/purchases-by-supplier */
+export type PurchasesBySupplierRow = {
+  supplier_id: Uuid;
+  proveedor: string;
+  ordenes: number;
+  recibido: Decimal;
+  pagado: Decimal;
+  saldo: Decimal;
+};
+
+export type PurchasesBySupplierResponse = {
+  period: DashboardDateRange;
+  rows: PurchasesBySupplierRow[];
+};
+
+/** Cuerpo de error de ApiError (src/error.rs). */
+export type ApiErrorBody = {
+  error: string;
+  code?: string;
+  data?: unknown;
+};
+
+export type TierKind = "CLIENTE" | "PRESENTACION";
+export type TierAdjustment =
+  | "NINGUNO"
+  | "DESCUENTO_PCT"
+  | "RECARGO_PCT"
+  | "DESCUENTO_FIJO"
+  | "RECARGO_FIJO"
+  | "PRECIO_FIJO";
+
+export type PriceTier = {
+  id: Uuid;
+  tenant_id: Uuid;
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreatePriceTierInput = {
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+};
+
+export type UpdatePriceTierInput = {
+  name: string;
+  kind: TierKind;
+  adjustment: TierAdjustment;
+  value: Decimal;
+  units_per_package?: Decimal | null;
+  active: boolean;
+};
+
+export type ProductTierPrice = {
+  tier_id: Uuid;
+  price?: Decimal | null;
+  units_per_package?: Decimal | null;
+  barcode?: string | null;
+};
+
+export type SetProductTierPriceInput = {
+  tier_id: Uuid;
+  price?: Decimal | null;
+  units_per_package?: Decimal | null;
+  barcode?: string | null;
+};
+
+export type TierBarcode = {
+  tier_id: Uuid;
+  barcode: string;
+};
+
+// ----------------------------------------------------------------- promociones
+
+export type PromotionEffectiveStatus = "BORRADOR" | "ACTIVA" | "PROGRAMADA" | "PAUSADA" | "VENCIDA";
+export type PromotionScope = "PEDIDO" | "PRODUCTO" | "CATEGORIA";
+export type PromotionKind = "PORCENTAJE" | "FIJO";
+
+export type Promotion = {
+  id: Uuid;
+  branch_id: Uuid | null;
+  name: string;
+  kind: PromotionKind;
+  value: Decimal;
+  scope: PromotionScope;
+  min_qty: Decimal | null;
+  min_subtotal: Decimal | null;
+  max_discount: Decimal | null;
+  starts_at: string;
+  ends_at: string | null;
+  status: "BORRADOR" | "ACTIVA" | "PAUSADA";
+  effective_status: PromotionEffectiveStatus;
+  priority: number;
+  usage_limit: number | null;
+  usage_count: number;
+  per_customer_limit: number | null;
+  skip_tier_lines: boolean;
+  created_at: string;
+  product_ids: Uuid[];
+  category_ids: Uuid[];
+};
+
+export type CreatePromotionInput = {
+  branch_id?: Uuid | null;
+  name: string;
+  kind: PromotionKind;
+  value: Decimal | number;
+  scope: PromotionScope;
+  min_qty?: Decimal | number | null;
+  min_subtotal?: Decimal | number | null;
+  max_discount?: Decimal | number | null;
+  starts_at: string;
+  ends_at?: string | null;
+  priority?: number;
+  usage_limit?: number | null;
+  per_customer_limit?: number | null;
+  skip_tier_lines?: boolean;
+  product_ids?: Uuid[];
+  category_ids?: Uuid[];
+};
+
+export type UpdatePromotionInput = CreatePromotionInput;
+
+// ---------------------------------------------------------------- CUPONES (F1.8)
+
+export type CouponStatus = "ACTIVO" | "INACTIVO";
+export type CouponKind = "PORCENTAJE" | "FIJO";
+export type CouponScope = "PEDIDO" | "PRODUCTO" | "CATEGORIA";
+
+export type Coupon = {
+  id: Uuid;
+  branch_id: Uuid | null;
+  code: string;
+  name: string;
+  kind: CouponKind;
+  value: Decimal;
+  scope: CouponScope;
+  min_qty: Decimal | null;
+  min_subtotal: Decimal | null;
+  max_discount: Decimal | null;
+  starts_at: string;
+  ends_at: string | null;
+  status: CouponStatus;
+  usage_limit: number | null;
+  usage_count: number;
+  per_customer_limit: number | null;
+  created_at: string;
+  product_ids: Uuid[];
+  category_ids: Uuid[];
+};
+
+export type CreateCouponInput = {
+  branch_id?: Uuid | null;
+  code: string;
+  name: string;
+  kind: CouponKind;
+  value: Decimal | number;
+  scope: CouponScope;
+  min_qty?: Decimal | number | null;
+  min_subtotal?: Decimal | number | null;
+  max_discount?: Decimal | number | null;
+  starts_at: string;
+  ends_at?: string | null;
+  usage_limit?: number | null;
+  per_customer_limit?: number | null;
+  product_ids?: Uuid[];
+  category_ids?: Uuid[];
+};
+
+export type UpdateCouponInput = CreateCouponInput;
+
+
+/** GET /v1/waiters (F1.10). */
+export type Waiter = { user_id: Uuid; full_name: string };
+
+// ------------------------------------------------- devoluciones (F1.11)
+
+export type RefundDisposition = "REINTEGRAR" | "MERMA" | "SIN_DEVOLUCION";
+export type RefundMethod = "EFECTIVO" | "ORIGINAL";
+export type RefundStatus = "PENDIENTE" | "APROBADA" | "RECHAZADA";
+
+export type RefundItem = {
+  order_item_id: Uuid;
+  name: string;
+  qty: Decimal;
+  disposition: RefundDisposition;
+  line_total: Decimal;
+  tax_amount: Decimal;
+};
+
+/** src/refunds.rs::Refund */
+export type Refund = {
+  id: Uuid;
+  order_id: Uuid;
+  receipt_number: string | null;
+  number: string;
+  status: RefundStatus;
+  method: RefundMethod;
+  original_method: PaymentMethod | null;
+  reversal_reference: string | null;
+  reason: string;
+  subtotal: Decimal;
+  tax_amount: Decimal;
+  total: Decimal;
+  items: RefundItem[];
+  requested_by_name: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  reject_reason: string | null;
+  created_at: string;
+};
+
+/** POST /v1/refunds. `id` lo genera el cliente (idempotencia). */
+export type RefundInput = {
+  id: Uuid;
+  order_id: Uuid;
+  method: RefundMethod;
+  reason: string;
+  reversal_reference?: string | null;
+  items: { order_item_id: Uuid; qty: Decimal; disposition: RefundDisposition }[];
+};
+
+// ------------------------------------------- historial de ventas (F1.13)
+
+export type SaleHistoryQuery = {
+  branch_id: Uuid;
+  from?: string | null;
+  to?: string | null;
+  cashier_id?: Uuid | null;
+  method?: PaymentMethod | null;
+  status?: "COBRADA" | "CANCELADA" | null;
+  q?: string | null;
+  page?: number;
+  page_size?: number;
+};
+
+export type SaleHistoryRow = {
+  id: Uuid;
+  receipt_number: string;
+  created_at: string;
+  cashier_id: Uuid | null;
+  cashier_name: string | null;
+  customer_label: string;
+  total: Decimal;
+  refunded_amount: Decimal;
+  methods: PaymentMethod[];
+  status: OrderStatus;
+  fiscal_status: FiscalStatus | null;
+};
+
+export type SaleHistoryPage = {
+  items: SaleHistoryRow[];
+  total_count: number;
+  totals: { count: number; amount: Decimal };
+};
+
+/** GET /v1/sales/{id} */
+export type SaleDetail = CheckoutResponse & {
+  refunds: Refund[];
+  customer: Customer | null;
+  cashier_name: string | null;
+  register_name: string | null;
+  waiter_name: string | null;
+};
+
+/** GET /v1/business — datos del negocio para la tirilla (F1.15). */
+export type BusinessInfo = {
+  name: string;
+  business_name: string | null;
+  nit: string | null;
+  dv: string | null;
+  iva_responsible: boolean | null;
+};
+
+export type UpdateBusinessInput = {
+  name: string;
+  business_name?: string | null;
+  nit?: string | null;
+  dv?: string | null;
+  iva_responsible?: boolean | null;
+};
+
+export type CreateBranchInput = {
+  name: string;
+};
+
+export type UpdateBranchInput = {
+  name: string;
+};
+
+export type BranchItem = {
+  id: Uuid;
+  name: string;
+};
+
+// ------------------------------------------------------------- importacion CSV (F2.6)
+
+export type ImportRowData = {
+  sku: string | null;
+  codigo_barras: string | null;
+  nombre: string;
+  categoria: string | null;
+  unidad: string;
+  impuesto: string;
+  costo: Decimal | null;
+  precio: Decimal | null;
+  cantidad_inicial: Decimal | null;
+  sku_padre: string | null;
+  atributos: Record<string, string>;
+};
+
+export type ImportRowResult = {
+  line: number;
+  status: "OK" | "ADVERTENCIA" | "ERROR";
+  action: "CREAR" | "ACTUALIZAR";
+  messages: string[];
+  data: ImportRowData;
+};
+
+export type ImportSummary = {
+  ok: number;
+  warnings: number;
+  errors: number;
+  create: number;
+  update: number;
+};
+
+export type AnalyzeResponse = {
+  session_id: Uuid;
+  summary: ImportSummary;
+  rows: ImportRowResult[];
+};
+
+export type CommitResponse = {
+  committed_rows: number;
+  done: boolean;
+};
+
+// ------------------------------------------------------------------- cuentas por pagar (F2.13)
+
+export type PayableStatus = "ABIERTA" | "PARCIAL" | "PAGADA" | "CASTIGADA";
+export type PayableSourceType = "COMPRA" | "GASTO";
+export type PayablePaymentMethod = "EFECTIVO" | "TRANSFERENCIA" | "CHEQUE";
+
+export type Payable = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  supplier_id: Uuid | null;
+  supplier_name: string | null;
+  source_type: PayableSourceType;
+  source_id: Uuid;
+  document_number: string | null;
+  amount_total: Decimal;
+  amount_paid: Decimal;
+  balance: Decimal;
+  status: PayableStatus;
+  due_date: string;
+  overdue: boolean;
+  days_overdue: number;
+  written_off_reason: string | null;
+  created_at: string;
+};
+
+export type PayablePayment = {
+  id: Uuid;
+  payable_id: Uuid;
+  amount: Decimal;
+  method: PayablePaymentMethod;
+  reference: string | null;
+  cash_session_id: Uuid | null;
+  paid_at: string;
+  created_by: Uuid;
+  created_by_name: string | null;
+};
+
+export type PayableDetail = Payable & {
+  payments: PayablePayment[];
+};
+
+export type PayablesAging = {
+  al_dia: Decimal;
+  d1_30: Decimal;
+  d31_60: Decimal;
+  d61_90: Decimal;
+  d91_120: Decimal;
+  d120_mas: Decimal;
+};
+
+export type PayablesFilter = {
+  branch_id?: Uuid;
+  status?: PayableStatus;
+  supplier_id?: Uuid;
+  overdue?: boolean;
+};
+
+export type CreatePayablePaymentInput = {
+  id: Uuid;
+  amount: Decimal;
+  method: PayablePaymentMethod;
+  reference?: string | null;
+};
+
+export type WriteOffPayableInput = {
+  reason: string;
+};
+
+// ---------------------------------------------------------------- GASTOS (F2.14)
+
+export type ExpenseCategory = {
+  id: Uuid;
+  name: string;
+  color: string;
+  active: boolean;
+};
+
+export type CreateExpenseCategoryInput = {
+  name: string;
+  color?: string;
+};
+
+export type UpdateExpenseCategoryInput = {
+  name: string;
+  color: string;
+  active: boolean;
+};
+
+export type ExpenseStatus = "PENDIENTE" | "APROBADO" | "RECHAZADO" | "CANCELADO" | "PAGADO";
+
+export type Expense = {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  prefix: string;
+  number: number;
+  document_number: string;
+  category_id: Uuid;
+  category_name: string;
+  category_color: string;
+  supplier_id: Uuid | null;
+  supplier_name: string | null;
+  description: string;
+  amount: Decimal;
+  tax_amount: Decimal;
+  total: Decimal;
+  expense_date: string;
+  status: ExpenseStatus;
+  created_by: Uuid;
+  created_by_name: string | null;
+  decided_by: Uuid | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  reject_reason: string | null;
+  created_at: string;
+  payable_id: Uuid | null;
+  payable_amount_paid: Decimal | null;
+  payable_status: string | null;
+  payment_method?: string | null;
+  attachment_name?: string | null;
+};
+
+export type ExpensesFilter = {
+  branch_id?: Uuid;
+  category_id?: Uuid;
+  supplier_id?: Uuid;
+  status?: ExpenseStatus;
+  from?: string;
+  to?: string;
+};
+
+export type ExpenseSummaryFilter = {
+  branch_id?: Uuid;
+  month?: string;
+};
+
+export type ExpenseSummary = {
+  total_approved_month: Decimal;
+  total_pending_month: Decimal;
+  total_paid_month: Decimal;
+  count_pending: number;
+  count_approved: number;
+};
+
+export type CreateExpenseInput = {
+  id: Uuid;
+  branch_id: Uuid;
+  category_id: Uuid;
+  supplier_id?: Uuid | null;
+  description: string;
+  amount: Decimal;
+  tax_amount?: Decimal;
+  expense_date: string;
+  payment_method?: string | null;
+  attachment_name?: string | null;
+};
+
+export type RejectExpenseInput = {
+  reason: string;
+};
+
+// ---------------------------------------------------------------- LOTES Y VENCIMIENTOS (F2.15)
+
+export interface ExpiringLot {
+  id: Uuid;
+  tenant_id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  location_name: string;
+  product_id: Uuid;
+  product_name: string;
+  sku?: string | null;
+  code: string;
+  expires_at: string;
+  qty: Decimal;
+  days_until_expiry: number;
+  is_expired: boolean;
+}
+
+// ---------------------------------------------------------------- AJUSTES DE INVENTARIO (F2.16)
+
+export type AdjustmentReasonCode =
+  | "DANO"
+  | "PERDIDA"
+  | "ROBO"
+  | "VENCIMIENTO"
+  | "CONTEO"
+  | "CORRECCION"
+  | "CARGA_INICIAL";
+
+export type AdjustmentStatus = "PENDIENTE" | "APLICADO" | "RECHAZADO";
+
+export interface InventoryAdjustment {
+  id: Uuid;
+  branch_id: Uuid;
+  location_id: Uuid;
+  product_id: Uuid;
+  product_name?: string | null;
+  sku?: string | null;
+  location_name?: string | null;
+  lot_id?: Uuid | null;
+  lot_code?: string | null;
+  qty_delta: Decimal;
+  reason_code: AdjustmentReasonCode;
+  notes?: string | null;
+  unit_cost: Decimal;
+  value: Decimal;
+  status: AdjustmentStatus;
+  requested_by: Uuid;
+  requester_name?: string | null;
+  decided_by?: Uuid | null;
+  decider_name?: string | null;
+  decided_at?: string | null;
+  reject_reason?: string | null;
+  created_at: string;
+}
+
+export interface CreateAdjustmentInput {
+  id?: Uuid;
+  branch_id: Uuid;
+  location_id?: Uuid | null;
+  product_id: Uuid;
+  lot_id?: Uuid | null;
+  qty_delta: Decimal;
+  reason_code: AdjustmentReasonCode;
+  notes?: string | null;
+  unit_cost?: Decimal | null;
+}
+
+export interface RejectAdjustmentInput {
+  reason: string;
+}
+
+export interface AdjustmentsFilter {
+  branch_id?: Uuid;
+  status?: AdjustmentStatus;
+}
+
+export interface CreateBusinessInput {
+  business_name: string;
+  branch_name: string;
+  full_name: string;
+}
+
+export interface OnboardingResult {
+  tenant_id: Uuid;
+  branch_id: Uuid;
+}

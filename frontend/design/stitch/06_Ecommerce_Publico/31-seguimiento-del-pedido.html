@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-100" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Seguimiento de Pedido #3087 · Nexa Market &amp; Café</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {},
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          spacing: {},
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"]
+          },
+          fontSize: {}
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-fill {
+      font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+    }
+    @keyframes pulse-subtle {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.85; }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 2.5s infinite ease-in-out;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="min-h-full bg-slate-100 font-body text-slate-800 antialiased flex flex-col justify-start items-center py-0 sm:py-6 px-0 sm:px-4">
+<!-- Mobile-first Viewport Shell (Max 480px width) -->
+<main class="w-full max-w-md bg-slate-50 min-h-screen sm:min-h-0 sm:rounded-3xl shadow-xl sm:border border-slate-200/80 overflow-hidden flex flex-col">
+<!-- 1. TopAppBar (Shared Component Implementation) -->
+<header class="sticky top-0 z-50 flex items-center justify-between w-full h-14 px-4 bg-white border-b border-slate-200/60 shadow-sm">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center text-teal-700">
+<span class="material-symbols-outlined text-teal-700 text-xl" data-icon="store">store</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline font-bold text-slate-900 text-sm leading-tight">Nexa Market &amp; Café</span>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</span>
+<span class="text-[11px] font-medium text-emerald-600">Abierto ahora</span>
+</div>
+</div>
+</div>
+<!-- Trailing Action: Quick Support Link -->
+<a class="flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800 transition-colors bg-teal-50/80 hover:bg-teal-100/70 py-1.5 px-2.5 rounded-lg active:scale-95 duration-150" href="#soporte-pedidos">
+<span class="material-symbols-outlined text-base" data-icon="support_agent">support_agent</span>
+<span class="hidden xs:inline">Ayuda</span>
+</a>
+</header>
+<!-- Main Scrollable Tracking Content Area -->
+<div class="p-4 space-y-4 flex-1">
+<!-- 2. Hero Card: Estado Actual en Ruta -->
+<section class="bg-gradient-to-b from-teal-50/90 to-emerald-50/40 border border-teal-100/80 rounded-2xl p-5 text-center shadow-sm relative overflow-hidden">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-teal-100/40 rounded-full blur-xl pointer-events-none"></div>
+<!-- Animated Delivery Badge -->
+<div class="relative mx-auto mb-3.5 w-16 h-16 flex items-center justify-center">
+<span class="absolute inset-0 rounded-full bg-teal-600/15 animate-ping opacity-60"></span>
+<div class="relative w-14 h-14 rounded-full bg-teal-700 text-white flex items-center justify-center shadow-md animate-pulse-subtle">
+<span class="material-symbols-outlined text-2xl" data-icon="two_wheeler">two_wheeler</span>
+</div>
+</div>
+<h1 class="font-headline font-bold text-xl text-slate-900 tracking-tight">¡Tu pedido va en camino!</h1>
+<p class="text-xs text-slate-600 font-medium mt-1">
+          Orden <span class="font-semibold text-slate-900">#3087</span> · Despachado por Repartidor Camilo
+        </p>
+<!-- Dynamic ETA Pill -->
+<div class="mt-4 bg-white/95 backdrop-blur-sm border border-teal-200/60 rounded-xl py-2 px-3 inline-flex items-center gap-2 shadow-xs">
+<span class="material-symbols-outlined text-teal-700 text-lg material-symbols-fill" data-icon="schedule">schedule</span>
+<div class="text-xs text-slate-800 text-left">
+<span>Llega aprox. a las <strong class="text-teal-700 font-bold">6:40 p. m.</strong></span>
+<span class="text-slate-500 text-[11px] block sm:inline sm:ml-1">(en 16 minutos)</span>
+</div>
+</div>
+</section>
+<!-- 3. Stepper Vertical de Despacho (Línea de Tiempo Continua) -->
+<section class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm">
+<div class="flex items-center justify-between pb-3.5 mb-2 border-b border-slate-100">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-teal-700 text-xl" data-icon="route">route</span>
+<h2 class="font-headline font-bold text-slate-900 text-sm">Estado del envío</h2>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+            En ruta
+          </span>
+</div>
+<ol class="relative ml-2 space-y-5">
+<!-- Step 1: Completado -->
+<li class="relative flex items-start gap-3.5">
+<div class="relative z-10 flex items-center justify-center w-6 h-6 rounded-full bg-teal-700 text-white shrink-0 shadow-xs">
+<span class="material-symbols-outlined text-sm font-bold" data-icon="check">check</span>
+</div>
+<div class="absolute left-3 top-6 -bottom-5 w-0.5 bg-teal-700"></div>
+<div class="flex-1 pt-0.5">
+<div class="flex items-baseline justify-between">
+<p class="text-xs font-semibold text-slate-900">Pedido Recibido</p>
+<time class="text-[11px] font-medium text-slate-600">6:02 p. m.</time>
+</div>
+<p class="text-[11px] text-slate-600 mt-0.5">Confirmado por la tienda</p>
+</div>
+</li>
+<!-- Step 2: Completado -->
+<li class="relative flex items-start gap-3.5">
+<div class="relative z-10 flex items-center justify-center w-6 h-6 rounded-full bg-teal-700 text-white shrink-0 shadow-xs">
+<span class="material-symbols-outlined text-sm font-bold" data-icon="check">check</span>
+</div>
+<div class="absolute left-3 top-6 -bottom-5 w-0.5 bg-teal-700"></div>
+<div class="flex-1 pt-0.5">
+<div class="flex items-baseline justify-between">
+<p class="text-xs font-semibold text-slate-900">En Preparación</p>
+<time class="text-[11px] font-medium text-slate-600">6:05 p. m.</time>
+</div>
+<p class="text-[11px] text-slate-600 mt-0.5">Empacado y listo para salida</p>
+</div>
+</li>
+<!-- Step 3: Activo / Ahora -->
+<li class="relative flex items-start gap-3.5">
+<div class="relative z-10 flex items-center justify-center w-6 h-6 rounded-full bg-teal-700 text-white ring-4 ring-teal-100 shrink-0">
+<span class="material-symbols-outlined text-sm material-symbols-fill" data-icon="delivery_dining">delivery_dining</span>
+</div>
+<div class="absolute left-3 top-6 -bottom-5 w-0.5 bg-slate-200"></div>
+<div class="flex-1 pt-0.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<p class="text-xs font-bold text-teal-800">En Camino</p>
+<span class="text-[9px] font-extrabold uppercase px-1.5 py-0.2 bg-teal-700 text-white rounded">AHORA</span>
+</div>
+<time class="text-[11px] font-semibold text-teal-700">6:24 p. m.</time>
+</div>
+<div class="mt-1 bg-slate-50 border border-slate-200/80 rounded-lg p-2.5">
+<p class="text-[11px] text-slate-700 leading-snug">
+                  Repartidor asignado en ruta hacia tu dirección:
+                </p>
+<div class="flex items-start gap-1 mt-1 text-[11px] font-medium text-slate-900">
+<span class="material-symbols-outlined text-xs text-teal-700 shrink-0 mt-0.5" data-icon="location_on">location_on</span>
+<span>Cra 15 # 85-20 · Apto 402</span>
+</div>
+</div>
+</div>
+</li>
+<!-- Step 4: Pendiente -->
+<li class="relative flex items-start gap-3.5">
+<div class="relative z-10 flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-600 shrink-0">
+<span class="material-symbols-outlined text-xs" data-icon="home_pin">home_pin</span>
+</div>
+<div class="flex-1 pt-0.5">
+<div class="flex items-baseline justify-between">
+<p class="text-xs font-semibold text-slate-600">Entregado</p>
+<time class="text-[11px] font-medium text-slate-600">Est. 6:40 p. m.</time>
+</div>
+<p class="text-[11px] text-slate-600 mt-0.5">Firma y pago contra entrega</p>
+</div>
+</li>
+</ol>
+</section>
+<!-- 4. Resumen del Pedido (Detalle Completo Desplegado) -->
+<section class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm space-y-3.5">
+<div class="flex items-center justify-between pb-2.5 border-b border-slate-100">
+<div>
+<h2 class="font-headline font-bold text-slate-900 text-sm">Resumen del pedido</h2>
+<p class="text-[11px] text-slate-600">3 productos solicitados</p>
+</div>
+<span class="px-2 py-0.5 text-[11px] font-medium bg-amber-50 text-amber-700 rounded-md border border-amber-200/60">
+            Contra entrega
+          </span>
+</div>
+<!-- Lista de productos ordenados -->
+<div class="space-y-2.5 text-xs">
+<div class="flex justify-between items-start">
+<div class="flex items-start gap-2">
+<span class="font-bold text-teal-700">1×</span>
+<span class="text-slate-800">Bandeja paisa tradicional</span>
+</div>
+<span class="font-semibold text-slate-900 shrink-0">$32.000 COP</span>
+</div>
+<div class="flex justify-between items-start">
+<div class="flex items-start gap-2">
+<span class="font-bold text-teal-700">1×</span>
+<span class="text-slate-800">Limonada de coco natural</span>
+</div>
+<span class="font-semibold text-slate-900 shrink-0">$9.000 COP</span>
+</div>
+<div class="flex justify-between items-start">
+<div class="flex items-start gap-2">
+<span class="font-bold text-teal-700">1×</span>
+<span class="text-slate-800">Postre tres leches</span>
+</div>
+<span class="font-semibold text-slate-900 shrink-0">$9.800 COP</span>
+</div>
+</div>
+<!-- Subtotales y desglose de recargo -->
+<div class="pt-2 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">
+<div class="flex justify-between">
+<span>Subtotal alimentos</span>
+<span>$50.800 COP</span>
+</div>
+<div class="flex justify-between items-center">
+<span>Costo de envío</span>
+<span class="text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded text-[11px]">Gratis</span>
+</div>
+<div class="flex justify-between pt-2 border-t border-slate-100 items-baseline">
+<span class="font-bold text-slate-900 text-sm">Total a pagar</span>
+<span class="font-headline font-bold text-base text-teal-700">$50.800 COP</span>
+</div>
+</div>
+<!-- Modalidad de Pago & Cambio Especificado -->
+<div class="mt-2 bg-slate-50 border border-slate-200/70 rounded-xl p-3 text-xs">
+<div class="flex items-center gap-1.5 font-semibold text-slate-900 mb-1">
+<span class="material-symbols-outlined text-sm text-teal-700" data-icon="payments">payments</span>
+<span>Pago en efectivo acordado</span>
+</div>
+<p class="text-[11px] text-slate-600 leading-normal">
+            Pagas con billete de <span class="font-semibold text-slate-800">$100.000 COP</span>
+</p>
+<div class="mt-1.5 pt-1.5 border-t border-slate-200/60 flex justify-between items-center text-[11px]">
+<span class="text-slate-600">Cambio que te entregará el repartidor:</span>
+<span class="font-bold text-emerald-700">$49.200 COP</span>
+</div>
+</div>
+</section>
+<!-- 5. Acciones de Contacto y Soporte -->
+<section class="space-y-2.5 pt-1" id="soporte-pedidos">
+<!-- Botón WhatsApp -->
+<a class="w-full flex items-center justify-center gap-2.5 min-h-[48px] py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl font-semibold text-sm shadow-sm transition-all duration-150 text-center" href="https://wa.me/573000000000?text=Hola,%20quisiera%20consultar%20sobre%20mi%20pedido%20%233087" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-lg" data-icon="chat">chat</span>
+<span>Escribir a la tienda por WhatsApp</span>
+</a>
+<!-- Botón Secundario Llamar Repartidor -->
+<a class="w-full flex items-center justify-center gap-2.5 min-h-[48px] py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 active:scale-98 rounded-xl font-medium text-sm transition-all duration-150 text-center" href="tel:+573100000000">
+<span class="material-symbols-outlined text-teal-700 text-lg" data-icon="call">call</span>
+<span>Llamar al repartidor Camilo (+57 310 000 0000)</span>
+</a>
+</section>
+<!-- Footer Institucional Nexa POS -->
+<footer class="pt-4 pb-2 text-center">
+<div class="flex items-center justify-center gap-1.5 text-xs text-slate-600">
+<span class="material-symbols-outlined text-sm text-teal-700" data-icon="point_of_sale">point_of_sale</span>
+<span>Impulsado por <strong class="text-slate-700">Nexa POS</strong> · Sistema de Comercio Unificado</span>
+</div>
+<p class="text-[10px] text-slate-600 mt-1">
+          Actualizado automáticamente en tiempo real · Bogotá, Colombia
+        </p>
+</footer>
+</div>
+</main>
+<script>
+    // Micro-interacción ligera: recarga suave o sincronización periódica
+    document.addEventListener("DOMContentLoaded", () => {
+      console.log("Nexa POS Tracking Active · Pedido #3087");
+    });
+  </script>
+</body></html>
