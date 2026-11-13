@@ -1,0 +1,2110 @@
+#![allow(clippy::type_complexity)]
+
+//! Venta de mostrador en un solo paso (`POST /v1/sales`).
+//!
+//! Todo ocurre en una transaccion: crear la orden, fijar precios e impuestos
+//! del servidor, descontar stock, registrar pagos, asignar el consecutivo del
+//! comprobante y encolar el documento fiscal. Si algo falla, no queda nada.
+//!
+//! **Idempotencia:** el cliente genera `id` (UUID) y lo reusa en cada
+//! reintento. Si la venta ya existe con el mismo cuerpo se devuelve tal cual
+//! (sin cobrar dos veces); si el cuerpo cambio, se responde 409.
+
+use axum::http::StatusCode;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Postgres, Transaction};
+use uuid::Uuid;
+
+use crate::auth::Claims;
+use crate::error::{self, ApiError, DomainError, state, validation};
+use crate::orders::{self, ITEM_COLS, ITEM_FROM, Order, OrderItem};
+use crate::pricing::{self, PriceLine};
+use crate::tenancy::{self, Action, Scope};
+use crate::{cash, inventory};
+
+type Tx<'a> = Transaction<'a, Postgres>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PaymentMethod {
+    Efectivo,
+    Datafono,
+    Qr,
+    Credito,
+}
+
+impl PaymentMethod {
+    fn as_db(self) -> &'static str {
+        match self {
+            PaymentMethod::Efectivo => "EFECTIVO",
+            PaymentMethod::Datafono => "DATAFONO",
+            PaymentMethod::Qr => "QR",
+            PaymentMethod::Credito => "CREDITO",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaleItem {
+    #[serde(default)]
+    pub product_id: Option<Uuid>,
+    #[serde(default)]
+    pub custom_name: Option<String>,
+    pub qty: Decimal,
+    #[serde(default)]
+    pub unit_price_override: Option<Decimal>,
+    #[serde(default)]
+    pub discount_pct: Option<Decimal>,
+    #[serde(default)]
+    pub tier_id: Option<Uuid>,
+    /// Razón del cambio de precio (requerida si el precio difiere del catálogo).
+    /// Acepta también el alias `override_reason` en JSON para compatibilidad.
+    #[serde(default, alias = "override_reason")]
+    pub price_override_reason: Option<String>,
+    /// Impuesto del ítem libre: "IVA19", "IVA5", "INC8" o "EXENTO".
+    #[serde(default)]
+    pub custom_tax: Option<String>,
+    /// Opciones y modificadores elegidos (F2.4).
+    #[serde(default)]
+    pub option_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SalePayment {
+    pub method: PaymentMethod,
+    /// En efectivo: lo que entrega el cliente (el vuelto lo calcula el
+    /// servidor). En los demas metodos: el monto cobrado.
+    pub amount: Decimal,
+    /// Numero de aprobacion del datafono, referencia de Nequi, etc.
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SaleRequest {
+    /// Clave de idempotencia generada por el cliente; es tambien el id de la orden.
+    pub id: Uuid,
+    pub branch_id: Uuid,
+    pub items: Vec<SaleItem>,
+    pub payments: Vec<SalePayment>,
+    pub quoted_total: Decimal,
+    #[serde(default)]
+    pub tip_amount: Option<Decimal>,
+    /// F1.10: mesero que recibe la propina.
+    #[serde(default)]
+    pub tip_waiter_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_alias: Option<String>,
+    #[serde(default)]
+    pub coupon_code: Option<String>,
+    #[serde(default)]
+    pub credit_plan: Option<crate::credit::CreditPlan>,
+    #[serde(default)]
+    pub credit_override_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuoteRequest {
+    pub branch_id: Uuid,
+    pub items: Vec<SaleItem>,
+    #[serde(default)]
+    pub tip_amount: Option<Decimal>,
+    #[serde(default)]
+    pub tip_waiter_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_alias: Option<String>,
+    #[serde(default)]
+    pub coupon_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuoteLine {
+    pub index: usize,
+    pub product_id: Option<Uuid>,
+    pub name: String,
+    pub qty: Decimal,
+    pub units_per_package: Decimal,
+    pub list_price: Decimal,
+    pub unit_price: Decimal,
+    pub gross: Decimal,
+    pub discount: pricing::LineDiscountBreakdown,
+    pub promotion_id: Option<Uuid>,
+    pub line_total: Decimal,
+    pub tax_rate: Decimal,
+    pub tax_amount: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuoteResponse {
+    pub lines: Vec<QuoteLine>,
+    pub subtotal_gross: Decimal,
+    pub discount_total: Decimal,
+    pub subtotal: Decimal,
+    pub tax_total: Decimal,
+    pub tip_amount: Decimal,
+    pub total: Decimal,
+    pub promotions: Vec<pricing::PromoApplied>,
+    pub coupon: Option<pricing::CouponApplied>,
+    pub coupon_error: Option<pricing::CouponError>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Payment {
+    pub id: Uuid,
+    pub method: String,
+    pub amount: Decimal,
+    pub tendered: Option<Decimal>,
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaleResponse {
+    pub order: Order,
+    pub items: Vec<OrderItem>,
+    pub payments: Vec<Payment>,
+    /// Consecutivo del comprobante (p. ej. `POS-000123`).
+    pub receipt_number: String,
+    pub change_due: Decimal,
+    /// Estado del documento equivalente electronico (`PENDIENTE` al vender).
+    pub fiscal_status: String,
+}
+
+/// Resultado de un checkout: venta nueva o reintento de una ya registrada.
+#[derive(Debug)]
+pub enum Checkout {
+    Created(SaleResponse),
+    Replayed(SaleResponse),
+}
+
+/// Validaciones que no necesitan la BD.
+fn validate(req: &SaleRequest) -> Result<(), ApiError> {
+    if req.items.is_empty() {
+        return Err(validation("sale has no items"));
+    }
+    if req.items.iter().any(|i| i.qty <= Decimal::ZERO) {
+        return Err(validation("qty must be > 0"));
+    }
+    if req.payments.is_empty() {
+        return Err(validation("sale has no payments"));
+    }
+    if req.payments.iter().any(|p| p.amount <= Decimal::ZERO) {
+        return Err(validation("payment amount must be > 0"));
+    }
+    let cash_lines = req
+        .payments
+        .iter()
+        .filter(|p| p.method == PaymentMethod::Efectivo)
+        .count();
+    if cash_lines > 1 {
+        return Err(validation("at most one cash payment per sale"));
+    }
+    let credit_lines = req
+        .payments
+        .iter()
+        .filter(|p| p.method == PaymentMethod::Credito)
+        .count();
+    if credit_lines > 1 {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_MULTIPLE_CREDIT",
+            "at most one credit payment per sale",
+            None,
+        ));
+    }
+    if req.credit_plan.is_some() && credit_lines == 0 {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "CREDIT_PLAN_INVALID",
+            "credit_plan requires a credit payment",
+            None,
+        ));
+    }
+    if req.tip_amount.is_some_and(|t| t < Decimal::ZERO) {
+        return Err(validation("tip_amount must be >= 0"));
+    }
+    for item in &req.items {
+        if item.unit_price_override.is_some_and(|p| p < Decimal::ZERO) {
+            return Err(validation("unit_price_override must be >= 0"));
+        }
+        if item
+            .discount_pct
+            .is_some_and(|d| d < Decimal::ZERO || d > Decimal::new(100, 0))
+        {
+            return Err(validation("discount_pct must be between 0 and 100"));
+        }
+    }
+    Ok(())
+}
+
+/// Reparto de los pagos sobre el total: cuanto aplica cada metodo y el vuelto.
+#[derive(Debug, PartialEq)]
+struct Settlement {
+    /// Efectivo aplicado a la orden (lo recibido menos el vuelto).
+    cash_applied: Decimal,
+    change_due: Decimal,
+    paid: Decimal,
+}
+
+/// Los pagos no-efectivo se aplican primero y no pueden superar el total (no
+/// hay vuelto de una tarjeta); el efectivo cubre el resto y genera el vuelto.
+fn settle(total: Decimal, payments: &[SalePayment]) -> Result<Settlement, ApiError> {
+    let non_cash: Decimal = payments
+        .iter()
+        .filter(|p| p.method != PaymentMethod::Efectivo)
+        .map(|p| p.amount)
+        .sum();
+    if non_cash > total {
+        return Err(validation("non-cash payments exceed the total"));
+    }
+    let due = total - non_cash;
+    let tendered = payments
+        .iter()
+        .find(|p| p.method == PaymentMethod::Efectivo)
+        .map(|p| p.amount);
+
+    match tendered {
+        None if due == Decimal::ZERO => Ok(Settlement {
+            cash_applied: Decimal::ZERO,
+            change_due: Decimal::ZERO,
+            paid: non_cash,
+        }),
+        None => Err(validation("payments do not cover the total")),
+        Some(_) if due == Decimal::ZERO => Err(validation("cash payment is not needed")),
+        Some(t) if t < due => Err(validation("payments do not cover the total")),
+        Some(t) => Ok(Settlement {
+            cash_applied: due,
+            change_due: t - due,
+            paid: non_cash + t,
+        }),
+    }
+}
+
+/// Registra una venta de mostrador cobrada.
+pub async fn checkout(
+    pool: &PgPool,
+    claims: &Claims,
+    req: SaleRequest,
+) -> Result<Checkout, ApiError> {
+    validate(&req)?;
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    scope.require(Action::Charge)?;
+    let result = checkout_tx(&mut tx, &scope, &req).await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// F1.10: reglas de la propina, en el orden de la especificación.
+async fn validate_tip(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    settings: &crate::settings::BranchSettings,
+    branch: Uuid,
+    tip: Decimal,
+    waiter: Option<Uuid>,
+) -> Result<(), ApiError> {
+    if tip > Decimal::ZERO && !settings.tips.enabled {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIPS_DISABLED",
+            "tips are disabled in this branch",
+            None,
+        ));
+    }
+    let Some(waiter) = waiter else {
+        return Ok(());
+    };
+    if tip <= Decimal::ZERO {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIP_INVALID",
+            "tip_waiter_id requires tip_amount > 0",
+            None,
+        ));
+    }
+    let member: Option<bool> = sqlx::query_scalar(
+        "select true from memberships
+          where user_id = $1 and tenant_id = $2 and active
+            and (branch_id is null or branch_id = $3)
+          limit 1",
+    )
+    .bind(waiter)
+    .bind(scope.tenant)
+    .bind(branch)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if member.is_none() {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "TIP_INVALID",
+            "tip waiter has no active membership in this branch",
+            None,
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_customer_and_alias(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    settings: &crate::settings::BranchSettings,
+    customer_id: Option<Uuid>,
+    raw_alias: Option<&str>,
+) -> Result<(), ApiError> {
+    let customer_alias = raw_alias.map(|a| a.trim());
+
+    if customer_id.is_some() && raw_alias.is_some() {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_CUSTOMER_AND_ALIAS",
+            "No se puede especificar cliente y alias al mismo tiempo",
+            None,
+        ));
+    }
+
+    if let Some(alias) = raw_alias {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() || trimmed.len() > 40 {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_ALIAS_INVALID",
+                "El alias debe tener entre 1 y 40 caracteres",
+                None,
+            ));
+        }
+    }
+
+    if customer_alias.is_some() && !settings.pos.allow_alias_sales {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_ALIAS_NOT_ALLOWED",
+            "Las ventas con alias no están permitidas en esta sucursal",
+            None,
+        ));
+    }
+
+    if customer_id.is_none() && customer_alias.is_none() && !settings.pos.allow_anonymous_sales {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SALE_CUSTOMER_REQUIRED",
+            "Esta sucursal requiere identificar al cliente",
+            None,
+        ));
+    }
+
+    if let Some(cid) = customer_id {
+        let exists: Option<bool> = sqlx::query_scalar(
+            "select true from customers where id = $1 and tenant_id = $2 and archived_at is null",
+        )
+        .bind(cid)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if exists.is_none() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_CUSTOMER_INVALID",
+                "El cliente seleccionado no existe o está archivado",
+                None,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct SelectedOptionItem {
+    option_id: Uuid,
+    group_id: Uuid,
+    name: String,
+    price_delta: Decimal,
+    input_product_id: Option<Uuid>,
+    input_qty: Option<Decimal>,
+}
+
+#[derive(Debug, Clone)]
+struct PrepItemInfo {
+    product_id: Option<Uuid>,
+    name: String,
+    custom_name: Option<String>,
+    kind: String,
+    tier_id: Option<Uuid>,
+    units_per_package: Decimal,
+    list_price: Decimal,
+    /// Precio resuelto (catálogo, tarifa y opciones) antes del cambio manual.
+    resolved_price: Decimal,
+    price_override_reason: Option<String>,
+    selected_options: Vec<SelectedOptionItem>,
+}
+
+async fn prepare_pricing_lines(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    settings: &crate::settings::BranchSettings,
+    customer_id: Option<Uuid>,
+    items: &[SaleItem],
+) -> Result<(Vec<PriceLine>, Vec<PrepItemInfo>), ApiError> {
+    let mut price_lines = Vec::with_capacity(items.len());
+    let mut prep_infos = Vec::with_capacity(items.len());
+
+    for (index, item) in items.iter().enumerate() {
+        if item.qty <= Decimal::ZERO {
+            return Err(validation("qty must be > 0"));
+        }
+
+        // 1. Descuento manual
+        if let Some(disc) = item.discount_pct {
+            if disc < Decimal::ZERO || disc > settings.pos.max_discount_pct {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "DISCOUNT_ABOVE_MAX",
+                    "El descuento supera el máximo permitido para esta sucursal",
+                    Some(serde_json::json!({ "max": settings.pos.max_discount_pct })),
+                ));
+            }
+            if disc > Decimal::ZERO {
+                scope.require_permission("pos:discount")?;
+            }
+        }
+
+        // 2. Producto o ítem libre
+        if item.product_id.is_some() && item.custom_name.is_some() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "CUSTOM_ITEM_INVALID",
+                "Una línea no puede tener producto e ítem libre a la vez",
+                None,
+            ));
+        }
+        match item.product_id {
+            None => {
+                if !item.option_ids.is_empty() {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "OPTION_INVALID",
+                        "Un ítem libre no puede tener opciones",
+                        None,
+                    ));
+                }
+                // F1.9: el permiso va antes que cualquier validación del ítem libre.
+                scope.require_permission("pos:custom_item")?;
+                let custom_name = item
+                    .custom_name
+                    .as_deref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty());
+                let custom_name_str = custom_name.ok_or_else(|| {
+                    error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El ítem libre requiere un nombre de entre 1 y 80 caracteres",
+                        None,
+                    )
+                })?;
+                if custom_name_str.chars().count() > 80 {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El nombre del ítem libre no puede superar 80 caracteres",
+                        None,
+                    ));
+                }
+
+                let unit_price = item.unit_price_override.ok_or_else(|| {
+                    error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El ítem libre requiere especificar el precio",
+                        None,
+                    )
+                })?;
+                if unit_price <= Decimal::ZERO {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El precio del ítem libre debe ser mayor a 0",
+                        None,
+                    ));
+                }
+                if item.tier_id.is_some() {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "TIER_INVALID",
+                        "Una línea libre no puede tener tarifa",
+                        None,
+                    ));
+                }
+                if item.discount_pct.is_some_and(|d| d > Decimal::ZERO) {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "Un ítem libre no puede tener descuento manual",
+                        None,
+                    ));
+                }
+
+                // Impuesto del ítem libre
+                let valid_taxes = ["IVA19", "IVA5", "INC8", "EXENTO"];
+                let custom_tax_code = item.custom_tax.as_deref().unwrap_or("");
+                if !valid_taxes.contains(&custom_tax_code) {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "CUSTOM_ITEM_INVALID",
+                        "El impuesto debe ser IVA19, IVA5, INC8 o EXENTO",
+                        None,
+                    ));
+                }
+                let item_tax_rate = if custom_tax_code == "EXENTO" {
+                    Decimal::ZERO
+                } else {
+                    crate::catalog::tax_rate_for(Some(custom_tax_code)).unwrap_or(Decimal::ZERO)
+                };
+
+                let unit_price = crate::money::money(unit_price);
+                price_lines.push(PriceLine {
+                    index,
+                    product_id: None,
+                    category_id: None,
+                    qty: item.qty,
+                    unit_price,
+                    tier_id: None,
+                    overridden: false,
+                    custom: true,
+                    manual_pct: None,
+                    tax_rate: item_tax_rate,
+                });
+                prep_infos.push(PrepItemInfo {
+                    product_id: None,
+                    name: custom_name_str.to_string(),
+                    custom_name: Some(custom_name_str.to_string()),
+                    kind: "FISICO".to_string(),
+                    tier_id: None,
+                    units_per_package: Decimal::ONE,
+                    list_price: unit_price,
+                    resolved_price: unit_price,
+                    price_override_reason: None,
+                    selected_options: Vec::new(),
+                });
+            }
+            Some(pid) => {
+                let row: Option<(
+                    String,
+                    Option<Uuid>,
+                    Option<Decimal>,
+                    Option<String>,
+                    bool,
+                    String,
+                    String,
+                    bool,
+                )> = sqlx::query_as(
+                    "select p.name, bp.category_id, coalesce(bp.price, p.base_price) as price, tx.tima_codigo,
+                            p.allow_price_override, p.kind, p.usage, p.has_variants
+                       from branch_products bp
+                       join products p on p.id = bp.product_id
+                       left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
+                      where bp.branch_id = $1 and bp.product_id = $2
+                        and bp.is_available and p.active and p.archived_at is null",
+                )
+                .bind(branch_id)
+                .bind(pid)
+                .fetch_optional(&mut **tx)
+                .await?;
+
+                let (
+                    name,
+                    category_id,
+                    catalog_price_opt,
+                    tax_code,
+                    product_allows_override,
+                    prod_kind,
+                    prod_usage,
+                    prod_has_variants,
+                ) = row.ok_or_else(|| {
+                    validation(format!("product {pid} is not in the branch assortment"))
+                })?;
+
+                if prod_usage != "VENTA" {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "PRODUCT_NOT_SELLABLE",
+                        "El producto no está configurado para la venta",
+                        None,
+                    ));
+                }
+                if prod_has_variants {
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "PRODUCT_IS_VARIANT_PARENT",
+                        "No se puede vender un producto padre de variantes",
+                        None,
+                    ));
+                }
+                let catalog_price = catalog_price_opt
+                    .ok_or_else(|| validation(format!("product {pid} has no base price")))?;
+                let tax_rate = crate::catalog::tax_rate_for(tax_code.as_deref());
+
+                // F2.4 Opciones y modificadores
+                let assigned_groups: Vec<(Uuid, i32, i32)> = sqlx::query_as(
+                    "select pog.group_id, og.min_select, og.max_select
+                       from product_option_groups pog
+                       join option_groups og on og.id = pog.group_id
+                      where pog.tenant_id = $1 and pog.product_id = $2 and og.active
+                      order by pog.sort_order",
+                )
+                .bind(scope.tenant)
+                .bind(pid)
+                .fetch_all(&mut **tx)
+                .await?;
+
+                let mut selected_options = Vec::new();
+                let mut options_delta = Decimal::ZERO;
+
+                if !item.option_ids.is_empty() {
+                    let opt_rows: Vec<(
+                        Uuid,
+                        Uuid,
+                        String,
+                        Decimal,
+                        Option<Uuid>,
+                        Option<Decimal>,
+                    )> = sqlx::query_as(
+                        "select id, group_id, name, price_delta, input_product_id, input_qty
+                               from options
+                              where tenant_id = $1 and id = any($2) and active",
+                    )
+                    .bind(scope.tenant)
+                    .bind(&item.option_ids)
+                    .fetch_all(&mut **tx)
+                    .await?;
+
+                    if opt_rows.len() != item.option_ids.len() {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_INVALID",
+                            "Una o más opciones no existen o no están activas",
+                            None,
+                        ));
+                    }
+
+                    let assigned_group_ids: std::collections::HashSet<Uuid> =
+                        assigned_groups.iter().map(|(gid, _, _)| *gid).collect();
+
+                    for opt in &opt_rows {
+                        if !assigned_group_ids.contains(&opt.1) {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "OPTION_INVALID",
+                                "La opción no pertenece a un grupo asignado al producto",
+                                None,
+                            ));
+                        }
+                    }
+
+                    for opt in opt_rows {
+                        options_delta += opt.3;
+                        selected_options.push(SelectedOptionItem {
+                            option_id: opt.0,
+                            group_id: opt.1,
+                            name: opt.2,
+                            price_delta: opt.3,
+                            input_product_id: opt.4,
+                            input_qty: opt.5,
+                        });
+                    }
+                }
+
+                for (gid, min_sel, max_sel) in &assigned_groups {
+                    let count = selected_options
+                        .iter()
+                        .filter(|opt| opt.group_id == *gid)
+                        .count() as i32;
+
+                    if count < *min_sel || count > *max_sel {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_SELECTION_INVALID",
+                            "La selección de opciones no cumple con los límites del grupo",
+                            Some(serde_json::json!({ "group_id": gid })),
+                        ));
+                    }
+                }
+
+                let (units_per_package, base_lp, base_rp) = if let Some(tid) = item.tier_id {
+                    let tier_row: Option<(String, String, String, Decimal, Option<Decimal>, bool)> =
+                        sqlx::query_as(
+                            "select name, kind, adjustment, value, units_per_package, active
+                               from price_tiers
+                              where tenant_id = $1 and id = $2",
+                        )
+                        .bind(scope.tenant)
+                        .bind(tid)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+
+                    let (tier_name, tier_kind_str, tier_adj_str, tier_val, tier_units, tier_active) =
+                        tier_row.ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "La tarifa no existe o está inactiva",
+                                None,
+                            )
+                        })?;
+
+                    if !tier_active {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "TIER_INVALID",
+                            "La tarifa no existe o está inactiva",
+                            None,
+                        ));
+                    }
+
+                    let tier_kind =
+                        pricing::TierKind::from_str_val(&tier_kind_str).ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "Tipo de tarifa no válido",
+                                None,
+                            )
+                        })?;
+
+                    if tier_kind == pricing::TierKind::Presentacion && !item.option_ids.is_empty() {
+                        return Err(error::coded(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "OPTION_INVALID",
+                            "Una línea con opciones no puede usar tarifa de presentación",
+                            None,
+                        ));
+                    }
+
+                    let tier_adj = pricing::TierAdjustment::from_str_val(&tier_adj_str)
+                        .ok_or_else(|| {
+                            error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "TIER_INVALID",
+                                "Ajuste de tarifa no válido",
+                                None,
+                            )
+                        })?;
+
+                    if tier_kind == pricing::TierKind::Cliente {
+                        let customer_tier_id: Option<Option<Uuid>> = if let Some(cid) = customer_id
+                        {
+                            sqlx::query_scalar("select price_tier_id from customers where tenant_id = $1 and id = $2")
+                                .bind(scope.tenant)
+                                .bind(cid)
+                                .fetch_optional(&mut **tx)
+                                .await?
+                        } else {
+                            None
+                        };
+
+                        let matches_customer = customer_tier_id.flatten() == Some(tid);
+                        let has_discount_perm = scope.has_permission("pos:discount");
+
+                        if !matches_customer && !has_discount_perm {
+                            return Err(ApiError::Domain(DomainError::Forbidden));
+                        }
+                    }
+
+                    let ptp: Option<(Option<Decimal>, Option<Decimal>, Option<String>)> =
+                        sqlx::query_as(
+                            "select price, units_per_package, barcode
+                           from product_tier_prices
+                          where tenant_id = $1 and product_id = $2 and tier_id = $3",
+                        )
+                        .bind(scope.tenant)
+                        .bind(pid)
+                        .bind(tid)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+
+                    let ptp_override =
+                        ptp.map(
+                            |(price, units, barcode)| pricing::ProductTierPriceOverride {
+                                price,
+                                units_per_package: units,
+                                barcode,
+                            },
+                        );
+
+                    let tier_rule = pricing::PriceTierRule {
+                        id: tid,
+                        name: tier_name,
+                        kind: tier_kind,
+                        adjustment: tier_adj,
+                        value: tier_val,
+                        units_per_package: tier_units,
+                        active: tier_active,
+                    };
+
+                    let (tier_up, units, lp) = match pricing::resolve_tier(
+                        catalog_price,
+                        &tier_rule,
+                        ptp_override.as_ref(),
+                    ) {
+                        Ok(res) => res,
+                        Err(code) => {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                code,
+                                "Faltan unidades configuradas para la tarifa",
+                                None,
+                            ));
+                        }
+                    };
+                    (units, lp, tier_up)
+                } else {
+                    (Decimal::ONE, catalog_price, catalog_price)
+                };
+
+                let list_price = base_lp + options_delta;
+                let resolved_price = base_rp + options_delta;
+
+                let (unit_price, overridden) = if let Some(ov) = item.unit_price_override {
+                    let rounded_ov = crate::money::money(ov);
+                    let diff = (rounded_ov - resolved_price).abs();
+                    if diff >= rust_decimal::Decimal::new(1, 2) {
+                        // Check 1: setting de sucursal
+                        if !settings.pos.allow_price_override {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "PRICE_OVERRIDE_DISABLED",
+                                "Esta sucursal no permite cambio de precio",
+                                None,
+                            ));
+                        }
+                        // Check 2: permiso del cajero
+                        scope.require_permission("pos:price_override")?;
+                        // Check 3: producto permite override
+                        if !product_allows_override {
+                            return Err(error::coded(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "PRICE_OVERRIDE_NOT_ALLOWED_PRODUCT",
+                                "Este producto no permite cambio de precio",
+                                None,
+                            ));
+                        }
+                        // Check 4: razón obligatoria (3-120 chars)
+                        let reason = item
+                            .price_override_reason
+                            .as_deref()
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty());
+                        match reason {
+                            None => {
+                                return Err(error::coded(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "PRICE_OVERRIDE_REASON_REQUIRED",
+                                    "El cambio de precio requiere una razón de entre 3 y 120 caracteres",
+                                    None,
+                                ));
+                            }
+                            Some(r) if r.chars().count() < 3 || r.chars().count() > 120 => {
+                                return Err(error::coded(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "PRICE_OVERRIDE_REASON_REQUIRED",
+                                    "El cambio de precio requiere una razón de entre 3 y 120 caracteres",
+                                    None,
+                                ));
+                            }
+                            _ => {}
+                        }
+                        (rounded_ov, true)
+                    } else {
+                        (resolved_price, false)
+                    }
+                } else {
+                    (resolved_price, false)
+                };
+
+                price_lines.push(PriceLine {
+                    index,
+                    product_id: Some(pid),
+                    category_id,
+                    qty: item.qty,
+                    unit_price,
+                    tier_id: item.tier_id,
+                    overridden,
+                    custom: false,
+                    manual_pct: item.discount_pct,
+                    tax_rate: tax_rate.unwrap_or(Decimal::ZERO),
+                });
+                prep_infos.push(PrepItemInfo {
+                    product_id: Some(pid),
+                    name,
+                    custom_name: None,
+                    kind: prod_kind,
+                    tier_id: item.tier_id,
+                    units_per_package,
+                    list_price,
+                    resolved_price,
+                    price_override_reason: if overridden {
+                        item.price_override_reason
+                            .as_deref()
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    },
+                    selected_options,
+                });
+            }
+        }
+    }
+
+    Ok((price_lines, prep_infos))
+}
+
+pub async fn checkout_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    req: &SaleRequest,
+) -> Result<Checkout, ApiError> {
+    let body = serde_json::to_value(req).map_err(anyhow::Error::from)?;
+    let branch = req.branch_id;
+
+    // 1. Reclamar el id. Primero se serializan los reintentos simultaneos del
+    //    mismo id con un candado de transaccion: sin el, dos inserts con
+    //    `on conflict` sobre una tabla con dos indices unicos (id y
+    //    tenant_id+id) pueden bloquearse entre si (deadlock).
+    sqlx::query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(req.id)
+        .execute(&mut **tx)
+        .await?;
+    let claimed: Option<Uuid> = sqlx::query_scalar(
+        "insert into orders (id, tenant_id, branch_id, sale_type_id, status_id, client_request)
+         values ($1, $2, $3, public.tipo_id('VENTA', 'MOSTRADOR'), public.tipo_id('ORD', 'CREADA'), $4)
+         on conflict (id) do nothing
+         returning id",
+    )
+    .bind(req.id)
+    .bind(scope.tenant)
+    .bind(branch)
+    .bind(&body)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if claimed.is_none() {
+        let stored: Option<Option<serde_json::Value>> =
+            sqlx::query_scalar("select client_request from orders where id = $1")
+                .bind(req.id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        return match stored {
+            Some(Some(previous)) if previous == body => {
+                Ok(Checkout::Replayed(load_response(tx, req.id).await?))
+            }
+            _ => Err(state("sale id already used with a different request")),
+        };
+    }
+
+    // Cargar ajustes de la sucursal para validar reglas de venta y caja
+    let settings = crate::settings::load_tx(tx, branch).await?;
+
+    // Validar cliente y alias (F1.4)
+    validate_customer_and_alias(
+        tx,
+        scope,
+        &settings,
+        req.customer_id,
+        req.customer_alias.as_deref(),
+    )
+    .await?;
+
+    // Propina y mesero (F1.10)
+    validate_tip(
+        tx,
+        scope,
+        &settings,
+        branch,
+        req.tip_amount.unwrap_or(Decimal::ZERO),
+        req.tip_waiter_id,
+    )
+    .await?;
+
+    let customer_id = req.customer_id;
+    let customer_alias = req.customer_alias.as_deref().map(|a| a.trim());
+
+    // 2. Turno de caja del cajero (si la sucursal lo exige)
+    let session = if settings.cash.require_session {
+        let s = cash::open_session_tx(tx, scope, branch)
+            .await?
+            .ok_or_else(|| state("no open cash session for this cashier"))?;
+        Some(s)
+    } else {
+        cash::open_session_tx(tx, scope, branch).await?
+    };
+
+    // 5. Cargar contexto de precios y validar
+    let (price_lines, prep_infos) =
+        prepare_pricing_lines(tx, scope, branch, &settings, req.customer_id, &req.items).await?;
+
+    let promos = crate::promotions::load_active_rules_tx(
+        tx,
+        scope.tenant,
+        branch,
+        req.customer_id,
+        chrono::Utc::now(),
+    )
+    .await?;
+    let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
+
+    let coupon_rule = if let Some(code) = &req.coupon_code {
+        if !code.trim().is_empty() {
+            let cr = match crate::coupons::resolve_coupon_tx(
+                tx,
+                scope.tenant,
+                branch,
+                req.customer_id,
+                code,
+                chrono::Utc::now(),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(err) => {
+                    let code_str = match err.code.as_str() {
+                        "COUPON_NOT_FOUND" => "COUPON_NOT_FOUND",
+                        "COUPON_INACTIVE" => "COUPON_INACTIVE",
+                        "COUPON_NOT_STARTED" => "COUPON_NOT_STARTED",
+                        "COUPON_EXPIRED" => "COUPON_EXPIRED",
+                        "COUPON_EXHAUSTED" => "COUPON_EXHAUSTED",
+                        "COUPON_REQUIRES_CUSTOMER" => "COUPON_REQUIRES_CUSTOMER",
+                        "COUPON_CUSTOMER_LIMIT" => "COUPON_CUSTOMER_LIMIT",
+                        "COUPON_MIN_SUBTOTAL" => "COUPON_MIN_SUBTOTAL",
+                        "COUPON_NOT_APPLICABLE" => "COUPON_NOT_APPLICABLE",
+                        _ => "COUPON_INVALID",
+                    };
+                    return Err(error::coded(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        code_str,
+                        err.message,
+                        None,
+                    ));
+                }
+            };
+            Some(cr)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let priced_cart = match pricing::price_cart(&price_lines, &promos, coupon_rule.as_ref(), tip) {
+        Ok(pc) => pc,
+        Err(err) => {
+            let code = match err.code.as_str() {
+                "COUPON_NOT_APPLICABLE" => "COUPON_NOT_APPLICABLE",
+                "COUPON_MIN_SUBTOTAL" => "COUPON_MIN_SUBTOTAL",
+                _ => "COUPON_INVALID",
+            };
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                code,
+                err.message,
+                None,
+            ));
+        }
+    };
+
+    // 8. Si money(quoted_total) != total: 409 PRICE_CHANGED
+    if crate::money::money(req.quoted_total) != priced_cart.total {
+        let quote_lines: Vec<QuoteLine> = priced_cart
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(i, pl)| QuoteLine {
+                index: i,
+                product_id: prep_infos[i].product_id,
+                name: prep_infos[i].name.clone(),
+                qty: price_lines[i].qty,
+                units_per_package: prep_infos[i].units_per_package,
+                list_price: prep_infos[i].list_price,
+                unit_price: price_lines[i].unit_price,
+                gross: pl.gross,
+                discount: pl.discount.clone(),
+                promotion_id: pl.promotion_id,
+                line_total: pl.line_total,
+                tax_rate: pl.tax_rate,
+                tax_amount: pl.tax_amount,
+            })
+            .collect();
+        let quote_resp = QuoteResponse {
+            lines: quote_lines,
+            subtotal_gross: priced_cart.subtotal_gross,
+            discount_total: priced_cart.discount_total,
+            subtotal: priced_cart.subtotal,
+            tax_total: priced_cart.tax_total,
+            tip_amount: priced_cart.tip_amount,
+            total: priced_cart.total,
+            promotions: priced_cart.promotions,
+            coupon: priced_cart.coupon,
+            coupon_error: priced_cart.coupon_error,
+        };
+        return Err(error::coded(
+            StatusCode::CONFLICT,
+            "PRICE_CHANGED",
+            "Los precios cambiaron. Revisá el total.",
+            serde_json::to_value(&quote_resp).ok(),
+        ));
+    }
+
+    // 9. Insertar líneas con todas las columnas
+    let mut item_ids: Vec<Uuid> = Vec::with_capacity(priced_cart.lines.len());
+    for (i, pl) in priced_cart.lines.iter().enumerate() {
+        let item_id: Uuid = sqlx::query_scalar(
+            "insert into order_items
+               (tenant_id, branch_id, order_id, product_id, custom_name, tier_id, units_per_package,
+                qty, unit_price, list_price, discount_manual, discount_promotion, discount_order,
+                discount_coupon, promotion_id, price_override_reason, tax_rate)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+             returning id",
+        )
+        .bind(scope.tenant)
+        .bind(branch)
+        .bind(req.id)
+        .bind(prep_infos[i].product_id)
+        .bind(&prep_infos[i].custom_name)
+        .bind(prep_infos[i].tier_id)
+        .bind(prep_infos[i].units_per_package)
+        .bind(price_lines[i].qty)
+        .bind(price_lines[i].unit_price)
+        .bind(prep_infos[i].list_price)
+        .bind(pl.discount.manual)
+        .bind(pl.discount.promotion)
+        .bind(pl.discount.order)
+        .bind(pl.discount.coupon)
+        .bind(pl.promotion_id)
+        .bind(&prep_infos[i].price_override_reason)
+        .bind(price_lines[i].tax_rate)
+        .fetch_one(&mut **tx)
+        .await?;
+        item_ids.push(item_id);
+
+        for opt in &prep_infos[i].selected_options {
+            sqlx::query(
+                "insert into order_item_options (tenant_id, order_item_id, option_id, name, price_delta)
+                 values ($1, $2, $3, $4, $5)",
+            )
+            .bind(scope.tenant)
+            .bind(item_id)
+            .bind(opt.option_id)
+            .bind(&opt.name)
+            .bind(opt.price_delta)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    // 9b. Auditoría de cambios de precio, por id de línea
+    for (i, pl) in price_lines.iter().enumerate() {
+        if pl.overridden {
+            crate::audit::record_tx(
+                tx,
+                scope,
+                "CAMBIO_PRECIO",
+                "order_items",
+                item_ids[i],
+                Some(serde_json::json!({ "price": prep_infos[i].resolved_price })),
+                Some(serde_json::json!({
+                    "price": pl.unit_price,
+                    "reason": prep_infos[i].price_override_reason
+                })),
+                None,
+            )
+            .await?;
+        }
+    }
+
+    // 10. Stock: descuento directo, solo productos físicos o preparados (no servicios), más opciones con insumos
+    let mut stock_lines: Vec<(Uuid, Decimal)> = Vec::new();
+    for (prep, pl) in prep_infos.iter().zip(&price_lines) {
+        if let Some(pid) = prep.product_id.filter(|_| prep.kind != "SERVICIO") {
+            stock_lines.push((pid, pl.qty * prep.units_per_package));
+        }
+        for opt in &prep.selected_options {
+            if let (Some(in_pid), Some(in_qty)) = (opt.input_product_id, opt.input_qty) {
+                stock_lines.push((in_pid, pl.qty * in_qty));
+            }
+        }
+    }
+    if !stock_lines.is_empty() {
+        let loc_id = if let Some(sess_id) = session {
+            let reg_loc: Option<Option<Uuid>> = sqlx::query_scalar(
+                "select r.location_id
+                 from cash_sessions cs
+                 join cash_registers r on r.id = cs.register_id
+                 where cs.id = $1",
+            )
+            .bind(sess_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            reg_loc.flatten()
+        } else {
+            None
+        };
+
+        let loc_id = match loc_id {
+            Some(id) => id,
+            None => crate::locations::default_location_id_tx(tx, branch).await?,
+        };
+
+        inventory::sell_tx(tx, scope, branch, loc_id, req.id, &stock_lines).await?;
+    }
+
+    // 11. Totales y propina
+    sqlx::query(
+        "update orders
+            set tip_amount = $2,
+                customer_id = $3,
+                customer_alias = $4
+          where id = $1",
+    )
+    .bind(req.id)
+    .bind(tip)
+    .bind(customer_id)
+    .bind(customer_alias)
+    .execute(&mut **tx)
+    .await?;
+    orders::recalc_totals(tx, req.id).await?;
+
+    let total = priced_cart.total;
+
+    // 6. Pagos.
+    let settlement = settle(total, &req.payments)?;
+
+    // F3.2: Si hay pago CREDITO, validar cupo, mora y autorización (en este orden exacto)
+    let credit_payment = req
+        .payments
+        .iter()
+        .find(|p| p.method == PaymentMethod::Credito);
+    let credit_info = if let Some(cp) = credit_payment {
+        // 0. today: fecha local de la sucursal
+        let today: chrono::NaiveDate = sqlx::query_scalar(
+            "select (now() at time zone timezone)::date from branches where id = $1",
+        )
+        .bind(branch)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // 1. scope.require_permission("credit:sell")?
+        scope.require_permission("credit:sell")?;
+
+        // 2. customer_id sin unwrap
+        let Some(cid) = req.customer_id else {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "CREDIT_REQUIRES_CUSTOMER",
+                "Para vender a crédito elegí un cliente",
+                None,
+            ));
+        };
+
+        // 3. credit_plan validate y luego validate_dates
+        if let Some(plan) = &req.credit_plan {
+            plan.validate()?;
+            plan.validate_dates(today)?;
+        }
+
+        // 4. Bloqueo del cliente
+        let locked: Option<Uuid> = sqlx::query_scalar(
+            "select id from customers where tenant_id = $1 and id = $2 for update",
+        )
+        .bind(scope.tenant)
+        .bind(cid)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if locked.is_none() {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "SALE_CUSTOMER_INVALID",
+                "El cliente seleccionado no existe o está archivado",
+                None,
+            ));
+        }
+
+        // 5. C es el monto del pago CREDITO
+        let c = cp.amount;
+
+        // 6 / 7. Sin o con credit_override_reason
+        if let Some(reason) = &req.credit_override_reason {
+            // 7.1
+            scope.require_permission("credit:override")?;
+            // 7.2
+            let trimmed = reason.trim();
+            let count = trimmed.chars().count();
+            if !(3..=200).contains(&count) {
+                return Err(error::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "CREDIT_OVERRIDE_REASON_INVALID",
+                    "El motivo de autorización debe tener entre 3 y 200 caracteres",
+                    None,
+                ));
+            }
+            // 7.4
+            crate::audit::record_tx(
+                tx,
+                scope,
+                "CREDITO_AUTORIZADO",
+                "customers",
+                cid,
+                None,
+                Some(serde_json::json!({
+                    "customer_id": cid,
+                    "amount": c,
+                    "reason": trimmed,
+                })),
+                None,
+            )
+            .await?;
+        } else {
+            // 6.1
+            let (credit_limit, credit_block_days): (Decimal, i32) = sqlx::query_as(
+                "select credit_limit, credit_block_days from customers where tenant_id = $1 and id = $2",
+            )
+            .bind(scope.tenant)
+            .bind(cid)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            // 6.2
+            let (balance, max_days_overdue): (Decimal, i32) = sqlx::query_as(
+                "select balance, max_days_overdue from public.customer_credit_position($1)",
+            )
+            .bind(cid)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            // 6.3
+            if credit_limit <= Decimal::ZERO {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_NOT_ENABLED",
+                    "Este cliente no tiene cupo de crédito",
+                    None,
+                ));
+            }
+
+            // 6.4
+            if max_days_overdue > credit_block_days {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_BLOCKED_OVERDUE",
+                    "El cliente tiene facturas en mora",
+                    Some(serde_json::json!({ "days": max_days_overdue })),
+                ));
+            }
+
+            // 6.5
+            let available = (credit_limit - balance).max(Decimal::ZERO);
+            if c > available {
+                return Err(error::coded(
+                    StatusCode::CONFLICT,
+                    "CREDIT_LIMIT_EXCEEDED",
+                    "La venta supera el cupo disponible",
+                    Some(serde_json::json!({ "available": available })),
+                ));
+            }
+        }
+
+        Some((cid, c, today))
+    } else {
+        None
+    };
+    for p in &req.payments {
+        let (amount, tendered) = if p.method == PaymentMethod::Efectivo {
+            (settlement.cash_applied, Some(p.amount))
+        } else {
+            (p.amount, None)
+        };
+        sqlx::query(
+            "insert into payments
+               (tenant_id, branch_id, order_id, cash_session_id, method_id, amount, tendered, reference, created_by)
+             values ($1, $2, $3, $4, public.tipo_id('PAGO', $5), $6, $7, $8, $9)",
+        )
+        .bind(scope.tenant)
+        .bind(branch)
+        .bind(req.id)
+        .bind(session)
+        .bind(p.method.as_db())
+        .bind(amount)
+        .bind(tendered)
+        .bind(&p.reference)
+        .bind(scope.user)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // 7. Consecutivo sin huecos + documento fiscal en la outbox.
+    let (prefix, number) = crate::sequences::next_tx(tx, scope, branch, "POS").await?;
+    sqlx::query(
+        "insert into fiscal_documents (tenant_id, branch_id, order_id, doc_type, prefix, number, status_id)
+         values ($1, $2, $3, 'POS', $4, $5, public.tipo_id('DOCF', 'PENDIENTE'))",
+    )
+    .bind(scope.tenant)
+    .bind(branch)
+    .bind(req.id)
+    .bind(&prefix)
+    .bind(number)
+    .execute(&mut **tx)
+    .await?;
+
+    // 8. Cierre de la venta.
+    sqlx::query(
+        "update orders
+            set status_id = public.tipo_id('ORD', 'COBRADA'),
+                cash_session_id = $2, receipt_prefix = $3, receipt_number = $4,
+                paid_amount = $5, change_due = $6, waiter_id = $7
+          where id = $1",
+    )
+    .bind(req.id)
+    .bind(session)
+    .bind(&prefix)
+    .bind(number)
+    .bind(settlement.paid)
+    .bind(settlement.change_due)
+    .bind(req.tip_waiter_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // F3.2: Creación de la cuenta por cobrar si hubo pago CREDITO
+    if let Some((cid, credit_amount, today)) = credit_info {
+        let (interest_total, due_date, scheduled_installments) =
+            crate::credit::generate_schedule(credit_amount, req.credit_plan.as_ref(), today);
+
+        let amount_total = credit_amount + interest_total;
+        let plan_json = serde_json::to_value(&req.credit_plan).ok();
+
+        let rec_id = Uuid::new_v4();
+        sqlx::query(
+            "insert into receivables
+               (id, tenant_id, branch_id, customer_id, source, order_id, principal,
+                interest_total, amount_total, amount_paid, status, due_date, plan, created_by)
+             values ($1, $2, $3, $4, 'VENTA', $5, $6, $7, $8, 0, 'ABIERTA', $9, $10, $11)",
+        )
+        .bind(rec_id)
+        .bind(scope.tenant)
+        .bind(branch)
+        .bind(cid)
+        .bind(req.id)
+        .bind(credit_amount)
+        .bind(interest_total)
+        .bind(amount_total)
+        .bind(due_date)
+        .bind(plan_json)
+        .bind(scope.user)
+        .execute(&mut **tx)
+        .await?;
+
+        for inst in scheduled_installments {
+            sqlx::query(
+                "insert into receivable_installments
+                   (tenant_id, receivable_id, n, due_date, amount, amount_paid)
+                 values ($1, $2, $3, $4, $5, 0)",
+            )
+            .bind(scope.tenant)
+            .bind(rec_id)
+            .bind(inst.n)
+            .bind(inst.due_date)
+            .bind(inst.amount)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    // 12. Registro de uso de promociones aplicadas
+    for applied in &priced_cart.promotions {
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update promotions
+             set usage_count = usage_count + 1
+             where id = $1 and tenant_id = $2 and (usage_limit is null or usage_count < usage_limit)
+             returning id",
+        )
+        .bind(applied.id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if updated.is_none() {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "PROMOTION_EXHAUSTED",
+                "La promoción ya agotó su límite de usos",
+                Some(serde_json::json!({ "promotion_id": applied.id })),
+            ));
+        }
+
+        sqlx::query(
+            "insert into promotion_redemptions (tenant_id, promotion_id, order_id, customer_id, amount)
+             values ($1, $2, $3, $4, $5)",
+        )
+        .bind(scope.tenant)
+        .bind(applied.id)
+        .bind(req.id)
+        .bind(customer_id)
+        .bind(applied.amount)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // 12b. Registro de uso del cupón aplicado
+    if let Some(applied) = &priced_cart.coupon {
+        let updated: Option<Uuid> = sqlx::query_scalar(
+            "update coupons
+             set usage_count = usage_count + 1
+             where id = $1 and tenant_id = $2 and (usage_limit is null or usage_count < usage_limit)
+             returning id",
+        )
+        .bind(applied.id)
+        .bind(scope.tenant)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if updated.is_none() {
+            return Err(error::coded(
+                StatusCode::CONFLICT,
+                "COUPON_EXHAUSTED",
+                "El cupón ya agotó su límite de usos",
+                Some(serde_json::json!({ "coupon_id": applied.id })),
+            ));
+        }
+
+        sqlx::query(
+            "insert into coupon_redemptions (tenant_id, coupon_id, order_id, customer_id, amount)
+             values ($1, $2, $3, $4, $5)",
+        )
+        .bind(scope.tenant)
+        .bind(applied.id)
+        .bind(req.id)
+        .bind(customer_id)
+        .bind(applied.amount)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(Checkout::Created(load_response(tx, req.id).await?))
+}
+
+/// Cotiza una venta calculando descuentos y totales sin tocar inventario ni caja.
+pub async fn quote(
+    pool: &PgPool,
+    claims: &Claims,
+    req: QuoteRequest,
+) -> Result<QuoteResponse, ApiError> {
+    let (scope, mut tx) = tenancy::begin_in_branch(pool, claims, req.branch_id).await?;
+    scope.require_permission("pos:sell")?;
+    let resp = quote_tx(&mut tx, &scope, req.branch_id, req).await?;
+    tx.commit().await?;
+    Ok(resp)
+}
+
+pub async fn quote_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    branch_id: Uuid,
+    req: QuoteRequest,
+) -> Result<QuoteResponse, ApiError> {
+    let settings = crate::settings::load_tx(tx, branch_id).await?;
+
+    validate_customer_and_alias(
+        tx,
+        scope,
+        &settings,
+        req.customer_id,
+        req.customer_alias.as_deref(),
+    )
+    .await?;
+
+    validate_tip(
+        tx,
+        scope,
+        &settings,
+        branch_id,
+        req.tip_amount.unwrap_or(Decimal::ZERO),
+        req.tip_waiter_id,
+    )
+    .await?;
+
+    let (price_lines, prep_infos) =
+        prepare_pricing_lines(tx, scope, branch_id, &settings, req.customer_id, &req.items).await?;
+
+    let promos = crate::promotions::load_active_rules_tx(
+        tx,
+        scope.tenant,
+        branch_id,
+        req.customer_id,
+        chrono::Utc::now(),
+    )
+    .await?;
+    let tip = req.tip_amount.unwrap_or(Decimal::ZERO);
+
+    let (coupon_rule, early_coupon_error) = if let Some(code) = &req.coupon_code {
+        if !code.trim().is_empty() {
+            match crate::coupons::resolve_coupon_tx(
+                tx,
+                scope.tenant,
+                branch_id,
+                req.customer_id,
+                code,
+                chrono::Utc::now(),
+            )
+            .await
+            {
+                Ok(r) => (Some(r), None),
+                Err(err) => (None, Some(err)),
+            }
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let mut priced_cart =
+        match pricing::price_cart(&price_lines, &promos, coupon_rule.as_ref(), tip) {
+            Ok(pc) => pc,
+            Err(err) => {
+                let mut pc = match pricing::price_cart(&price_lines, &promos, None, tip) {
+                    Ok(pc) => pc,
+                    Err(_) => unreachable!("pricing without coupon does not fail"),
+                };
+                pc.coupon_error = Some(err);
+                pc
+            }
+        };
+    if priced_cart.coupon_error.is_none() && early_coupon_error.is_some() {
+        priced_cart.coupon_error = early_coupon_error;
+    }
+
+    let quote_lines: Vec<QuoteLine> = priced_cart
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(i, pl)| QuoteLine {
+            index: i,
+            product_id: prep_infos[i].product_id,
+            name: prep_infos[i].name.clone(),
+            qty: price_lines[i].qty,
+            units_per_package: prep_infos[i].units_per_package,
+            list_price: prep_infos[i].list_price,
+            unit_price: price_lines[i].unit_price,
+            gross: pl.gross,
+            discount: pl.discount.clone(),
+            promotion_id: pl.promotion_id,
+            line_total: pl.line_total,
+            tax_rate: pl.tax_rate,
+            tax_amount: pl.tax_amount,
+        })
+        .collect();
+
+    Ok(QuoteResponse {
+        lines: quote_lines,
+        subtotal_gross: priced_cart.subtotal_gross,
+        discount_total: priced_cart.discount_total,
+        subtotal: priced_cart.subtotal,
+        tax_total: priced_cart.tax_total,
+        tip_amount: priced_cart.tip_amount,
+        total: priced_cart.total,
+        promotions: priced_cart.promotions,
+        coupon: priced_cart.coupon,
+        coupon_error: priced_cart.coupon_error,
+    })
+}
+
+fn format_receipt(prefix: &str, number: i64) -> String {
+    format!("{prefix}-{number:06}")
+}
+
+/// Arma la respuesta desde la BD (la misma para la venta y sus reintentos).
+pub(crate) async fn load_response(
+    tx: &mut Tx<'_>,
+    order_id: Uuid,
+) -> Result<SaleResponse, ApiError> {
+    let order = orders::order_tx(tx, order_id).await?;
+    let items = sqlx::query_as::<_, OrderItem>(&format!(
+        "select {ITEM_COLS} from {ITEM_FROM} where oi.order_id = $1 order by oi.created_at, oi.id"
+    ))
+    .bind(order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let payments = sqlx::query_as::<_, Payment>(
+        "select p.id, t.tima_codigo as method, p.amount, p.tendered, p.reference
+           from payments p
+           join tbl_tipos_maestra t on t.tima_id = p.method_id
+          where p.order_id = $1
+          order by p.created_at, p.id",
+    )
+    .bind(order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let (prefix, number, change_due, fiscal_status): (String, i64, Decimal, String) =
+        sqlx::query_as(
+            "select o.receipt_prefix, o.receipt_number, o.change_due, t.tima_codigo
+               from orders o
+               join fiscal_documents f on f.order_id = o.id and f.doc_type = 'POS'
+               join tbl_tipos_maestra t on t.tima_id = f.status_id
+              where o.id = $1",
+        )
+        .bind(order_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+    Ok(SaleResponse {
+        order,
+        items,
+        payments,
+        receipt_number: format_receipt(&prefix, number),
+        change_due,
+        fiscal_status,
+    })
+}
+
+// ------------------------------------------------------------- anulación (F1.12)
+
+#[derive(Debug, Deserialize)]
+pub struct VoidRequest {
+    pub reason: String,
+}
+
+fn void_not_allowed(why: &str) -> ApiError {
+    error::coded(
+        StatusCode::CONFLICT,
+        "VOID_NOT_ALLOWED",
+        "the sale cannot be voided",
+        Some(serde_json::json!({ "why": why })),
+    )
+}
+
+/// `POST /v1/sales/{id}/void` (pos:refund). Solo ventas de hoy, con el turno
+/// abierto, sin devoluciones y sin documento fiscal aceptado. No crea
+/// movimiento de caja: el esperado ya excluye las órdenes `CANCELADA`.
+pub async fn void(
+    pool: &PgPool,
+    claims: &Claims,
+    order_id: Uuid,
+    req: VoidRequest,
+) -> Result<Order, ApiError> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require_permission("pos:refund")?;
+    void_tx(&mut tx, &scope, order_id, &req).await?;
+    let order = orders::order_tx(&mut tx, order_id).await?;
+    tx.commit().await?;
+    Ok(order)
+}
+
+pub async fn void_tx(
+    tx: &mut Tx<'_>,
+    scope: &Scope,
+    order_id: Uuid,
+    req: &VoidRequest,
+) -> Result<(), ApiError> {
+    // 1. Orden bloqueada y cobrada.
+    let row: Option<(Uuid, String, bool, Option<Uuid>, Option<String>, Option<i64>)> =
+        sqlx::query_as(
+            "select o.branch_id, t.tima_codigo,
+                    (o.created_at at time zone b.timezone)::date = (now() at time zone b.timezone)::date,
+                    o.cash_session_id, o.receipt_prefix, o.receipt_number
+               from orders o
+               join tbl_tipos_maestra t on t.tima_id = o.status_id
+               join branches b on b.id = o.branch_id
+              where o.id = $1
+              for update of o",
+        )
+        .bind(order_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let (branch, status, is_today, session, prefix, number) =
+        row.ok_or(ApiError::Domain(DomainError::NotFound))?;
+    tenancy::ensure_branch_tx(tx, scope, branch).await?;
+    if status != "COBRADA" {
+        return Err(void_not_allowed("STATUS"));
+    }
+
+    // 2. Solo el mismo día local de la sucursal.
+    if !is_today {
+        return Err(void_not_allowed("NOT_TODAY"));
+    }
+
+    // 3. Con el turno de la venta abierto.
+    let session_open = match session {
+        Some(id) => {
+            sqlx::query_scalar::<_, bool>(
+                "select closed_at is null from cash_sessions where id = $1",
+            )
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?
+        }
+        None => false,
+    };
+    if !session_open {
+        return Err(void_not_allowed("SESSION_CLOSED"));
+    }
+
+    // 4. Sin devoluciones pendientes ni aprobadas.
+    let has_refunds: bool = sqlx::query_scalar(
+        "select exists (select 1 from refunds where order_id = $1 and status in ('PENDIENTE', 'APROBADA'))",
+    )
+    .bind(order_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if has_refunds {
+        return Err(void_not_allowed("HAS_REFUNDS"));
+    }
+
+    // 5. Documento fiscal: aceptado no se anula (se hace una devolución).
+    let fiscal: Option<String> = sqlx::query_scalar(
+        "select t.tima_codigo from fiscal_documents f
+           join tbl_tipos_maestra t on t.tima_id = f.status_id
+          where f.order_id = $1 and f.doc_type = 'POS' and f.refund_id is null
+          for update of f",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(fs) = &fiscal
+        && fs != "PENDIENTE"
+        && fs != "RECHAZADO"
+    {
+        return Err(void_not_allowed("FISCAL_ACCEPTED"));
+    }
+
+    // F3.2: Si la venta tiene cuenta por cobrar
+    let rec: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "select id, amount_paid from receivables where order_id = $1 and tenant_id = $2 for update",
+    )
+    .bind(order_id)
+    .bind(scope.tenant)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((rec_id, amount_paid)) = rec {
+        if amount_paid > Decimal::ZERO {
+            return Err(void_not_allowed("HAS_PAYMENTS"));
+        }
+        sqlx::query("delete from receivables where id = $1 and tenant_id = $2")
+            .bind(rec_id)
+            .bind(scope.tenant)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    // 6. Motivo.
+    let reason = req.reason.trim();
+    let n = reason.chars().count();
+    if !(3..=200).contains(&n) {
+        return Err(error::coded(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VOID_REASON_REQUIRED",
+            "reason must have 3 to 200 characters",
+            None,
+        ));
+    }
+
+    if fiscal.is_some() {
+        sqlx::query(
+            "update fiscal_documents set status_id = public.tipo_id('DOCF', 'ANULADO'), updated_at = now()
+              where order_id = $1 and doc_type = 'POS' and refund_id is null",
+        )
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // 7. Stock de vuelta.
+    let label = match (&prefix, number) {
+        (Some(p), Some(n)) => format!("Anulación {p}-{n:06}"),
+        _ => "Anulación de venta".to_string(),
+    };
+    let lines: Vec<(Uuid, Uuid, Decimal, Decimal)> = sqlx::query_as(
+        "select id, product_id, qty, units_per_package from order_items
+          where order_id = $1 and product_id is not null",
+    )
+    .bind(order_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (item_id, product_id, qty, units) in lines {
+        let lot_id: Option<Uuid> = sqlx::query_scalar(
+            "select lot_id from order_item_lots where order_item_id = $1 order by qty desc limit 1",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        inventory::return_tx(
+            tx,
+            scope,
+            branch,
+            product_id,
+            qty * units,
+            &label,
+            ("VOID", order_id),
+            lot_id,
+        )
+        .await?;
+    }
+
+    // 8. Libera los usos de promociones y cupón.
+    sqlx::query(
+        "update promotions p set usage_count = greatest(p.usage_count - 1, 0)
+           from promotion_redemptions r
+          where r.promotion_id = p.id and r.order_id = $1",
+    )
+    .bind(order_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("delete from promotion_redemptions where order_id = $1")
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "update coupons c set usage_count = greatest(c.usage_count - 1, 0)
+           from coupon_redemptions r
+          where r.coupon_id = c.id and r.order_id = $1",
+    )
+    .bind(order_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("delete from coupon_redemptions where order_id = $1")
+        .bind(order_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // 9. Orden anulada.
+    sqlx::query(
+        "update orders
+            set status_id = public.tipo_id('ORD', 'CANCELADA'), cancelled_at = now(), void_reason = $2
+          where id = $1",
+    )
+    .bind(order_id)
+    .bind(reason)
+    .execute(&mut **tx)
+    .await?;
+
+    // 11. Auditoría (10: sin movimiento de caja).
+    crate::audit::record_tx(
+        tx,
+        scope,
+        "VENTA_ANULADA",
+        "orders",
+        order_id,
+        Some(serde_json::json!({ "status": "COBRADA" })),
+        Some(serde_json::json!({ "status": "CANCELADA", "reason": reason })),
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pay(method: PaymentMethod, amount: i64) -> SalePayment {
+        SalePayment {
+            method,
+            amount: Decimal::from(amount),
+            reference: None,
+        }
+    }
+
+    #[test]
+    fn settle_cash_with_change() {
+        let s = settle(Decimal::from(8950), &[pay(PaymentMethod::Efectivo, 10000)]).unwrap();
+        assert_eq!(s.cash_applied, Decimal::from(8950));
+        assert_eq!(s.change_due, Decimal::from(1050));
+        assert_eq!(s.paid, Decimal::from(10000));
+    }
+
+    #[test]
+    fn settle_mixed_card_and_cash() {
+        let s = settle(
+            Decimal::from(8950),
+            &[
+                pay(PaymentMethod::Datafono, 5000),
+                pay(PaymentMethod::Efectivo, 5000),
+            ],
+        )
+        .unwrap();
+        assert_eq!(s.cash_applied, Decimal::from(3950));
+        assert_eq!(s.change_due, Decimal::from(1050));
+    }
+
+    #[test]
+    fn settle_rejects_bad_combinations() {
+        let total = Decimal::from(1000);
+        // Tarjeta por encima del total: no hay vuelto de tarjeta.
+        assert!(settle(total, &[pay(PaymentMethod::Datafono, 1500)]).is_err());
+        // No alcanza.
+        assert!(settle(total, &[pay(PaymentMethod::Qr, 500)]).is_err());
+        assert!(settle(total, &[pay(PaymentMethod::Efectivo, 500)]).is_err());
+        // Efectivo sobrante cuando la tarjeta ya cubrio todo.
+        assert!(
+            settle(
+                total,
+                &[
+                    pay(PaymentMethod::Datafono, 1000),
+                    pay(PaymentMethod::Efectivo, 100)
+                ]
+            )
+            .is_err()
+        );
+        // Exacto con QR.
+        assert!(settle(total, &[pay(PaymentMethod::Qr, 1000)]).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_and_duplicated_cash() {
+        let base = SaleRequest {
+            id: Uuid::new_v4(),
+            branch_id: Uuid::new_v4(),
+            items: vec![SaleItem {
+                product_id: Some(Uuid::new_v4()),
+                custom_name: None,
+                qty: Decimal::ONE,
+                unit_price_override: None,
+                discount_pct: None,
+                tier_id: None,
+                price_override_reason: None,
+                custom_tax: None,
+                option_ids: vec![],
+            }],
+            payments: vec![pay(PaymentMethod::Efectivo, 1000)],
+            quoted_total: Decimal::from(1000),
+            tip_amount: None,
+            tip_waiter_id: None,
+            customer_id: None,
+            customer_alias: None,
+            coupon_code: None,
+            ..Default::default()
+        };
+        assert!(validate(&base).is_ok());
+
+        let mut no_items = base.clone();
+        no_items.items.clear();
+        assert!(validate(&no_items).is_err());
+
+        let mut two_cash = base.clone();
+        two_cash.payments.push(pay(PaymentMethod::Efectivo, 1));
+        assert!(validate(&two_cash).is_err());
+
+        let mut zero_qty = base;
+        zero_qty.items[0].qty = Decimal::ZERO;
+        assert!(validate(&zero_qty).is_err());
+    }
+
+    #[test]
+    fn receipt_format_pads_number() {
+        assert_eq!(format_receipt("POS", 123), "POS-000123");
+    }
+}
