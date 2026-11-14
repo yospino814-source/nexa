@@ -256,7 +256,39 @@ Todo ocurre en una transacción:
 - Otro cuerpo: 409.
 - Venta nueva: 201.
 
+## Pedidos por WhatsApp
+
+Nexi, el bot, toma pedidos por WhatsApp con el catálogo, los precios con impuesto y las existencias de la sede. El equipo los atiende desde la bandeja.
+
+**Conversación.** El cliente escribe ("1 old parr y 2 hielos") o toca botones:
+
+1. Arma el carrito. Si algo no alcanza, pone lo que hay; si está agotado, ofrece uno parecido de la misma categoría.
+2. Confirma el pedido. Con licor o cigarrillos pide confirmar la mayoría de edad.
+3. Pide la dirección (u ofrece la del último domicilio, o recoger en tienda). Calcula el domicilio por zona y revisa el pedido mínimo.
+4. Pide el medio de pago: link (si está activo), efectivo o datáfono al recibir. Registra el pedido `W-0001`.
+
+También reconoce al cliente por su número y ofrece "lo de siempre", responde fuera de horario y pasa a una persona si escribe "asesor". El motor está en `src/whatsapp/engine.rs` y no toca la base: se prueba con `cargo test whatsapp`.
+
+**Conectar Meta.**
+
+1. En *Meta for Developers*, crea la app de WhatsApp y un número de WhatsApp Business.
+2. Configura el webhook en `https://<tu-backend>/v1/whatsapp/webhook`, con el mismo `WHATSAPP_VERIFY_TOKEN`, y suscríbelo a `messages`.
+3. En el `.env`: `WHATSAPP_APP_SECRET` (firma de cada mensaje) y `WHATSAPP_ACCESS_TOKEN` (token de sistema para responder).
+4. Con `PUT /v1/whatsapp/bot` asocia el `phone_number_id` a la sede y carga horario, zonas y opciones.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/v1/whatsapp/webhook` | Verificación de Meta (`hub.challenge`). Sin JWT. |
+| POST | `/v1/whatsapp/webhook` | Mensajes entrantes. Sin JWT: exige `X-Hub-Signature-256`. Un reintento con el mismo id no se responde dos veces. |
+| GET | `/v1/whatsapp/orders?branch_id=&status=` | Bandeja: pedidos abiertos y los cerrados del último día. |
+| GET | `/v1/whatsapp/orders/{id}` | Pedido y su conversación. |
+| POST | `/v1/whatsapp/orders/{id}/status` | `{status, courier_name?, sale_id?}`. `NUEVO → PREPARANDO → EN_CAMINO → ENTREGADO`, o `CANCELADO` antes de entregar. Avisa al cliente. Un pedido con link no sale sin pagar. |
+| POST | `/v1/whatsapp/orders/{id}/paid` | `{reference}`: marca pagado un pedido con link y avisa. |
+| GET / PUT | `/v1/whatsapp/bot` | Configuración por sede: número, horario, pedido mínimo, opciones y zonas. PUT solo dueño o administrador. |
+
 ## Pendiente
 
 - **Worker de facturación DIAN:** lee `fiscal_documents` en `PENDIENTE`, transmite al proveedor tecnológico y guarda el CUDE. Falta elegir proveedor.
 - **Configurar numeración:** pantalla para cargar prefijo, rango y resolución en `document_sequences`. Hoy se crea una numeración `POS` sin resolución.
+- **Link de pago de los pedidos por WhatsApp:** el bot encola `WHATSAPP_PAYMENT_LINK` en el outbox. Falta el worker que crea el link en Bold, lo envía y llama `/paid` cuando se confirma el pago.
+- **Pedido → venta del POS:** al despachar, el frontend registra la venta con `POST /v1/sales` y manda su `sale_id` al cambiar el estado. Los combos y promociones del POS no se aplican en el precio que cotiza el bot.

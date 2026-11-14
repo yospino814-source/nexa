@@ -45,7 +45,7 @@ pub struct RecipeItem {
     pub qty: Decimal,
 }
 
-const CATALOG_SQL: &str = r#"
+pub(crate) const CATALOG_SQL: &str = r#"
 select
   p.id as product_id,
   p.name,

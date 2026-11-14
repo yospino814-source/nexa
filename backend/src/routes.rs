@@ -274,6 +274,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/users/{id}/status", put(update_user_status))
         // Auth / seguridad
         .route("/v1/auth/login-attempt", post(auth_login_attempt))
+        .merge(crate::whatsapp::router())
 }
 
 #[derive(Deserialize)]

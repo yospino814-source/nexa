@@ -35,6 +35,7 @@ pub mod settings;
 mod tenancy;
 pub mod tiers;
 pub mod users;
+pub mod whatsapp;
 
 #[cfg(test)]
 mod db_tests;
