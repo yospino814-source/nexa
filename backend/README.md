@@ -63,6 +63,20 @@ No hace falta tener Rust instalado, solo Docker. Sin `DATABASE_URL`, `cargo test
   | `COCINA` | Leer, marcar órdenes como listas |
 
 - **Precios sin IVA.** El impuesto se suma encima y se congela por línea (`order_items.tax_rate` y `tax_amount`).
+- **Endpoints por área (`src/routes/`).** Cada archivo tiene su `router()` y sus handlers; `routes/mod.rs` los une y guarda los extractores comunes (`Body`, `Query`, `Path`), la salud, el contexto y las sucursales. Para un endpoint nuevo, agrégalo en el archivo de su área.
+
+  | Archivo | Área |
+  |---|---|
+  | `catalogo.rs` | Productos, modificadores, tarifas, promociones, cupones, importación CSV |
+  | `clientes.rs` | Clientes y cuentas por cobrar |
+  | `ventas.rs` | Venta de mostrador, caja, devoluciones, anulaciones, historial |
+  | `ordenes.rs` | Órdenes de mesa, domicilio y mayorista |
+  | `inventario.rs` | Existencias, kardex, traslados, bodegas |
+  | `compras.rs` | Proveedores, compras, cuentas por pagar, gastos |
+  | `administracion.rs` | Permisos, ajustes, auditoría, usuarios, intentos de login |
+  | `reportes.rs` | Reportes y tablero |
+
+  Los pedidos por WhatsApp viven aparte, en `src/whatsapp/`, con su propio `router()`.
 
 ## Endpoints
 
