@@ -15,6 +15,7 @@ import {
   Store,
   Users,
   X,
+  QrCode,
 } from "lucide-react";
 
 import { api, type BranchSettings, friendlyError } from "@/lib/api";
@@ -138,6 +139,13 @@ export function SettingsScreen() {
               Cajas registradoras
             </Link>
           )}
+          <Link
+            href="/configuracion/whatsapp"
+            className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+          >
+            <QrCode className="size-4" />
+            QR de WhatsApp
+          </Link>
           <Link
             href="/configuracion/usuarios"
             className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"

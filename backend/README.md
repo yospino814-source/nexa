@@ -299,6 +299,7 @@ También reconoce al cliente por su número y ofrece "lo de siempre", responde f
 | POST | `/v1/whatsapp/orders/{id}/status` | `{status, courier_name?, sale_id?}`. `NUEVO → PREPARANDO → EN_CAMINO → ENTREGADO`, o `CANCELADO` antes de entregar. Avisa al cliente. Un pedido con link no sale sin pagar. |
 | POST | `/v1/whatsapp/orders/{id}/paid` | `{reference}`: marca pagado un pedido con link y avisa. |
 | GET / PUT | `/v1/whatsapp/bot` | Configuración por sede: número, horario, pedido mínimo, opciones y zonas. PUT solo dueño o administrador. |
+| GET | `/v1/whatsapp/bot/qr?branch_id=&text=` | QR de la tienda: enlace `wa.me` al número del bot con el mensaje ya escrito, y el QR en SVG para imprimir. |
 
 ## Facturación electrónica
 

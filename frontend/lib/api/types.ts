@@ -2131,3 +2131,14 @@ export interface OnboardingResult {
   tenant_id: Uuid;
   branch_id: Uuid;
 }
+
+/** QR de la tienda para pedir por WhatsApp (GET /v1/whatsapp/bot/qr). */
+export type StoreWhatsappQr = {
+  business_name: string;
+  display_phone: string;
+  /** Enlace wa.me con el mensaje ya escrito. */
+  link: string;
+  text: string;
+  /** QR en SVG (negro sobre blanco, con margen). */
+  svg: string;
+};

@@ -51,6 +51,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/whatsapp/orders/{id}/status", post(set_status))
         .route("/v1/whatsapp/orders/{id}/paid", post(mark_paid))
         .route("/v1/whatsapp/bot", get(get_bot).put(put_bot))
+        .route("/v1/whatsapp/bot/qr", get(get_qr))
 }
 
 /// Transacción del sistema para un negocio y sede ya resueltos (sin usuario).
@@ -843,4 +844,139 @@ async fn put_bot(
     }
     tx.commit().await?;
     Ok(Json(b))
+}
+
+// ------------------------------------------------------------------ QR de la tienda
+
+/// Número para wa.me: solo dígitos, con indicativo de Colombia si es un
+/// celular de 10 dígitos.
+pub fn wa_number(phone: &str) -> Option<String> {
+    let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+    match digits.len() {
+        10 if digits.starts_with('3') => Some(format!("57{digits}")),
+        11..=15 => Some(digits),
+        _ => None,
+    }
+}
+
+/// Enlace que abre el chat con el mensaje escrito.
+pub fn wa_link(number: &str, text: &str) -> String {
+    let mut enc = String::new();
+    for b in text.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                enc.push(*b as char)
+            }
+            _ => enc.push_str(&format!("%{b:02X}")),
+        }
+    }
+    format!("https://wa.me/{number}?text={enc}")
+}
+
+/// QR en SVG, en negro sobre blanco y con margen, listo para imprimir.
+pub fn qr_svg(data: &str) -> Option<String> {
+    use qrcode::render::svg;
+    let code =
+        qrcode::QrCode::with_error_correction_level(data.as_bytes(), qrcode::EcLevel::M).ok()?;
+    Some(
+        code.render::<svg::Color<'_>>()
+            .min_dimensions(512, 512)
+            .dark_color(svg::Color("#14161C"))
+            .light_color(svg::Color("#FFFFFF"))
+            .quiet_zone(true)
+            .build(),
+    )
+}
+
+#[derive(Deserialize)]
+struct QrQuery {
+    branch_id: Uuid,
+    /// Mensaje que llega escrito al abrir el chat.
+    text: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StoreQr {
+    pub business_name: String,
+    pub display_phone: String,
+    pub link: String,
+    pub text: String,
+    pub svg: String,
+}
+
+async fn get_qr(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<QrQuery>,
+) -> ApiResult<Json<StoreQr>> {
+    let (scope, mut tx) = tenancy::begin_in_branch(&state.pool, &user.claims, q.branch_id).await?;
+    scope.require(Action::Read)?;
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "select business_name, display_phone from whatsapp_bots where branch_id = $1",
+    )
+    .bind(q.branch_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let Some((business_name, phone)) = row else {
+        return Err(error::state(
+            "esta sede todavía no tiene configurado el WhatsApp del bot",
+        ));
+    };
+    let phone = phone.unwrap_or_default();
+    let number = wa_number(&phone).ok_or_else(|| {
+        error::state(
+            "el número de WhatsApp de la sede no es válido: revisalo en la configuración del bot",
+        )
+    })?;
+    let text = q
+        .text
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| "Hola, quiero hacer un pedido".to_string());
+    if text.chars().count() > 200 {
+        return Err(error::validation(
+            "el mensaje del QR es muy largo (máximo 200 caracteres)",
+        ));
+    }
+    let link = wa_link(&number, &text);
+    let svg = qr_svg(&link).ok_or_else(|| error::validation("no se pudo generar el QR"))?;
+    Ok(Json(StoreQr {
+        business_name,
+        display_phone: phone,
+        link,
+        text,
+        svg,
+    }))
+}
+
+#[cfg(test)]
+mod qr_tests {
+    use super::*;
+
+    #[test]
+    fn builds_wa_links() {
+        assert_eq!(wa_number("300 555 0015").as_deref(), Some("573005550015"));
+        assert_eq!(
+            wa_number("+57 300-555-0015").as_deref(),
+            Some("573005550015")
+        );
+        assert_eq!(
+            wa_number("6057274410"),
+            None,
+            "fijo sin indicativo no sirve para WhatsApp"
+        );
+        assert_eq!(
+            wa_link("573005550015", "Hola, quiero hacer un pedido"),
+            "https://wa.me/573005550015?text=Hola%2C%20quiero%20hacer%20un%20pedido"
+        );
+        assert!(wa_link("57300", "¿Tienen hielo?").contains("%C2%BFTienen%20hielo%3F"));
+    }
+
+    #[test]
+    fn renders_printable_svg() {
+        let svg = qr_svg("https://wa.me/573005550015?text=Hola").unwrap();
+        assert!(svg.starts_with("<?xml") || svg.starts_with("<svg"));
+        assert!(svg.contains("#14161C") && svg.contains("<path") || svg.contains("<rect"));
+    }
 }

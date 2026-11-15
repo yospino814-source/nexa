@@ -24,6 +24,7 @@ sha2 = "0.10"
 hmac = "0.12"
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 governor = { version = "0.10", default-features = false, features = ["std", "quanta"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

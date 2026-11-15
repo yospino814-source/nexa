@@ -261,6 +261,7 @@ import type {
   SalesByMethodResponse,
   SalesByProductResponse,
   SalesHeatmapResponse,
+  StoreWhatsappQr,
 } from "./types";
 
 export * from "./types";
@@ -3107,6 +3108,27 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(input),
       });
+    },
+  },
+
+  whatsapp: {
+    /** GET /v1/whatsapp/bot/qr: QR que abre el chat de pedidos de la sede. */
+    async storeQr(branchId: Uuid, text?: string): Promise<StoreWhatsappQr> {
+      if (USE_MOCKS) {
+        await delay();
+        const msg = text?.trim() || "Hola, quiero hacer un pedido";
+        return {
+          business_name: "Licorera La 15",
+          display_phone: "300 555 0015",
+          link: `https://wa.me/573005550015?text=${encodeURIComponent(msg)}`,
+          text: msg,
+          // En modo demo no se genera un QR real.
+          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#fff"/><rect x="8" y="8" width="84" height="84" fill="none" stroke="#14161C" stroke-width="4" stroke-dasharray="6 5"/><text x="50" y="54" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#14161C">QR de ejemplo</text></svg>',
+        };
+      }
+      const q = new URLSearchParams({ branch_id: branchId });
+      if (text?.trim()) q.set("text", text.trim());
+      return request(`/v1/whatsapp/bot/qr?${q.toString()}`);
     },
   },
 
