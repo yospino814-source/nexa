@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Printer, RotateCcw, Search, X, XCircle } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { PrintTicket, ticketFromSale } from "@/components/pos/print-ticket";
+import { PrintTicket, ticketFromSale, withFiscal } from "@/components/pos/print-ticket";
+import { FISCAL_LABELS, FiscalStatusPanel, useOrderFiscal } from "@/components/fiscal/fiscal-status";
 import {
   api,
   friendlyError,
@@ -316,6 +317,7 @@ function SaleDetailBody({ orderId, onChanged }: { orderId: string; onChanged: (m
   const can = useSession((s) => s.can);
   const business = useBusinessInfo();
   const { data: detail, loading, error, reload } = useApi(() => api.sales.detail(orderId), orderId);
+  const fiscal = useOrderFiscal(orderId);
   const { data: settings } = useApi<BranchSettings | null>(
     () => api.settings.get(branch.id).catch(() => null),
     `settings:${branch.id}`,
@@ -334,12 +336,15 @@ function SaleDetailBody({ orderId, onChanged }: { orderId: string; onChanged: (m
   }
 
   const cancelled = detail.order.status === "CANCELADA";
-  const ticket = ticketFromSale(detail, {
-    cashier: detail.cashier_name,
-    register: detail.register_name,
-    customer: detail.customer?.name ?? detail.order.customer_alias ?? "Consumidor final",
-    waiter: detail.waiter_name,
-  });
+  const ticket = withFiscal(
+    ticketFromSale(detail, {
+      cashier: detail.cashier_name,
+      register: detail.register_name,
+      customer: detail.customer?.name ?? detail.order.customer_alias ?? "Consumidor final",
+      waiter: detail.waiter_name,
+    }),
+    fiscal.doc,
+  );
 
   async function confirmVoid() {
     setVoiding(true);
@@ -417,11 +422,24 @@ function SaleDetailBody({ orderId, onChanged }: { orderId: string; onChanged: (m
             <dd className="tabular-nums">{formatCOP(Number(p.amount))}</dd>
           </div>
         ))}
-        <div className="flex justify-between text-slate-500">
-          <dt>Documento electrónico</dt>
-          <dd>{detail.fiscal_status}</dd>
-        </div>
+        {!fiscal.doc && (
+          <div className="flex justify-between text-slate-500">
+            <dt>Documento electrónico</dt>
+            <dd>{detail.fiscal_status ? FISCAL_LABELS[detail.fiscal_status] ?? detail.fiscal_status : "No aplica"}</dd>
+          </div>
+        )}
       </dl>
+
+      {fiscal.doc && (
+        <FiscalStatusPanel
+          doc={fiscal.doc}
+          canRetry={can("settings:write")}
+          onRetried={() => {
+            fiscal.reload();
+            onChanged("Documento puesto otra vez en cola para la DIAN");
+          }}
+        />
+      )}
 
       {detail.refunds.length > 0 && (
         <div className="space-y-2">

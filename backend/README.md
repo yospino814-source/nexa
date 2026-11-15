@@ -315,13 +315,17 @@ Cada venta deja su **documento equivalente POS electrónico** en `fiscal_documen
 | GET / PUT | `/v1/fiscal/settings?branch_id=` | Proveedor, activado, sub-cuenta (Casa de Software), dirección del punto de venta, y la numeración DIAN de POS y de notas crédito (prefijo, resolución, rango, fechas). PUT solo dueño o administrador. |
 | GET | `/v1/fiscal/documents?branch_id=&status=` | Documentos con estado, CUDE, QR, PDF y último error. |
 | POST | `/v1/fiscal/documents/{id}/retry` | Vuelve a enviar un documento rechazado o detenido (dueño o administrador). |
+| GET | `/v1/fiscal/orders/{order_id}` | Documento POS de una venta: estado, número, CUDE, PDF y `qr_svg` (solo ACEPTADO) para el tiquete. `null` si no hay. |
+| POST | `/v1/fiscal/test?branch_id=` | Prueba la conexión con el proveedor de la sede (`GET /tokens` en MATIAS). |
+
+Al cobrar o aprobar una devolución el documento se envía al instante (`fiscal::kick`); el ciclo de 10 s queda para reintentos.
 
 **Probar con el sandbox de MATIAS:**
 
 1. Crea la cuenta en https://sandbox-auth.matias-api.com/ y verifica el correo.
 2. En ese portal, configura la empresa y la numeración POS (y la de notas crédito). El número de resolución que pongas en Nexa debe ser el mismo.
 3. Crea un token personal (`POST /tokens`, o desde el portal) y ponlo en `MATIAS_API_TOKEN`.
-4. En Nexa: `PUT /v1/fiscal/settings` con `provider: "MATIAS"`, `enabled: true` y la resolución.
+4. En Nexa: **Configuración → Facturación DIAN** (`/configuracion/facturacion`): elegí MATIAS, cargá prefijo y resolución, prendé el envío y tocá *Probar conexión*.
 
 Pendiente: impuesto al consumo de licores (ICL, nominal por grado alcohólico); hoy se envían IVA (tax_id 1) e INC (tax_id 4).
 
@@ -344,7 +348,6 @@ Configuración que se hace en el panel de Supabase (no está en el código):
 
 ## Pendiente
 
-- **Worker de facturación DIAN:** lee `fiscal_documents` en `PENDIENTE`, transmite al proveedor tecnológico y guarda el CUDE. Falta elegir proveedor.
-- **Configurar numeración:** pantalla para cargar prefijo, rango y resolución en `document_sequences`. Hoy se crea una numeración `POS` sin resolución.
+- **ICL de licores** en el documento electrónico (ver Facturación electrónica).
 - **Link de pago de los pedidos por WhatsApp:** el bot encola `WHATSAPP_PAYMENT_LINK` en el outbox. Falta el worker que crea el link en Bold, lo envía y llama `/paid` cuando se confirma el pago.
 - **Pedido → venta del POS:** al despachar, el frontend registra la venta con `POST /v1/sales` y manda su `sale_id` al cambiar el estado. Los combos y promociones del POS no se aplican en el precio que cotiza el bot.

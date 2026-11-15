@@ -24,7 +24,8 @@ import { toSaleItems, useCart, type CartLine } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
 import { PAYMENT_METHODS } from "./payment-methods";
-import { PrintTicket, ticketFromSale, type TicketMeta } from "./print-ticket";
+import { PrintTicket, ticketFromSale, withFiscal, type TicketMeta } from "./print-ticket";
+import { FiscalStatusPanel, useOrderFiscal } from "@/components/fiscal/fiscal-status";
 import { useBusinessInfo } from "@/lib/api/use-business";
 
 /**
@@ -907,8 +908,12 @@ function ReceiptView({
   const branchName = useCurrentBranch().name;
   const business = useBusinessInfo();
   // Los valores del comprobante son los que cobró el servidor, no los del carrito.
-  const model = ticketFromSale(response, meta);
+  // El CUDE y el QR llegan unos segundos después: el tiquete se completa solo.
+  const fiscal = useOrderFiscal(response.order.id);
+  const model = withFiscal(ticketFromSale(response, meta), fiscal.doc);
   const change = Number(response.change_due);
+  const waitingDian =
+    fiscal.doc != null && fiscal.doc.provider !== "SIMULADO" && ["PENDIENTE", "ENVIADO", "EN_PROCESO"].includes(fiscal.doc.status);
 
   const creditPayment = response.payments.find((p) => p.method === "CREDITO");
 
@@ -995,11 +1000,14 @@ function ReceiptView({
         )}
       </div>
 
+      {fiscal.doc && fiscal.doc.provider !== "SIMULADO" && (
+        <FiscalStatusPanel doc={fiscal.doc} canRetry={false} onRetried={fiscal.reload} />
+      )}
       <button
         onClick={() => window.print()}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 font-medium hover:bg-slate-50"
       >
-        <Printer className="size-4" /> Imprimir
+        <Printer className="size-4" /> {waitingDian ? "Imprimir sin esperar el QR" : "Imprimir"}
       </button>
       <button
         onClick={onNewSale}

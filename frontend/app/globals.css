@@ -219,4 +219,13 @@
   .print-ticket .t-small {
     font-size: 9px;
   }
+  .print-ticket .t-break {
+    word-break: break-all;
+  }
+  .print-ticket .t-qr {
+    display: block;
+    width: 32mm;
+    height: 32mm;
+    margin: 2mm auto;
+  }
 }

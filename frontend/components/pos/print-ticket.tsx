@@ -2,8 +2,9 @@
 
 import { PrintArea } from "@/components/nexa/print-area";
 
-import type { BusinessInfo, CheckoutResponse, CreditPlan, PaymentMethod, QuoteResponse } from "@/lib/api";
+import type { BusinessInfo, CheckoutResponse, CreditPlan, OrderFiscalDocument, PaymentMethod, QuoteResponse } from "@/lib/api";
 import { formatCOP } from "@/lib/format";
+import { svgDataUri } from "@/lib/svg";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
   EFECTIVO: "Efectivo",
@@ -46,7 +47,22 @@ export type TicketModel = {
   payments: { label: string; amount: number; tendered: number | null; detail?: string | null }[] | null;
   change: number;
   fiscalAccepted: boolean;
+  /** Documento electrónico ya validado: número, CUDE y QR de verificación. */
+  fiscal?: { number: string; cude: string | null; qrSvg: string | null; simulated: boolean } | null;
 };
+
+/** Suma al tiquete lo que devolvió la DIAN (GET /v1/fiscal/orders/{id}). */
+export function withFiscal(model: TicketModel, doc: OrderFiscalDocument | null): TicketModel {
+  if (!doc) return model;
+  const accepted = doc.status === "ACEPTADO";
+  return {
+    ...model,
+    fiscalAccepted: accepted,
+    fiscal: accepted
+      ? { number: doc.number, cude: doc.cude, qrSvg: doc.qr_svg, simulated: doc.provider === "SIMULADO" }
+      : null,
+  };
+}
 
 /** Metadatos que no vienen en la venta: quién, dónde y para quién. */
 export type TicketMeta = {
@@ -322,8 +338,25 @@ export function PrintTicket({
       {model.payments && model.fiscalAccepted && (
         <>
           <hr />
-          {/* F4.7 agrega aquí el CUFE/CUDE y el QR cuando el documento es ACEPTADO. */}
-          <p className="t-center t-small">Documento electrónico validado por la DIAN</p>
+          {model.fiscal?.simulated ? (
+            <p className="t-center t-small">Documento de prueba, no válido ante la DIAN</p>
+          ) : (
+            <>
+              <p className="t-center t-bold">Documento equivalente electrónico POS</p>
+              {model.fiscal && <p className="t-center">{model.fiscal.number}</p>}
+              {model.fiscal?.cude && (
+                <>
+                  <p className="t-small">CUDE:</p>
+                  <p className="t-small t-break">{model.fiscal.cude}</p>
+                </>
+              )}
+              {model.fiscal?.qrSvg && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="t-qr" src={svgDataUri(model.fiscal.qrSvg)} alt="QR de verificación DIAN" />
+              )}
+              <p className="t-center t-small">Validado por la DIAN. Escaneá el QR para verificarlo.</p>
+            </>
+          )}
         </>
       )}
       <hr />

@@ -55,7 +55,9 @@ export function Turnstile({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const tokenCb = useRef(onToken);
-  tokenCb.current = onToken;
+  useEffect(() => {
+    tokenCb.current = onToken;
+  });
 
   useEffect(() => {
     if (!TURNSTILE_SITE_KEY || !box.current) return;

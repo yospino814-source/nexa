@@ -557,12 +557,35 @@ pub async fn process_due(
     Ok(due.len())
 }
 
-/// Proceso de fondo: cada 10 s envía lo pendiente. Se apaga con `FISCAL_WORKER=0`.
-pub fn spawn_worker(pool: PgPool) {
-    if matches!(std::env::var("FISCAL_WORKER").as_deref(), Ok("0" | "false")) {
+fn env_providers() -> &'static Providers {
+    static P: std::sync::OnceLock<Providers> = std::sync::OnceLock::new();
+    P.get_or_init(Providers::from_env)
+}
+
+fn worker_enabled() -> bool {
+    !matches!(std::env::var("FISCAL_WORKER").as_deref(), Ok("0" | "false"))
+}
+
+/// Envía ya lo pendiente, sin esperar el ciclo: se llama al terminar una
+/// venta o una devolución para que el tiquete salga con su CUDE y su QR.
+pub fn kick(pool: &PgPool) {
+    if !worker_enabled() {
         return;
     }
-    let providers = Providers::from_env();
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        if let Err(e) = process_due(&pool, env_providers(), 20).await {
+            tracing::error!(error = %e, "falló el envío inmediato de documentos fiscales");
+        }
+    });
+}
+
+/// Proceso de fondo: cada 10 s envía lo pendiente. Se apaga con `FISCAL_WORKER=0`.
+pub fn spawn_worker(pool: PgPool) {
+    if !worker_enabled() {
+        return;
+    }
+    let providers = env_providers().clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(10));
         loop {
@@ -581,6 +604,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/fiscal/settings", get(get_settings).put(put_settings))
         .route("/v1/fiscal/documents", get(list_documents))
         .route("/v1/fiscal/documents/{id}/retry", post(retry_document))
+        .route("/v1/fiscal/orders/{order_id}", get(order_document))
+        .route("/v1/fiscal/test", post(test_connection))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -881,4 +906,97 @@ async fn retry_document(
 ) -> ApiResult<Json<serde_json::Value>> {
     retry(&state.pool, &user.claims, id).await?;
     Ok(Json(serde_json::json!({ "status": "PENDIENTE" })))
+}
+
+/// Documento POS de una venta, con el QR listo para imprimir en el tiquete.
+#[derive(Debug, Serialize)]
+pub struct OrderDocument {
+    pub id: Uuid,
+    pub status: String,
+    pub provider: Option<String>,
+    pub number: String,
+    pub cude: Option<String>,
+    pub qr_url: Option<String>,
+    /// QR de `qr_url` en SVG (solo cuando la DIAN ya lo aceptó).
+    pub qr_svg: Option<String>,
+    pub pdf_url: Option<String>,
+    pub last_error: Option<String>,
+}
+
+type OrderDocRow = (
+    Uuid,
+    String,
+    Option<String>,
+    String,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+pub async fn document_of_order(
+    pool: &PgPool,
+    claims: &crate::auth::Claims,
+    order: Uuid,
+) -> ApiResult<Option<OrderDocument>> {
+    let (scope, mut tx) = tenancy::begin(pool, claims).await?;
+    scope.require(Action::Read)?;
+    let row: Option<OrderDocRow> = sqlx::query_as(
+        "select f.id, t.tima_codigo, f.provider, f.prefix, f.number, f.cude, f.qr_url, f.pdf_url, f.last_error
+           from fiscal_documents f join tbl_tipos_maestra t on t.tima_id = f.status_id
+          where f.order_id = $1 and f.doc_type = 'POS' and f.refund_id is null",
+    )
+    .bind(order)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(row.map(
+        |(id, status, provider, prefix, number, cude, qr_url, pdf_url, last_error)| OrderDocument {
+            id,
+            qr_svg: qr_url
+                .as_deref()
+                .filter(|_| status == "ACEPTADO")
+                .and_then(crate::whatsapp::qr_svg),
+            number: format!("{prefix}-{number}"),
+            status,
+            provider,
+            cude,
+            qr_url,
+            pdf_url,
+            last_error,
+        },
+    ))
+}
+
+async fn order_document(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(order_id): Path<Uuid>,
+) -> ApiResult<Json<Option<OrderDocument>>> {
+    Ok(Json(
+        document_of_order(&state.pool, &user.claims, order_id).await?,
+    ))
+}
+
+/// Comprueba que el proveedor de la sede responde con las credenciales del backend.
+async fn test_connection(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<BranchQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let s = settings(&state.pool, &user.claims, q.branch_id).await?;
+    let (ok, message) = match s.provider.as_str() {
+        "SIMULADO" => (
+            true,
+            "Modo simulado: no se envía nada a la DIAN.".to_string(),
+        ),
+        _ => match &env_providers().matias {
+            None => (false, "Falta MATIAS_API_TOKEN en el backend.".to_string()),
+            Some(m) => m.ping(s.provider_client_id.as_deref()).await,
+        },
+    };
+    Ok(Json(
+        serde_json::json!({ "ok": ok, "provider": s.provider, "message": message }),
+    ))
 }

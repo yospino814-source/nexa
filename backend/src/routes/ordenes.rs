@@ -127,7 +127,10 @@ async fn create_refund(
     Body(req): Body<refunds::RefundRequest>,
 ) -> ApiResult<(StatusCode, Json<refunds::Refund>)> {
     match refunds::create(&state.pool, &user.claims, req).await? {
-        refunds::Created::New(r) => Ok((StatusCode::CREATED, Json(r))),
+        refunds::Created::New(r) => {
+            crate::fiscal::kick(&state.pool);
+            Ok((StatusCode::CREATED, Json(r)))
+        }
         refunds::Created::Replayed(r) => Ok((StatusCode::OK, Json(r))),
     }
 }
@@ -137,7 +140,9 @@ async fn approve_refund(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<refunds::Refund>> {
-    Ok(Json(refunds::approve(&state.pool, &user.claims, id).await?))
+    let refund = refunds::approve(&state.pool, &user.claims, id).await?;
+    crate::fiscal::kick(&state.pool);
+    Ok(Json(refund))
 }
 
 async fn reject_refund(

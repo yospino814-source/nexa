@@ -110,7 +110,7 @@ export const screens: Screen[] = [
   s("12", "configuracion-inicial", "Configuración inicial", "/onboarding", "configuracion", "publico", "react"),
   s("18", "negocio-y-sucursales", "Negocio y sucursales", "/configuracion/negocio", "configuracion", "admin", "react"),
   s("19", "usuarios-y-roles", "Usuarios y roles", "/configuracion/usuarios", "configuracion", "admin", "react"),
-  s("20", "pagos-impuestos-y-facturacion", "Pagos, impuestos y DIAN", "/configuracion/facturacion", "configuracion", "admin"),
+  s("20", "pagos-impuestos-y-facturacion", "Facturación electrónica DIAN", "/configuracion/facturacion", "configuracion", "admin", "react"),
   s("32", "cajas", "Cajas registradoras", "/configuracion/cajas", "configuracion", "admin", "react"),
   s("45", "qr-whatsapp", "QR de WhatsApp de la tienda", "/configuracion/whatsapp", "configuracion", "admin", "react"),
   s("33", "tarifas", "Tarifas y presentaciones", "/configuracion/tarifas", "configuracion", "admin", "react"),

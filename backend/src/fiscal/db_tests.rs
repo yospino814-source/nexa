@@ -290,6 +290,22 @@ async fn pos_and_credit_note_end_to_end() {
         );
     }
 
+    // El tiquete: documento de la venta con el QR ya dibujado.
+    let doc = document_of_order(&app, &c, s2.order.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (doc.status.as_str(), doc.provider.as_deref()),
+        ("ACEPTADO", Some("MATIAS"))
+    );
+    assert!(doc.qr_svg.unwrap().contains("<svg"));
+    let sim = document_of_order(&app, &c, order1).await.unwrap().unwrap();
+    assert!(
+        sim.qr_svg.is_none(),
+        "el modo simulado no trae QR de la DIAN"
+    );
+
     // Rechazo de la DIAN: queda RECHAZADO con el motivo y se puede reintentar.
     mock.lock().unwrap().reject_next = true;
     let s3 = match crate::sales::checkout(&app, &c, sale(branch, product, 1, 59500))

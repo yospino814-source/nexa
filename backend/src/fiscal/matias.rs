@@ -368,6 +368,39 @@ impl Client {
             .await
     }
 
+    /// ¿El token sirve? Consulta los tokens de la cuenta (no gasta documentos).
+    pub async fn ping(&self, client: Option<&str>) -> (bool, String) {
+        let res = self
+            .http
+            .get(self.url("/tokens", client))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/json")
+            .send()
+            .await;
+        match res {
+            Ok(r) if r.status().is_success() => (
+                true,
+                format!(
+                    "Conectado con MATIAS ({}).",
+                    if self.base.contains("sandbox") {
+                        "sandbox"
+                    } else {
+                        "producción"
+                    }
+                ),
+            ),
+            Ok(r) if matches!(r.status().as_u16(), 401 | 403) => (
+                false,
+                "MATIAS rechazó el token: revisá MATIAS_API_TOKEN.".into(),
+            ),
+            Ok(r) => (
+                false,
+                format!("MATIAS respondió HTTP {}.", r.status().as_u16()),
+            ),
+            Err(e) => (false, format!("No se pudo llegar a MATIAS: {e}")),
+        }
+    }
+
     /// Estado de un documento ya enviado, por su número.
     pub async fn status(
         &self,

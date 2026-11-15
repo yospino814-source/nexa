@@ -262,12 +262,31 @@ import type {
   SalesByProductResponse,
   SalesHeatmapResponse,
   StoreWhatsappQr,
+  FiscalDocument,
+  FiscalSettings,
+  FiscalStatus,
+  FiscalTestResult,
+  OrderFiscalDocument,
 } from "./types";
 
 export * from "./types";
 export { ApiError, setAccessToken, setTokenProvider, setUnauthorizedHandler, USE_MOCKS } from "./client";
 
 const delay = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Modo demo: la configuración fiscal vive en memoria.
+const mockFiscal = { settings: new Map<Uuid, FiscalSettings>() };
+function defaultFiscalSettings(branchId: Uuid): FiscalSettings {
+  return {
+    branch_id: branchId,
+    provider: "SIMULADO",
+    enabled: false,
+    provider_client_id: null,
+    pos_address: null,
+    pos: null,
+    credit_notes: null,
+  };
+}
 const cents = (n: number) => Math.round(n * 100) / 100;
 const dec = (n: number): Decimal => cents(n).toFixed(2);
 
@@ -3108,6 +3127,63 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(input),
       });
+    },
+  },
+
+  fiscal: {
+    /** GET /v1/fiscal/settings: proveedor y numeración DIAN de la sede. */
+    async settings(branchId: Uuid): Promise<FiscalSettings> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockFiscal.settings.get(branchId) ?? { ...defaultFiscalSettings(branchId) };
+      }
+      return request(`/v1/fiscal/settings?branch_id=${branchId}`);
+    },
+    /** PUT /v1/fiscal/settings */
+    async saveSettings(input: FiscalSettings): Promise<FiscalSettings> {
+      if (USE_MOCKS) {
+        await delay();
+        mockFiscal.settings.set(input.branch_id, input);
+        return input;
+      }
+      return request(`/v1/fiscal/settings`, { method: "PUT", body: JSON.stringify(input) });
+    },
+    /** POST /v1/fiscal/test: comprueba que el proveedor responde. */
+    async test(branchId: Uuid): Promise<FiscalTestResult> {
+      if (USE_MOCKS) {
+        await delay();
+        const s = mockFiscal.settings.get(branchId);
+        return s?.provider === "MATIAS"
+          ? { ok: false, provider: "MATIAS", message: "En modo demo no hay conexión con MATIAS." }
+          : { ok: true, provider: "SIMULADO", message: "Modo simulado: no se envía nada a la DIAN." };
+      }
+      return request(`/v1/fiscal/test?branch_id=${branchId}`, { method: "POST" });
+    },
+    /** GET /v1/fiscal/documents */
+    async documents(branchId: Uuid, status?: FiscalStatus): Promise<FiscalDocument[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return [];
+      }
+      const q = new URLSearchParams({ branch_id: branchId });
+      if (status) q.set("status", status);
+      return request(`/v1/fiscal/documents?${q.toString()}`);
+    },
+    /** POST /v1/fiscal/documents/{id}/retry */
+    async retry(id: Uuid): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        return;
+      }
+      await request(`/v1/fiscal/documents/${id}/retry`, { method: "POST" });
+    },
+    /** GET /v1/fiscal/orders/{id}: null si la venta no genera documento. */
+    async orderDocument(orderId: Uuid): Promise<OrderFiscalDocument | null> {
+      if (USE_MOCKS) {
+        await delay();
+        return null;
+      }
+      return request(`/v1/fiscal/orders/${orderId}`);
     },
   },
 

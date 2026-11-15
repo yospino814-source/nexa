@@ -33,7 +33,11 @@ async fn create_sale(
 ) -> ApiResult<(StatusCode, Json<sales::SaleResponse>)> {
     Ok(
         match sales::checkout(&state.pool, &user.claims, req).await? {
-            Checkout::Created(r) => (StatusCode::CREATED, Json(r)),
+            Checkout::Created(r) => {
+                // El documento POS sale ya, para que el tiquete lleve CUDE y QR.
+                crate::fiscal::kick(&state.pool);
+                (StatusCode::CREATED, Json(r))
+            }
             Checkout::Replayed(r) => (StatusCode::OK, Json(r)),
         },
     )

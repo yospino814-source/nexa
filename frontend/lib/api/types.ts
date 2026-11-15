@@ -268,7 +268,7 @@ export type Payment = {
   reference: string | null;
 };
 
-export type FiscalStatus = "PENDIENTE" | "ENVIADO" | "ACEPTADO" | "RECHAZADO" | "ANULADO";
+export type FiscalStatus = "PENDIENTE" | "ENVIADO" | "EN_PROCESO" | "ACEPTADO" | "RECHAZADO" | "ANULADO";
 
 /** Respuesta de POST /v1/sales (201 nueva, 200 reintento). */
 export type CheckoutResponse = {
@@ -2142,3 +2142,66 @@ export type StoreWhatsappQr = {
   /** QR en SVG (negro sobre blanco, con margen). */
   svg: string;
 };
+
+/** Proveedor tecnológico de facturación electrónica de la sede. */
+export type FiscalProvider = "SIMULADO" | "MATIAS";
+
+/** Resolución de numeración DIAN (POS electrónico o notas crédito). */
+export type FiscalNumbering = {
+  prefix: string;
+  resolution_number: string | null;
+  next_number: number | null;
+  range_to: number | null;
+  resolution_date: string | null;
+  valid_until: string | null;
+};
+
+/** GET/PUT /v1/fiscal/settings */
+export type FiscalSettings = {
+  branch_id: Uuid;
+  provider: FiscalProvider;
+  enabled: boolean;
+  /** UUID de la empresa en MATIAS (solo para casas de software). */
+  provider_client_id: string | null;
+  /** Dirección del punto de venta que va en el documento. */
+  pos_address: string | null;
+  pos: FiscalNumbering | null;
+  credit_notes: FiscalNumbering | null;
+};
+
+/** GET /v1/fiscal/documents */
+export type FiscalDocument = {
+  id: Uuid;
+  order_id: Uuid;
+  refund_id: Uuid | null;
+  doc_type: "POS" | "DEVOLUCION" | string;
+  prefix: string;
+  number: number;
+  status: FiscalStatus;
+  provider: FiscalProvider | null;
+  cude: string | null;
+  qr_url: string | null;
+  pdf_url: string | null;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  accepted_at: string | null;
+};
+
+/** GET /v1/fiscal/orders/{id}: documento electrónico de una venta. */
+export type OrderFiscalDocument = {
+  id: Uuid;
+  status: FiscalStatus;
+  provider: FiscalProvider | null;
+  /** Prefijo y consecutivo, por ejemplo "POS-1024". */
+  number: string;
+  cude: string | null;
+  qr_url: string | null;
+  /** QR de verificación DIAN en SVG, solo cuando está ACEPTADO. */
+  qr_svg: string | null;
+  pdf_url: string | null;
+  last_error: string | null;
+};
+
+/** POST /v1/fiscal/test */
+export type FiscalTestResult = { ok: boolean; provider: FiscalProvider; message: string };
