@@ -169,6 +169,28 @@ pub async fn recipe(
     Ok(items)
 }
 
+use rust_decimal::RoundingStrategy;
+
+pub const ICL_RATE_UNDER_35: Decimal = Decimal::from_parts(320, 0, 0, false, 0);
+pub const ICL_RATE_OVER_35: Decimal = Decimal::from_parts(530, 0, 0, false, 0);
+
+/// Calcula el Impuesto al Consumo de Licores nominal según Ley 1816 de 2016.
+/// Tarifa por cada grado de alcohol en una botella de 750 ml:
+/// - Hasta 35° de alcohol: $320 COP por grado.
+/// - Más de 35° de alcohol: $530 COP por grado.
+pub fn calculate_icl(degrees: Decimal, volume_ml: Decimal) -> Decimal {
+    if degrees.is_zero() || volume_ml.is_zero() {
+        return Decimal::ZERO;
+    }
+    let rate = if degrees <= Decimal::from(35) {
+        ICL_RATE_UNDER_35
+    } else {
+        ICL_RATE_OVER_35
+    };
+    let factor = volume_ml / Decimal::from(750);
+    (degrees * factor * rate).round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
+}
+
 /// Tasa de impuesto resuelta desde el codigo de la tabla maestra.
 pub fn tax_rate_for(code: Option<&str>) -> Option<Decimal> {
     match code {
@@ -188,7 +210,32 @@ mod tests {
         assert_eq!(tax_rate_for(Some("IVA19")), Some(Decimal::new(19, 2)));
         assert_eq!(tax_rate_for(Some("IVA5")), Some(Decimal::new(5, 2)));
         assert_eq!(tax_rate_for(Some("INC8")), Some(Decimal::new(8, 2)));
+        assert_eq!(tax_rate_for(Some("ICL")), None);
         assert_eq!(tax_rate_for(Some("OTRO")), None);
         assert_eq!(tax_rate_for(None), None);
+    }
+
+    #[test]
+    fn calculate_icl_examples() {
+        // Aguardiente 29° 750 ml: 29 * (750/750) * 320 = 9.280
+        assert_eq!(
+            calculate_icl(Decimal::from(29), Decimal::from(750)),
+            Decimal::from(9280)
+        );
+        // Media de aguardiente 29° 375 ml: 29 * (375/750) * 320 = 4.640
+        assert_eq!(
+            calculate_icl(Decimal::from(29), Decimal::from(375)),
+            Decimal::from(4640)
+        );
+        // Whisky 40° 1000 ml: 40 * (1000/750) * 530 = 28266.67
+        assert_eq!(
+            calculate_icl(Decimal::from(40), Decimal::from(1000)),
+            Decimal::new(2826667, 2)
+        );
+        // Cero
+        assert_eq!(
+            calculate_icl(Decimal::ZERO, Decimal::from(750)),
+            Decimal::ZERO
+        );
     }
 }

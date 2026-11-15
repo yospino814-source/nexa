@@ -42,7 +42,7 @@ pub struct ProductInput {
     pub purchase_uom_code: Option<String>,
     #[serde(default = "default_purchase_factor")]
     pub purchase_factor: Decimal,
-    pub tax_code: String, // "IVA19" | "IVA5" | "INC8" | "EXENTO"
+    pub tax_code: String, // "IVA19" | "IVA5" | "INC8" | "EXENTO" | "ICL"
     pub cost_price: Option<Decimal>,
     pub base_price: Option<Decimal>,
     pub reorder_qty: Option<Decimal>,
@@ -54,6 +54,8 @@ pub struct ProductInput {
     #[serde(default)]
     pub has_variants: bool,
     pub description: Option<String>,
+    pub alcohol_degrees: Option<Decimal>,
+    pub volume_ml: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -72,6 +74,8 @@ pub struct ProductRow {
     pub has_variants: bool,
     pub parent_id: Option<Uuid>,
     pub archived: bool,
+    pub alcohol_degrees: Option<Decimal>,
+    pub volume_ml: Option<Decimal>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -99,6 +103,8 @@ struct ProductDetailDbRow {
     pub track_lots: bool,
     pub allow_price_override: bool,
     pub description: Option<String>,
+    pub alcohol_degrees: Option<Decimal>,
+    pub volume_ml: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -250,14 +256,35 @@ pub fn validate_product_input(input: &ProductInput) -> Result<(), ApiError> {
         ));
     }
 
-    let valid_tax_codes = ["IVA19", "IVA5", "INC8", "EXENTO"];
+    let valid_tax_codes = ["IVA19", "IVA5", "INC8", "EXENTO", "ICL"];
     if !valid_tax_codes.contains(&input.tax_code.as_str()) {
         return Err(error::coded(
             StatusCode::UNPROCESSABLE_ENTITY,
             "PRODUCT_INVALID",
-            "Impuesto no válido (debe ser IVA19, IVA5, INC8 o EXENTO)",
+            "Impuesto no válido (debe ser IVA19, IVA5, INC8, EXENTO o ICL)",
             None,
         ));
+    }
+
+    if input.tax_code == "ICL" {
+        let degrees = input.alcohol_degrees.unwrap_or(Decimal::ZERO);
+        let volume = input.volume_ml.unwrap_or(Decimal::ZERO);
+        if degrees <= Decimal::ZERO || degrees > Decimal::from(100) {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PRODUCT_INVALID",
+                "Los productos con ICL requieren grados de alcohol entre 0.1 y 100",
+                None,
+            ));
+        }
+        if volume <= Decimal::ZERO {
+            return Err(error::coded(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PRODUCT_INVALID",
+                "Los productos con ICL requieren volumen en ml mayor a 0",
+                None,
+            ));
+        }
     }
 
     let valid_kinds = ["FISICO", "SERVICIO", "PREPARADO"];
@@ -446,7 +473,9 @@ pub async fn list_products(
            c.name as category_name,
            p.has_variants,
            p.parent_id,
-           (p.archived_at is not null) as archived
+           (p.archived_at is not null) as archived,
+           p.alcohol_degrees,
+           p.volume_ml
          from products p
          left join branch_products bp on bp.product_id = p.id and ($2::uuid is null or bp.branch_id = $2)
          left join product_categories c on c.id = bp.category_id
@@ -504,7 +533,9 @@ pub async fn get_product_detail_tx(
            p.max_qty,
            p.track_lots,
            p.allow_price_override,
-           p.description
+           p.description,
+           p.alcohol_degrees,
+           p.volume_ml
          from products p
          left join branch_products bp on bp.product_id = p.id and ($3::uuid is null or bp.branch_id = $3)
          left join product_categories c on c.id = bp.category_id
@@ -535,7 +566,9 @@ pub async fn get_product_detail_tx(
            c.name as category_name,
            p.has_variants,
            p.parent_id,
-           (p.archived_at is not null) as archived
+           (p.archived_at is not null) as archived,
+           p.alcohol_degrees,
+           p.volume_ml
          from products p
          left join branch_products bp on bp.product_id = p.id and ($2::uuid is null or bp.branch_id = $2)
          left join product_categories c on c.id = bp.category_id
@@ -594,6 +627,8 @@ pub async fn get_product_detail_tx(
             has_variants: row.has_variants,
             parent_id: row.parent_id,
             archived: row.archived,
+            alcohol_degrees: row.alcohol_degrees,
+            volume_ml: row.volume_ml,
         },
         archived_at: row.archived_at,
         unit_measure_code: row.unit_measure_code,
@@ -661,9 +696,9 @@ pub async fn create_product_tx(
            tenant_id, name, sku, barcode, kind, usage, unit_measure_id,
            purchase_uom_id, purchase_factor, tax_type_id, cost_price, base_price,
            reorder_qty, max_qty, track_lots, allow_price_override, has_variants,
-           description, active
+           description, active, alcohol_degrees, volume_ml
          ) values (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, true
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, true, $19, $20
          ) returning id",
     )
     .bind(scope.tenant)
@@ -684,6 +719,8 @@ pub async fn create_product_tx(
     .bind(input.allow_price_override)
     .bind(input.has_variants)
     .bind(&input.description)
+    .bind(input.alcohol_degrees)
+    .bind(input.volume_ml)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -840,7 +877,9 @@ pub async fn update_product_tx(
            track_lots = $16,
            allow_price_override = $17,
            has_variants = $18,
-           description = $19
+           description = $19,
+           alcohol_degrees = $20,
+           volume_ml = $21
          where tenant_id = $1 and id = $2",
     )
     .bind(scope.tenant)
@@ -862,6 +901,8 @@ pub async fn update_product_tx(
     .bind(input.allow_price_override)
     .bind(input.has_variants)
     .bind(&input.description)
+    .bind(input.alcohol_degrees)
+    .bind(input.volume_ml)
     .execute(&mut **tx)
     .await?;
 

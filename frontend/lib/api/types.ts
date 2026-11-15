@@ -486,6 +486,8 @@ export type ProductRow = {
   has_variants: boolean;
   parent_id: Uuid | null;
   archived: boolean;
+  alcohol_degrees?: Decimal | null;
+  volume_ml?: Decimal | null;
 };
 
 export type LocationStock = {
@@ -521,6 +523,8 @@ export type ProductDetail = {
   track_lots: boolean;
   allow_price_override: boolean;
   description: string | null;
+  alcohol_degrees?: Decimal | null;
+  volume_ml?: Decimal | null;
   variants: ProductRow[];
   tier_prices: ProductTierPrice[];
   option_groups: OptionGroupDetail[];
@@ -601,6 +605,8 @@ export type ProductInput = {
   allow_price_override?: boolean;
   has_variants?: boolean;
   description?: string | null;
+  alcohol_degrees?: Decimal | null;
+  volume_ml?: Decimal | null;
 };
 
 export type CreateVariantInput = {

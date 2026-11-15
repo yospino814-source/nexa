@@ -61,6 +61,7 @@ pub struct Line {
     pub line_total: Decimal,
     pub tax_rate: Decimal,
     pub tax_amount: Decimal,
+    pub tax_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,12 +174,24 @@ struct SettingsRow {
 }
 
 async fn load_lines_for_order(tx: &mut Tx<'_>, order: Uuid) -> Result<Vec<Line>, sqlx::Error> {
-    let rows: Vec<(String, String, Decimal, Decimal, Decimal, Decimal)> = sqlx::query_as(
+    let rows: Vec<(
+        String,
+        String,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+    )> = sqlx::query_as(
         "select coalesce(p.sku, left(coalesce(oi.product_id::text, 'LIBRE'), 8)),
                 coalesce(oi.custom_name, p.name),
-                oi.qty, oi.line_total, oi.tax_rate, oi.tax_amount
+                oi.qty, oi.line_total, oi.tax_rate, oi.tax_amount,
+                tx.tima_codigo, p.alcohol_degrees, p.volume_ml
            from order_items oi
            left join products p on p.id = oi.product_id
+           left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
           where oi.order_id = $1 and oi.line_total > 0
           order by oi.created_at, oi.id",
     )
@@ -188,13 +201,49 @@ async fn load_lines_for_order(tx: &mut Tx<'_>, order: Uuid) -> Result<Vec<Line>,
     Ok(rows
         .into_iter()
         .map(
-            |(code, description, qty, line_total, tax_rate, tax_amount)| Line {
+            |(
                 code,
                 description,
                 qty,
                 line_total,
                 tax_rate,
                 tax_amount,
+                tax_code,
+                degrees,
+                volume,
+            )| {
+                let is_icl = tax_code.as_deref() == Some("ICL")
+                    || (degrees.is_some_and(|d| d > Decimal::ZERO)
+                        && volume.is_some_and(|v| v > Decimal::ZERO));
+                let (tax_id, calculated_tax_amount) = if is_icl {
+                    let deg = degrees.unwrap_or(Decimal::ZERO);
+                    let vol = volume.unwrap_or(Decimal::ZERO);
+                    let icl_unit = crate::catalog::calculate_icl(deg, vol);
+                    let total_icl = (icl_unit * qty).round_dp_with_strategy(
+                        2,
+                        rust_decimal::RoundingStrategy::MidpointAwayFromZero,
+                    );
+                    (
+                        "18".to_string(),
+                        if tax_amount.is_zero() {
+                            total_icl
+                        } else {
+                            tax_amount
+                        },
+                    )
+                } else {
+                    let (tid, _) = matias::tax_of(tax_rate);
+                    (tid.to_string(), tax_amount)
+                };
+                Line {
+                    code,
+                    description,
+                    qty,
+                    line_total,
+                    tax_rate,
+                    tax_amount: calculated_tax_amount,
+                    tax_id,
+                }
             },
         )
         .collect())
@@ -333,12 +382,24 @@ async fn build(
             "esperando que la DIAN acepte el documento POS original".into(),
         ));
     }
-    let rows: Vec<(String, String, Decimal, Decimal, Decimal, Decimal)> = sqlx::query_as(
+    let rows: Vec<(
+        String,
+        String,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+    )> = sqlx::query_as(
         "select coalesce(p.sku, left(coalesce(oi.product_id::text, 'LIBRE'), 8)), coalesce(oi.custom_name, p.name),
-                ri.qty, ri.line_total, oi.tax_rate, ri.tax_amount
+                ri.qty, ri.line_total, oi.tax_rate, ri.tax_amount,
+                tx.tima_codigo, p.alcohol_degrees, p.volume_ml
            from refund_items ri
            join order_items oi on oi.id = ri.order_item_id
            left join products p on p.id = oi.product_id
+           left join tbl_tipos_maestra tx on tx.tima_id = p.tax_type_id
           where ri.refund_id = $1 and ri.line_total > 0",
     )
     .bind(refund)
@@ -347,13 +408,49 @@ async fn build(
     let lines: Vec<Line> = rows
         .into_iter()
         .map(
-            |(code, description, qty, line_total, tax_rate, tax_amount)| Line {
+            |(
                 code,
                 description,
                 qty,
                 line_total,
                 tax_rate,
                 tax_amount,
+                tax_code,
+                degrees,
+                volume,
+            )| {
+                let is_icl = tax_code.as_deref() == Some("ICL")
+                    || (degrees.is_some_and(|d| d > Decimal::ZERO)
+                        && volume.is_some_and(|v| v > Decimal::ZERO));
+                let (tax_id, calculated_tax_amount) = if is_icl {
+                    let deg = degrees.unwrap_or(Decimal::ZERO);
+                    let vol = volume.unwrap_or(Decimal::ZERO);
+                    let icl_unit = crate::catalog::calculate_icl(deg, vol);
+                    let total_icl = (icl_unit * qty).round_dp_with_strategy(
+                        2,
+                        rust_decimal::RoundingStrategy::MidpointAwayFromZero,
+                    );
+                    (
+                        "18".to_string(),
+                        if tax_amount.is_zero() {
+                            total_icl
+                        } else {
+                            tax_amount
+                        },
+                    )
+                } else {
+                    let (tid, _) = matias::tax_of(tax_rate);
+                    (tid.to_string(), tax_amount)
+                };
+                Line {
+                    code,
+                    description,
+                    qty,
+                    line_total,
+                    tax_rate,
+                    tax_amount: calculated_tax_amount,
+                    tax_id,
+                }
             },
         )
         .collect();

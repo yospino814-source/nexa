@@ -4,7 +4,7 @@
 //! Catálogos usados (tablas paramétricas DIAN de MATIAS):
 //! - `type_document_id`: 20 = P.O.S Electrónico, 94 = Nota crédito P.O.S.
 //! - `operation_type_id`: 1 = Estándar, 11 = Nota de ajuste al documento equivalente POS.
-//! - `tax_id`: 1 = IVA, 4 = INC.
+//! - `tax_id`: 1 = IVA, 4 = INC, 18 = ICL (Impuesto al Consumo de Licores).
 //! - `quantity_units_id`: 70 = unidad (código 94).
 //! - `means_payment_id`: 10 efectivo, 49 tarjeta débito, 47 transferencia, 1 no definido.
 //! - `identity_document_id`: 1 = cédula, 3 = NIT, 2 = cédula de extranjería, 9 = pasaporte.
@@ -88,7 +88,16 @@ fn unit_net(l: &Line) -> String {
 }
 
 fn line_json(l: &Line) -> Value {
-    let (tax_id, percent) = tax_of(l.tax_rate);
+    let (tax_id, percent) = if l.tax_id.is_empty() {
+        tax_of(l.tax_rate)
+    } else if l.tax_id == "18" {
+        ("18", Decimal::ZERO)
+    } else {
+        (
+            l.tax_id.as_str(),
+            (l.tax_rate * Decimal::from(100)).normalize(),
+        )
+    };
     json!({
         "invoiced_quantity": qty(l.qty),
         "quantity_units_id": "70",
@@ -116,7 +125,16 @@ fn totals(lines: &[Line]) -> (Value, Value) {
     for l in lines {
         base += l.line_total;
         tax += l.tax_amount;
-        let (id, pct) = tax_of(l.tax_rate);
+        let (id, pct) = if l.tax_id.is_empty() {
+            tax_of(l.tax_rate)
+        } else if l.tax_id == "18" {
+            ("18", Decimal::ZERO)
+        } else {
+            (
+                l.tax_id.as_str(),
+                (l.tax_rate * Decimal::from(100)).normalize(),
+            )
+        };
         let e = by_tax.entry((id, pct.to_string())).or_default();
         e.0 += l.tax_amount;
         e.1 += l.line_total;
@@ -462,6 +480,7 @@ mod tests {
     fn line(desc: &str, q: &str, total: &str, rate: &str) -> Line {
         let total = d(total);
         let rate = d(rate);
+        let (tax_id, _) = tax_of(rate);
         Line {
             code: "P1".into(),
             description: desc.into(),
@@ -469,6 +488,23 @@ mod tests {
             line_total: total,
             tax_rate: rate,
             tax_amount: (total * rate).round_dp(2),
+            tax_id: tax_id.to_string(),
+        }
+    }
+
+    fn liquor_line(desc: &str, q: &str, total: &str, degrees: u32, volume: u32) -> Line {
+        let qty = d(q);
+        let total = d(total);
+        let icl_unit = crate::catalog::calculate_icl(Decimal::from(degrees), Decimal::from(volume));
+        let tax_amount = icl_unit * qty;
+        Line {
+            code: "LIC1".into(),
+            description: desc.into(),
+            qty,
+            line_total: total,
+            tax_rate: Decimal::ZERO,
+            tax_amount,
+            tax_id: "18".into(),
         }
     }
 
@@ -530,6 +566,34 @@ mod tests {
             ("50000.00", "2")
         );
         assert_eq!(v["payments"][1]["means_payment_id"], 49);
+    }
+
+    #[test]
+    fn pos_json_with_icl_tax() {
+        let mut d = doc();
+        d.lines.push(liquor_line(
+            "Aguardiente Antioqueño 750",
+            "2",
+            "70000.00",
+            29,
+            750,
+        ));
+        let v = pos_json(&d);
+        let taxes = v["tax_totals"].as_array().unwrap();
+        let icl = taxes
+            .iter()
+            .find(|t| t["tax_id"] == "18")
+            .expect("ICL tax total present");
+        // 29 * (750/750) * 320 = 9280 * 2 = 18560
+        assert_eq!(icl["tax_amount"], "18560.00");
+        assert_eq!(icl["taxable_amount"], "70000.00");
+        assert_eq!(icl["percent"], "0");
+
+        let m = &v["legal_monetary_totals"];
+        // base anterior 122000 + 70000 = 192000
+        assert_eq!(m["line_extension_amount"], "192000.00");
+        // total anterior 142400 + 70000 + 18560 = 230960
+        assert_eq!(m["tax_inclusive_amount"], "230960.00");
     }
 
     #[test]

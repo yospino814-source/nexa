@@ -2175,6 +2175,8 @@ export const api = {
           track_lots: input.track_lots ?? false,
           allow_price_override: input.allow_price_override ?? true,
           description: input.description ?? null,
+          alcohol_degrees: input.alcohol_degrees ?? null,
+          volume_ml: input.volume_ml ?? null,
           variants: [],
           tier_prices: [],
           option_groups: [],

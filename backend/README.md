@@ -196,7 +196,7 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | POST | `/v1/auth/login-attempt` | Registrar o verificar intento de login; tras 5 fallos en 15 min responde 429 |
 | GET | `/v1/products?branch_id=&q=&category_id=&usage=&archived=false&page=&page_size=` | Listado de productos con paginación y filtros (`inventory:read`) |
 | GET | `/v1/products/{id}?branch_id=` | Detalle completo de producto (`inventory:read`) |
-| POST | `/v1/products` | Crear nuevo producto (`inventory:adjust`) |
+| POST | `/v1/products` | Crear nuevo producto `{name, sku?, barcode?, kind, usage, unit_measure_code, purchase_uom_code?, purchase_factor?, tax_code, cost_price?, base_price?, reorder_qty?, max_qty?, track_lots?, allow_price_override?, has_variants?, description?, alcohol_degrees?, volume_ml?}` (`inventory:adjust`) |
 | PUT | `/v1/products/{id}` | Actualizar producto (`inventory:adjust`) |
 | POST | `/v1/products/{id}/variants` | Crear variante de producto (`inventory:adjust`) |
 | PUT | `/v1/branch-products/{product_id}` | Actualizar precio y disponibilidad por sucursal (`inventory:adjust`) |
@@ -327,7 +327,7 @@ Al cobrar o aprobar una devolución el documento se envía al instante (`fiscal:
 3. Crea un token personal (`POST /tokens`, o desde el portal) y ponlo en `MATIAS_API_TOKEN`.
 4. En Nexa: **Configuración → Facturación DIAN** (`/configuracion/facturacion`): elegí MATIAS, cargá prefijo y resolución, prendé el envío y tocá *Probar conexión*.
 
-Pendiente: impuesto al consumo de licores (ICL, nominal por grado alcohólico); hoy se envían IVA (tax_id 1) e INC (tax_id 4).
+Impuestos soportados en el documento electrónico: IVA (tax_id 1), INC (tax_id 4) e ICL de licores nominal por grado alcohólico y por cada 750 ml (tax_id 18).
 
 ## Seguridad
 
@@ -348,6 +348,5 @@ Configuración que se hace en el panel de Supabase (no está en el código):
 
 ## Pendiente
 
-- **ICL de licores** en el documento electrónico (ver Facturación electrónica).
 - **Link de pago de los pedidos por WhatsApp:** el bot encola `WHATSAPP_PAYMENT_LINK` en el outbox. Falta el worker que crea el link en Bold, lo envía y llama `/paid` cuando se confirma el pago.
 - **Pedido → venta del POS:** al despachar, el frontend registra la venta con `POST /v1/sales` y manda su `sale_id` al cambiar el estado. Los combos y promociones del POS no se aplican en el precio que cotiza el bot.
