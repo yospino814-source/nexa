@@ -2326,7 +2326,9 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     assert_eq!(outbox_status, "PENDIENTE");
 
     // [P] F0.3: después de 5 intentos fallidos en 15 minutos desde la misma IP, responde 429
-    let test_rate_email = "bloqueo.test@ejemplo.com";
+    // Correo único por corrida: si no, correr dos veces seguidas falla por los intentos anteriores.
+    let rate_email = format!("bloqueo.{}@ejemplo.com", Uuid::new_v4());
+    let test_rate_email = rate_email.as_str();
     for i in 1..=4 {
         let res = crate::auth::check_and_record_login_attempt(
             app,

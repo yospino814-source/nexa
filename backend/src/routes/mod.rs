@@ -87,6 +87,7 @@ pub fn router() -> Router<AppState> {
         .merge(administracion::router())
         .merge(reportes::router())
         .merge(crate::whatsapp::router())
+        .merge(crate::fiscal::router())
 }
 
 #[derive(Deserialize)]

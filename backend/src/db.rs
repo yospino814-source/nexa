@@ -91,3 +91,21 @@ pub async fn set_scope(
     .await?;
     Ok(())
 }
+
+/// Transacción del sistema (sin usuario) para un negocio y sede ya resueltos:
+/// procesos de fondo como el envío de documentos a la DIAN.
+pub async fn begin_system_tx(
+    pool: &PgPool,
+    tenant: Uuid,
+    branch: Option<Uuid>,
+) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("set local role authenticated")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("select set_config('request.jwt.claims', '', true)")
+        .execute(&mut *tx)
+        .await?;
+    set_scope(&mut tx, tenant, branch).await?;
+    Ok(tx)
+}

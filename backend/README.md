@@ -300,6 +300,30 @@ También reconoce al cliente por su número y ofrece "lo de siempre", responde f
 | POST | `/v1/whatsapp/orders/{id}/paid` | `{reference}`: marca pagado un pedido con link y avisa. |
 | GET / PUT | `/v1/whatsapp/bot` | Configuración por sede: número, horario, pedido mínimo, opciones y zonas. PUT solo dueño o administrador. |
 
+## Facturación electrónica
+
+Cada venta deja su **documento equivalente POS electrónico** en `fiscal_documents` (PENDIENTE), y cada devolución aprobada su **nota crédito POS**. Un proceso de fondo (`src/fiscal/`) los envía cada 10 s al proveedor de la sede y guarda el CUDE, el enlace del QR de la DIAN y el PDF.
+
+- **Proveedores:** `SIMULADO` (no sale a internet; inventa un CUDE para desarrollo y demos) y `MATIAS` (MATIAS API).
+- **Estados:** `PENDIENTE` → `ACEPTADO`, `RECHAZADO` (con el motivo de la DIAN en `last_error`) o `EN_PROCESO` (la DIAN aún no responde; se vuelve a consultar).
+- **Reintentos:** si el proveedor no responde, se reintenta con espera creciente, de 30 s hasta 1 h, como máximo 12 veces. Si la respuesta dice que pudo haberse enviado, primero se consulta el estado y no se reenvía a ciegas.
+- **Notas crédito:** salen solo cuando el documento POS original ya fue aceptado, porque lo referencian por su CUDE.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET / PUT | `/v1/fiscal/settings?branch_id=` | Proveedor, activado, sub-cuenta (Casa de Software), dirección del punto de venta, y la numeración DIAN de POS y de notas crédito (prefijo, resolución, rango, fechas). PUT solo dueño o administrador. |
+| GET | `/v1/fiscal/documents?branch_id=&status=` | Documentos con estado, CUDE, QR, PDF y último error. |
+| POST | `/v1/fiscal/documents/{id}/retry` | Vuelve a enviar un documento rechazado o detenido (dueño o administrador). |
+
+**Probar con el sandbox de MATIAS:**
+
+1. Crea la cuenta en https://sandbox-auth.matias-api.com/ y verifica el correo.
+2. En ese portal, configura la empresa y la numeración POS (y la de notas crédito). El número de resolución que pongas en Nexa debe ser el mismo.
+3. Crea un token personal (`POST /tokens`, o desde el portal) y ponlo en `MATIAS_API_TOKEN`.
+4. En Nexa: `PUT /v1/fiscal/settings` con `provider: "MATIAS"`, `enabled: true` y la resolución.
+
+Pendiente: impuesto al consumo de licores (ICL, nominal por grado alcohólico); hoy se envían IVA (tax_id 1) e INC (tax_id 4).
+
 ## Seguridad
 
 Controles del backend:

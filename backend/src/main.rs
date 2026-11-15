@@ -9,6 +9,7 @@ pub mod customers;
 mod db;
 mod error;
 pub mod expenses;
+pub mod fiscal;
 mod inventory;
 pub mod invitations;
 pub mod locations;
@@ -101,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let pool = db::connect(&database_url, max_connections).await?;
+    fiscal::spawn_worker(pool.clone());
     let jwt = JwtValidator::new(&supabase_url);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
