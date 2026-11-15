@@ -6,12 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, MailCheck } from "lucide-react";
 
 import { getSupabase } from "@/lib/supabase/client";
-import { AUTH_ENABLED } from "@/lib/supabase/config";
+import { AUTH_ENABLED, CAPTCHA_ENABLED } from "@/lib/supabase/config";
 import { homeFor, rememberDevice, useSession } from "@/lib/stores/session";
 import { api, ApiError } from "@/lib/api";
 
 import { AuthShell, FieldLabel, inputClass, primaryButtonClass } from "./auth-shell";
 import { BranchPicker } from "./branch-picker";
+import { Turnstile } from "./turnstile";
 
 /** Solo rutas internas: evita redirecciones abiertas con ?next=https://... */
 function safeNext(next: string | null): string | null {
@@ -40,6 +41,10 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  // Cada token anti-bots sirve una vez: tras usarlo se pide otro.
+  const renewCaptcha = () => setCaptchaReset((n) => n + 1);
 
   function goHome(chosen: string | null = branchId) {
     const role = branches.find((b) => b.id === chosen)?.role ?? null;
@@ -63,6 +68,11 @@ export function LoginScreen() {
     setError(null);
 
     const trimmedEmail = email.trim();
+    if (CAPTCHA_ENABLED && !captchaToken) {
+      setError("Esperá un momento: estamos verificando que no seas un robot.");
+      setSubmitting(false);
+      return;
+    }
 
     // 1. Verificación de intentos fallidos antes de llamar a Supabase
     try {
@@ -76,7 +86,12 @@ export function LoginScreen() {
     }
 
     // 2. Intento de autenticación con Supabase
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: trimmedEmail,
+      password,
+      options: { captchaToken: captchaToken ?? undefined },
+    });
+    renewCaptcha();
     if (authError) {
       // Registrar intento fallido
       try {
@@ -124,10 +139,16 @@ export function LoginScreen() {
       setError("Escribí tu email y tocá de nuevo “¿Olvidaste tu contraseña?”.");
       return;
     }
+    if (CAPTCHA_ENABLED && !captchaToken) {
+      setError("Esperá un momento: estamos verificando que no seas un robot.");
+      return;
+    }
     setError(null);
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: `${window.location.origin}/login/restablecer`,
+      captchaToken: captchaToken ?? undefined,
     });
+    renewCaptcha();
     if (resetError) setError(loginErrorMessage(resetError.message));
     else setResetSent(true);
   }
@@ -236,6 +257,8 @@ export function LoginScreen() {
           />
           Recordarme en este equipo
         </label>
+
+        <Turnstile onToken={setCaptchaToken} resetKey={captchaReset} action="login" />
 
         <button type="submit" disabled={submitting || !email || !password} className={primaryButtonClass}>
           {submitting ? (

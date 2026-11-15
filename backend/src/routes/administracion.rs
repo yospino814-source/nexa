@@ -29,7 +29,13 @@ pub(super) fn router() -> Router<AppState> {
         .route("/v1/users/{id}/role", put(update_user_role))
         .route("/v1/users/{id}/status", put(update_user_status))
         // Auth / seguridad
-        .route("/v1/auth/login-attempt", post(auth_login_attempt))
+        .route(
+            "/v1/auth/login-attempt",
+            post(auth_login_attempt).layer(
+                tower_governor::GovernorLayer::new(crate::security::login_limiter())
+                    .error_handler(crate::security::too_many),
+            ),
+        )
 }
 
 async fn list_permissions(
@@ -143,13 +149,12 @@ pub struct LoginAttemptRequest {
 
 async fn auth_login_attempt(
     State(state): State<AppState>,
+    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: axum::http::HeaderMap,
     Body(req): Body<LoginAttemptRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim());
+    let ip = crate::security::request_ip(&headers, peer.map(|c| (c.0).0)).map(|ip| ip.to_string());
+    let ip = ip.as_deref();
     let user_agent = headers.get("user-agent").and_then(|h| h.to_str().ok());
 
     let count = crate::auth::check_and_record_login_attempt(

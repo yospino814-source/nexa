@@ -19,7 +19,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, FixedOffset, NaiveTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -51,12 +51,6 @@ pub fn router() -> Router<AppState> {
         .route("/v1/whatsapp/orders/{id}/status", post(set_status))
         .route("/v1/whatsapp/orders/{id}/paid", post(mark_paid))
         .route("/v1/whatsapp/bot", get(get_bot).put(put_bot))
-}
-
-/// Hora de Colombia (UTC−5, sin horario de verano).
-fn local_now() -> NaiveTime {
-    let co = FixedOffset::west_opt(5 * 3600).expect("offset válido");
-    Utc::now().with_timezone(&co).time()
 }
 
 /// Transacción del sistema para un negocio y sede ya resueltos (sin usuario).
@@ -194,7 +188,7 @@ pub(crate) async fn process(
     m: &cloud::Inbound,
 ) -> anyhow::Result<Option<(String, Vec<Reply>)>> {
     let route: Option<(Uuid, Uuid)> =
-        sqlx::query_as("select tenant_id, branch_id from public.whatsapp_bot_route($1)")
+        sqlx::query_as("select tenant_id, branch_id from private.whatsapp_bot_route($1)")
             .bind(&m.phone_number_id)
             .fetch_optional(pool)
             .await?;
@@ -270,7 +264,8 @@ pub(crate) async fn process(
         let products = load_catalog(&mut tx, branch).await?;
         let customer: Option<(Uuid, String)> = sqlx::query_as(
             "select id, name from customers
-              where archived_at is null and phone is not null and right(phone, 10) = right($1, 10)
+              where archived_at is null and phone is not null
+                and (phone = $1 or '57' || phone = $1)
               order by created_at limit 1",
         )
         .bind(&from)
@@ -296,6 +291,13 @@ pub(crate) async fn process(
         .bind(&from)
         .fetch_optional(&mut *tx)
         .await?;
+        // Hora local de la sede (cada sede tiene su zona horaria).
+        let now: NaiveTime = sqlx::query_scalar(
+            "select (now() at time zone timezone)::time from branches where id = $1",
+        )
+        .bind(branch)
+        .fetch_one(&mut *tx)
+        .await?;
         let name = customer
             .as_ref()
             .map(|c| c.1.as_str())
@@ -307,7 +309,7 @@ pub(crate) async fn process(
             customer_name: name,
             usual: Some(&usual),
             saved_address: saved.as_ref().map(|(a, z)| (a.as_str(), *z)),
-            now: local_now(),
+            now,
         };
         let (c, r, o) = engine::handle(&conv, &m.input, &ctx);
         if let Some((cid, _)) = customer {

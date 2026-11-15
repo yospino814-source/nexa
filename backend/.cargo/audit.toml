@@ -1,0 +1,14 @@
+# Avisos revisados y aceptados (cargo audit). Revisar cuando salga una versión
+# de jsonwebtoken que use rsa 0.10 / crypto-bigint 0.7.
+[advisories]
+ignore = [
+  # rsa (Marvin): ataque de tiempo contra descifrado y firma con clave
+  # privada. El backend solo verifica firmas JWT con claves públicas.
+  "RUSTSEC-2023-0071",
+  # crypto-bigint 0.5 (vía p256/jsonwebtoken): tiempos variables al operar con
+  # secretos. Verificar una firma no usa secretos.
+  "RUSTSEC-2026-0387",
+  # libsqlite3-sys: viene en Cargo.lock por las macros de sqlx, pero el
+  # backend no activa SQLite y no se compila.
+  "RUSTSEC-2026-0459",
+]

@@ -300,6 +300,23 @@ También reconoce al cliente por su número y ofrece "lo de siempre", responde f
 | POST | `/v1/whatsapp/orders/{id}/paid` | `{reference}`: marca pagado un pedido con link y avisa. |
 | GET / PUT | `/v1/whatsapp/bot` | Configuración por sede: número, horario, pedido mínimo, opciones y zonas. PUT solo dueño o administrador. |
 
+## Seguridad
+
+Controles del backend:
+
+- **Límite de peticiones** (`src/security.rs`, crate `tower_governor`): 60 seguidas y luego 10 por segundo por usuario (se identifica por un resumen del token, nunca el token) o por IP si no hay sesión. `POST /v1/auth/login-attempt` tiene uno más estricto: 5 seguidas y luego 1 cada 12 s por IP. Responde 429 con `Retry-After`.
+- **IP real del cliente:** solo con `TRUST_PROXY=1`, y se toma la última entrada de `X-Forwarded-For` (la que agrega nuestro proxy).
+- **Intentos de login:** se cuentan por correo **e IP**, así nadie puede bloquear la cuenta de otra persona desde su propia IP.
+- **Encabezados:** toda respuesta lleva `nosniff`, `Cache-Control: no-store`, `X-Frame-Options: DENY` y `Referrer-Policy: no-referrer`.
+- **Base de datos:** las funciones que corren sin contexto de negocio (`record_login_attempt`, `whatsapp_bot_route`) viven en el esquema `private`, que Supabase no publica. El negocio activo del JWT exige membresía activa. El perfil propio solo permite cambiar el nombre.
+- **Dependencias:** `cargo audit` limpio. Los avisos aceptados, con su razón, están en `.cargo/audit.toml`.
+
+Configuración que se hace en el panel de Supabase (no está en el código):
+
+1. **Authentication → Bot and Abuse Protection:** activar CAPTCHA con **Cloudflare Turnstile** y pegar la clave secreta. La clave de sitio va en el frontend (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`).
+2. **Authentication → Rate Limits:** revisar los límites de inicio de sesión y de correos.
+3. **Project Settings → Data API:** el frontend no consulta tablas por la API de Supabase, solo usa el login. Desactivar la Data API o quitar `public` de los esquemas expuestos.
+
 ## Pendiente
 
 - **Worker de facturación DIAN:** lee `fiscal_documents` en `PENDIENTE`, transmite al proveedor tecnológico y guarda el CUDE. Falta elegir proveedor.

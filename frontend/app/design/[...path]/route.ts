@@ -14,6 +14,10 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
+  // Referencias de diseño: solo en desarrollo, nunca en el dominio publicado.
+  if (process.env.NODE_ENV === "production") {
+    return new Response("Not found", { status: 404 });
+  }
   const { path: segments } = await params;
   const file = path.join(ROOT, ...segments);
   const type = CONTENT_TYPES[path.extname(file)];

@@ -178,7 +178,7 @@ pub async fn check_and_record_login_attempt(
 
     // La tabla no admite escrituras directas del rol de la API: se usa la
     // función security definer de la migración 20261102000300.
-    let count: i32 = sqlx::query_scalar("select public.record_login_attempt($1, $2, $3, $4, $5)")
+    let count: i32 = sqlx::query_scalar("select private.record_login_attempt($1, $2, $3, $4, $5)")
         .bind(&email)
         .bind(ip)
         .bind(user_agent)

@@ -30,6 +30,7 @@ pub mod reports;
 pub mod routes;
 mod sales;
 pub mod sales_history;
+pub mod security;
 pub mod sequences;
 pub mod settings;
 mod tenancy;
@@ -64,6 +65,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn app(state: AppState) -> Router {
     routes::router()
+        .layer(
+            tower_governor::GovernorLayer::new(security::api_limiter())
+                .error_handler(security::too_many),
+        )
+        .layer(security::header_layers())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
@@ -100,9 +106,12 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on {addr}");
-    axum::serve(listener, app(AppState { pool, jwt }))
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app(AppState { pool, jwt }).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 
@@ -211,6 +220,52 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn responses_carry_security_headers() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let h = response.headers();
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        assert_eq!(h["x-frame-options"], "DENY");
+        assert_eq!(h["cache-control"], "no-store");
+    }
+
+    #[tokio::test]
+    async fn login_attempt_is_rate_limited_with_json_429() {
+        let router = test_router();
+        let mut last = StatusCode::OK;
+        for _ in 0..6 {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/auth/login-attempt")
+                        .header("content-type", "application/json")
+                        .body(Body::from(r#"{"email":""}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            last = response.status();
+            if last == StatusCode::TOO_MANY_REQUESTS {
+                assert!(response.headers().contains_key("retry-after"));
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert!(v["error"].as_str().unwrap().contains("demasiadas"));
+                break;
+            }
+        }
+        assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

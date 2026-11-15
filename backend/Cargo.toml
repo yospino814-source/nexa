@@ -19,9 +19,11 @@ uuid = { version = "1", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
-tower-http = { version = "0.6", features = ["trace", "timeout"] }
+tower-http = { version = "0.6", features = ["trace", "timeout", "set-header"] }
 sha2 = "0.10"
 hmac = "0.12"
+tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+governor = { version = "0.10", default-features = false, features = ["std", "quanta"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

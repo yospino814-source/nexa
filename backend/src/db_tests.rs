@@ -706,6 +706,26 @@ async fn hook_checks(admin: &PgPool) {
     let tenant = seed_tenant(admin).await;
     let branch = seed_branch(admin, tenant).await;
     let user = seed_user(admin).await;
+
+    // Sin membresía, el hook no copia el negocio al JWT aunque la fila exista.
+    let outsider = seed_user(admin).await;
+    sqlx::query(
+        "insert into user_active_context (user_id, tenant_id, branch_id) values ($1, $2, $3)",
+    )
+    .bind(outsider)
+    .bind(tenant)
+    .bind(branch)
+    .execute(admin)
+    .await
+    .unwrap();
+    let out: serde_json::Value = sqlx::query_scalar("select public.custom_access_token_hook($1::jsonb)")
+        .bind(serde_json::json!({ "user_id": outsider.to_string(), "claims": { "sub": outsider.to_string(), "app_metadata": {} } }))
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(out["claims"]["app_metadata"]["tenant_id"].is_null());
+
+    seed_membership(admin, tenant, None, user, "CAJERO").await;
     sqlx::query(
         "insert into user_active_context (user_id, tenant_id, branch_id) values ($1, $2, $3)",
     )
@@ -736,7 +756,7 @@ async fn hook_checks(admin: &PgPool) {
         serde_json::json!(branch.to_string())
     );
 
-    cleanup(admin, tenant, &[user]).await;
+    cleanup(admin, tenant, &[user, outsider]).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2305,7 +2325,7 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
         .unwrap();
     assert_eq!(outbox_status, "PENDIENTE");
 
-    // [P] F0.3: después de 5 intentos fallidos en 15 minutos, responde 429
+    // [P] F0.3: después de 5 intentos fallidos en 15 minutos desde la misma IP, responde 429
     let test_rate_email = "bloqueo.test@ejemplo.com";
     for i in 1..=4 {
         let res = crate::auth::check_and_record_login_attempt(
@@ -2321,9 +2341,15 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     }
 
     // Pre-check antes del 5to intento todavía pasa (4 fallos < 5)
-    let pre_check_ok =
-        crate::auth::check_and_record_login_attempt(app, test_rate_email, None, None, None, None)
-            .await;
+    let pre_check_ok = crate::auth::check_and_record_login_attempt(
+        app,
+        test_rate_email,
+        Some("192.168.1.50"),
+        None,
+        None,
+        None,
+    )
+    .await;
     assert!(pre_check_ok.is_ok());
 
     // 5to intento fallido responde 429 TooManyRequests
@@ -2339,9 +2365,15 @@ async fn platform_checks(app: &PgPool, admin: &PgPool) {
     assert!(is_too_many_requests(&fifth_attempt));
 
     // Pre-check posterior responde 429 bloqueando el login
-    let blocked_pre_check =
-        crate::auth::check_and_record_login_attempt(app, test_rate_email, None, None, None, None)
-            .await;
+    let blocked_pre_check = crate::auth::check_and_record_login_attempt(
+        app,
+        test_rate_email,
+        Some("192.168.1.50"),
+        None,
+        None,
+        None,
+    )
+    .await;
     assert!(is_too_many_requests(&blocked_pre_check));
 
     cleanup(admin, tenant, &[owner, cashier, admin_user]).await;

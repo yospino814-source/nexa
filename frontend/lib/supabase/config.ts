@@ -8,8 +8,19 @@ export const SUPABASE_KEY =
 /** Sin URL y clave, la app corre sin login (modo demo con datos mock). */
 export const AUTH_ENABLED = SUPABASE_URL !== "" && SUPABASE_KEY !== "";
 
-/** Rutas que no exigen sesion. El resto queda protegido por proxy.ts. */
-export const PUBLIC_PREFIXES = ["/login", "/registro", "/onboarding", "/tienda", "/design"];
+/** Clave publica de Cloudflare Turnstile. Sin ella no se pide verificacion anti-bots. */
+export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+export const CAPTCHA_ENABLED = TURNSTILE_SITE_KEY !== "";
+
+/** Rutas que no exigen sesion. El resto queda protegido por proxy.ts.
+ *  `/design` (referencias de Stitch) solo existe fuera de produccion. */
+export const PUBLIC_PREFIXES = [
+  "/login",
+  "/registro",
+  "/onboarding",
+  "/tienda",
+  ...(process.env.NODE_ENV === "production" ? [] : ["/design"]),
+];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

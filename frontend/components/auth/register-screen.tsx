@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, MailCheck } from "lucide-react";
 
 import { getSupabase } from "@/lib/supabase/client";
-import { AUTH_ENABLED } from "@/lib/supabase/config";
+import { AUTH_ENABLED, CAPTCHA_ENABLED } from "@/lib/supabase/config";
 
 import {
   AuthShell,
@@ -14,6 +14,7 @@ import {
   inputClass,
   primaryButtonClass,
 } from "./auth-shell";
+import { Turnstile } from "./turnstile";
 
 export function RegisterScreen() {
   const router = useRouter();
@@ -35,6 +36,8 @@ export function RegisterScreen() {
   const [generalError, setGeneralError] = useState<React.ReactNode | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,6 +84,11 @@ export function RegisterScreen() {
       return;
     }
 
+    if (CAPTCHA_ENABLED && !captchaToken) {
+      setGeneralError("Esperá un momento: estamos verificando que no seas un robot.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const { error } = await supabase.auth.signUp({
@@ -89,8 +97,10 @@ export function RegisterScreen() {
         options: {
           emailRedirectTo: `${window.location.origin}/onboarding`,
           data: { full_name: trimmedName },
+          captchaToken: captchaToken ?? undefined,
         },
       });
+      setCaptchaReset((n) => n + 1);
 
       if (error) {
         const msg = error.message || "";
@@ -241,6 +251,8 @@ export function RegisterScreen() {
             <p className="text-xs font-medium text-red-600">{confirmPasswordError}</p>
           )}
         </div>
+
+        <Turnstile onToken={setCaptchaToken} resetKey={captchaReset} action="signup" />
 
         <button
           type="submit"
