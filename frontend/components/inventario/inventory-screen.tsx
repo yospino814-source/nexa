@@ -11,6 +11,7 @@ import {
   Coffee,
   Download,
   History,
+  Smartphone,
   Milk,
   Package,
   PackagePlus,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { StatCard } from "@/components/nexa/stat-card";
+import { NexiStrip } from "@/components/nexa/nexi-strip";
 import { api, type StockAlert, type StockLevel, type StockStatus } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
@@ -171,8 +173,27 @@ export function InventoryScreen() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Existencias e inventario</h1>
           <p className="mt-1 text-slate-500">Disponibilidad, alertas de reorden y valor del inventario en {branch.name}.</p>
+          {(out.length > 0 || low.length > 0) && (
+            <NexiStrip expr={out.length > 0 ? "alert" : "happy"} action="Ver pedido sugerido" href="/compras">
+              {out.length > 0 && (
+                <>
+                  <strong className="text-white">{out.length === 1 ? out[0].name : `${out.length} productos`}</strong>{" "}
+                  {out.length === 1 ? "está agotado" : "están agotados"}
+                  {low.length > 0 ? " y " : ". "}
+                </>
+              )}
+              {low.length > 0 && <>{low.length} más están por agotarse. </>}
+              En Compras te armo el pedido con lo que falta.
+            </NexiStrip>
+          )}
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/conteo"
+            className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"
+          >
+            <Smartphone className="size-4" /> Contar con el celular
+          </Link>
           <Link
             href="/inventario/movimientos"
             className="flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50"

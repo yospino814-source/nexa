@@ -11,6 +11,7 @@ const ROUTE_PERMISSIONS: RoutePermissionRule[] = [
   { prefix: "/ventas", permissions: ["reports:read"] },
   { prefix: "/pos", permissions: ["pos:sell"] },
   { prefix: "/pedidos", permissions: ["pos:sell"] },
+  { prefix: "/conteo", permissions: ["inventory:adjust"] },
   { prefix: "/caja", permissions: ["cash:movement"] },
   { prefix: "/inventario", permissions: ["inventory:adjust"] },
   { prefix: "/inventario/vencimientos", permissions: ["inventory:read"] },

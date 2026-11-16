@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { StatCard } from "@/components/nexa/stat-card";
+import { NexiStrip } from "@/components/nexa/nexi-strip";
 import { api, type PurchaseStatus } from "@/lib/api";
 import { useApi } from "@/lib/api/use-api";
 import { useCurrentBranch, useSession } from "@/lib/stores/session";
@@ -186,6 +187,12 @@ export function PurchasesScreen() {
           <p className="mt-1 text-slate-500">
             Ingreso de mercancía por facturas de compra en {branch.name}.
           </p>
+          {Number(summaryData?.to_pay_balance || 0) > 0 && (
+            <NexiStrip action="Ver cuentas por pagar" href="/compras/por-pagar">
+              Le debés <strong className="text-white">{formatCOP(Number(summaryData?.to_pay_balance))}</strong> a
+              proveedores. Revisá qué factura vence primero para no pagar intereses.
+            </NexiStrip>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

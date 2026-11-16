@@ -13,6 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { StatCard } from "@/components/nexa/stat-card";
+import { NexiStrip } from "@/components/nexa/nexi-strip";
 import { MoneyInput } from "@/components/caja/money-input";
 import { Button } from "@/components/ui/button";
 import {
@@ -242,6 +243,16 @@ export function ReceivablesScreen() {
           <p className="text-sm text-slate-500">
             Resumen consolidado, antigüedad de saldos, deudores y gestión de cobro.
           </p>
+          {Number(summary?.overdue_balance || 0) > 0 && (
+            <NexiStrip
+              expr="alert"
+              action="Ver deudores"
+              onAction={() => document.getElementById("deudores")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Tenés <strong className="text-white">{formatCOP(Number(summary?.overdue_balance))}</strong> vencidos. Desde
+              Deudores activos le mandás el recordatorio por WhatsApp a cada uno.
+            </NexiStrip>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -386,7 +397,7 @@ export function ReceivablesScreen() {
       </div>
 
       {/* 3. Tabla de deudores */}
-      <div className="rounded-2xl border border-slate-200/60 bg-white shadow-xs overflow-hidden">
+      <div id="deudores" className="scroll-mt-20 rounded-2xl border border-slate-200/60 bg-white shadow-xs overflow-hidden">
         <div className="border-b border-slate-100 p-5">
           <h2 className="text-sm font-bold text-slate-800">Deudores activos</h2>
           <p className="text-xs text-slate-400">Clientes con cuentas por cobrar abiertas o parciales.</p>

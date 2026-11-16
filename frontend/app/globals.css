@@ -578,3 +578,40 @@
     animation: none;
   }
 }
+
+/* Administración (lienzo 30–71): la cabecera de cada pantalla va sobre una
+   franja carbón con las luces de la marca. Se dibuja detrás del primer bloque
+   de la pantalla, así sirve para todas sin tocar cada una. */
+.nx-admin {
+  overflow-x: clip;
+}
+.nx-admin > header + * {
+  position: relative;
+  isolation: isolate;
+}
+.nx-admin > header + * > :first-child {
+  position: relative;
+}
+.nx-admin > header + * > :first-child::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -40px;
+  bottom: -24px;
+  left: -100vw;
+  right: -100vw;
+  background:
+    radial-gradient(420px 300px at calc(100vw + 85%) -40px, rgb(108 62 245 / 0.42), transparent 70%),
+    radial-gradient(380px 260px at calc(100vw - 2%) -60px, rgb(255 122 61 / 0.2), transparent 70%),
+    radial-gradient(360px 200px at calc(100vw + 45%) 140%, rgb(30 200 240 / 0.14), transparent 70%),
+    var(--color-carbon);
+}
+.nx-admin > header + * > :first-child:not([class*="bg-white"]) :is(h1, h2) {
+  color: #fff;
+}
+.nx-admin > header + * > :first-child:not([class*="bg-white"]) :is(p, .text-slate-500) {
+  color: #a9afbb;
+}
+.nx-admin > header + * > :first-child [class*="bg-white"] :is(p, h2, h1) {
+  color: var(--color-slate-900);
+}

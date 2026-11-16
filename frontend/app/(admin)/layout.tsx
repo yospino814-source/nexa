@@ -12,7 +12,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <RouteGuard>
           <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
             <Sidebar />
-            <main className="min-w-0 flex-1">{children}</main>
+            <main className="nx-admin min-w-0 flex-1">{children}</main>
           </div>
         </RouteGuard>
       </SessionGate>
