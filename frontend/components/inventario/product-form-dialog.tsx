@@ -45,14 +45,18 @@ function ProductFormContent({
   const isNew = !product;
 
   const [name, setName] = useState(() => product?.name || "");
-  const [category, setCategory] = useState(() => product?.category || "Abarrotes");
+  const [category, setCategory] = useState(
+    () => product?.category || "Abarrotes",
+  );
   const [price, setPrice] = useState(() =>
     product?.price ? String(Math.round(Number(product.price))) : "",
   );
   const [costPrice, setCostPrice] = useState(() =>
     product?.cost_price ? String(Math.round(Number(product.cost_price))) : "",
   );
-  const [barcode, setBarcode] = useState(() => product?.barcode || product?.sku || "");
+  const [barcode, setBarcode] = useState(
+    () => product?.barcode || product?.sku || "",
+  );
   const [taxCode, setTaxCode] = useState("IVA19");
   const [alcoholDegrees, setAlcoholDegrees] = useState("");
   const [volumeMl, setVolumeMl] = useState("750");
@@ -72,9 +76,11 @@ function ProductFormContent({
         .get(product.product_id, branchId)
         .then((detail) => {
           if (detail.tax_code) setTaxCode(detail.tax_code);
-          if (detail.alcohol_degrees) setAlcoholDegrees(String(detail.alcohol_degrees));
+          if (detail.alcohol_degrees)
+            setAlcoholDegrees(String(detail.alcohol_degrees));
           if (detail.volume_ml) setVolumeMl(String(detail.volume_ml));
-          if (detail.unit_measure_code) setUnitMeasureCode(detail.unit_measure_code);
+          if (detail.unit_measure_code)
+            setUnitMeasureCode(detail.unit_measure_code);
         })
         .catch(() => {});
     }
@@ -90,15 +96,17 @@ function ProductFormContent({
       setError("El precio de venta debe ser mayor a 0.");
       return;
     }
-    if (taxCode === "ICL") {
+    if (alcoholDegrees.trim()) {
       const deg = Number(alcoholDegrees);
-      const vol = Number(volumeMl);
-      if (!alcoholDegrees || isNaN(deg) || deg <= 0 || deg > 100) {
-        setError("Los productos con ICL requieren grados de alcohol válidos (0.1 a 100°).");
+      if (isNaN(deg) || deg < 0 || deg > 100) {
+        setError("Los grados de alcohol van de 0 a 100.");
         return;
       }
-      if (!volumeMl || isNaN(vol) || vol <= 0) {
-        setError("Los productos con ICL requieren volumen en ml válido (> 0).");
+    }
+    if (volumeMl.trim()) {
+      const vol = Number(volumeMl);
+      if (isNaN(vol) || vol <= 0) {
+        setError("El contenido en ml debe ser mayor a 0.");
         return;
       }
     }
@@ -110,7 +118,9 @@ function ProductFormContent({
       const basePriceFormatted = Number(price).toFixed(2);
       const costPriceNum = costPrice ? Number(costPrice) : null;
       const costPriceFormatted =
-        costPriceNum !== null && costPriceNum > 0 ? costPriceNum.toFixed(2) : null;
+        costPriceNum !== null && costPriceNum > 0
+          ? costPriceNum.toFixed(2)
+          : null;
 
       const input: ProductInput = {
         name: name.trim(),
@@ -118,8 +128,9 @@ function ProductFormContent({
         base_price: basePriceFormatted,
         cost_price: costPriceFormatted,
         tax_code: taxCode,
-        alcohol_degrees: taxCode === "ICL" && alcoholDegrees ? alcoholDegrees.trim() : null,
-        volume_ml: taxCode === "ICL" && volumeMl ? volumeMl.trim() : null,
+        alcohol_degrees: alcoholDegrees.trim() || null,
+        volume_ml:
+          alcoholDegrees.trim() && volumeMl.trim() ? volumeMl.trim() : null,
         unit_measure_code: unitMeasureCode,
       };
 
@@ -286,7 +297,7 @@ function ProductFormContent({
             </div>
           </div>
 
-          {/* Impuesto (IVA / INC / ICL) */}
+          {/* Impuesto (IVA / INC) */}
           <div className="col-span-1 sm:col-span-2">
             <label className="mb-1.5 block text-xs font-semibold text-slate-700">
               Impuesto
@@ -299,48 +310,45 @@ function ProductFormContent({
               <option value="IVA19">IVA General (19%)</option>
               <option value="IVA5">IVA Reducido (5%)</option>
               <option value="INC8">Impoconsumo (8%)</option>
-              <option value="ICL">Impuesto al Consumo de Licores (ICL)</option>
               <option value="EXENTO">Exento / Excluido (0%)</option>
             </select>
           </div>
 
-          {/* Datos específicos de licores para ICL */}
-          {taxCode === "ICL" && (
-            <div className="col-span-1 sm:col-span-2 grid grid-cols-2 gap-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                  Grados de alcohol (°) *
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="100"
-                  value={alcoholDegrees}
-                  onChange={(e) => setAlcoholDegrees(e.target.value)}
-                  placeholder="Ej. 29"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 transition-all placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                  Volumen (ml) *
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={volumeMl}
-                  onChange={(e) => setVolumeMl(e.target.value)}
-                  placeholder="Ej. 750"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 transition-all placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
-                />
-              </div>
-              <p className="col-span-2 text-[11px] text-slate-500">
-                La DIAN exige reportar el ICL nominal según grados alcoholimétricos por cada 750 ml (Ley 1816 de 2016).
-              </p>
+          {/* Datos del licor (opcionales) */}
+          <div className="col-span-1 sm:col-span-2 grid grid-cols-2 gap-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Grados de alcohol (°)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="100"
+                value={alcoholDegrees}
+                onChange={(e) => setAlcoholDegrees(e.target.value)}
+                placeholder="Ej. 29"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 transition-all placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
+              />
             </div>
-          )}
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Contenido (ml)
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                value={volumeMl}
+                onChange={(e) => setVolumeMl(e.target.value)}
+                placeholder="Ej. 750"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 transition-all placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <p className="col-span-2 text-[11px] text-slate-500">
+              Solo para licores. Dejalo vacío si el producto no tiene alcohol.
+            </p>
+          </div>
 
           {/* Stock inicial: solo al crear */}
           {isNew && (

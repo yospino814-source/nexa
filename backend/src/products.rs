@@ -42,7 +42,7 @@ pub struct ProductInput {
     pub purchase_uom_code: Option<String>,
     #[serde(default = "default_purchase_factor")]
     pub purchase_factor: Decimal,
-    pub tax_code: String, // "IVA19" | "IVA5" | "INC8" | "EXENTO" | "ICL"
+    pub tax_code: String, // "IVA19" | "IVA5" | "INC8" | "EXENTO"
     pub cost_price: Option<Decimal>,
     pub base_price: Option<Decimal>,
     pub reorder_qty: Option<Decimal>,
@@ -256,32 +256,33 @@ pub fn validate_product_input(input: &ProductInput) -> Result<(), ApiError> {
         ));
     }
 
-    let valid_tax_codes = ["IVA19", "IVA5", "INC8", "EXENTO", "ICL"];
+    let valid_tax_codes = ["IVA19", "IVA5", "INC8", "EXENTO"];
     if !valid_tax_codes.contains(&input.tax_code.as_str()) {
         return Err(error::coded(
             StatusCode::UNPROCESSABLE_ENTITY,
             "PRODUCT_INVALID",
-            "Impuesto no válido (debe ser IVA19, IVA5, INC8, EXENTO o ICL)",
+            "Impuesto no válido (debe ser IVA19, IVA5, INC8 o EXENTO)",
             None,
         ));
     }
 
-    if input.tax_code == "ICL" {
-        let degrees = input.alcohol_degrees.unwrap_or(Decimal::ZERO);
-        let volume = input.volume_ml.unwrap_or(Decimal::ZERO);
-        if degrees <= Decimal::ZERO || degrees > Decimal::from(100) {
+    // Datos del licor (opcionales): grados y contenido de la botella.
+    if let Some(d) = input.alcohol_degrees {
+        if d < Decimal::ZERO || d > Decimal::from(100) {
             return Err(error::coded(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "PRODUCT_INVALID",
-                "Los productos con ICL requieren grados de alcohol entre 0.1 y 100",
+                "Los grados de alcohol van de 0 a 100",
                 None,
             ));
         }
-        if volume <= Decimal::ZERO {
+    }
+    if let Some(v) = input.volume_ml {
+        if v <= Decimal::ZERO {
             return Err(error::coded(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "PRODUCT_INVALID",
-                "Los productos con ICL requieren volumen en ml mayor a 0",
+                "El contenido en ml debe ser mayor a 0",
                 None,
             ));
         }

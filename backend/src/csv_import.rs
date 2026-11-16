@@ -737,6 +737,8 @@ pub async fn commit_import(
                     allow_price_override: true,
                     has_variants: false,
                     description: None,
+                    alcohol_degrees: None,
+                    volume_ml: None,
                 };
                 crate::products::update_product_tx(&mut tx, &scope, id, p_input).await?;
                 id
@@ -769,6 +771,8 @@ pub async fn commit_import(
                     allow_price_override: true,
                     has_variants: is_parent,
                     description: None,
+                    alcohol_degrees: None,
+                    volume_ml: None,
                 };
                 crate::products::create_product_tx(&mut tx, &scope, p_input).await?
             };

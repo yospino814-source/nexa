@@ -5648,6 +5648,8 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             allow_price_override: true,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -5674,6 +5676,8 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             allow_price_override: true,
             has_variants: true,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -5722,6 +5726,8 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -5878,6 +5884,8 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
         allow_price_override: true,
         has_variants: false,
         description: None,
+        alcohol_degrees: None,
+        volume_ml: None,
     };
 
     let try_change_uom =
@@ -5910,6 +5918,8 @@ async fn f2_products(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -5997,6 +6007,8 @@ async fn f2_options(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -6036,6 +6048,8 @@ async fn f2_options(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -6298,6 +6312,8 @@ async fn f2_archive(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -8829,6 +8845,8 @@ async fn f2_lots(app: &PgPool, admin: &PgPool) {
             allow_price_override: true,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -9091,6 +9109,8 @@ async fn f2_lots(app: &PgPool, admin: &PgPool) {
             allow_price_override: true,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -9206,6 +9226,8 @@ async fn f2_adjustments(app: &PgPool, admin: &PgPool) {
             allow_price_override: true,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await
@@ -9433,6 +9455,8 @@ async fn f2_suggestions(app: &PgPool, admin: &PgPool) {
             allow_price_override: false,
             has_variants: false,
             description: None,
+            alcohol_degrees: None,
+            volume_ml: None,
         },
     )
     .await

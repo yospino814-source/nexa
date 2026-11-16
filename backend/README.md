@@ -327,7 +327,7 @@ Al cobrar o aprobar una devolución el documento se envía al instante (`fiscal:
 3. Crea un token personal (`POST /tokens`, o desde el portal) y ponlo en `MATIAS_API_TOKEN`.
 4. En Nexa: **Configuración → Facturación DIAN** (`/configuracion/facturacion`): elegí MATIAS, cargá prefijo y resolución, prendé el envío y tocá *Probar conexión*.
 
-Impuestos soportados en el documento electrónico: IVA (tax_id 1), INC (tax_id 4) e ICL de licores nominal por grado alcohólico y por cada 750 ml (tax_id 18).
+Impuestos en el documento electrónico: IVA (tax_id 1) e INC (tax_id 4). El ICL de licores no se discrimina: se cobra en la cadena (productor o importador) y viene incluido en el precio de compra. Los productos guardan grados y ml por si un contador indica lo contrario.
 
 ## Seguridad
 
@@ -348,5 +348,6 @@ Configuración que se hace en el panel de Supabase (no está en el código):
 
 ## Pendiente
 
+- **ICL de licores:** confirmar con un contador si la tienda debe discriminarlo en el documento POS. Hoy no se envía.
 - **Link de pago de los pedidos por WhatsApp:** el bot encola `WHATSAPP_PAYMENT_LINK` en el outbox. Falta el worker que crea el link en Bold, lo envía y llama `/paid` cuando se confirma el pago.
 - **Pedido → venta del POS:** al despachar, el frontend registra la venta con `POST /v1/sales` y manda su `sale_id` al cambiar el estado. Los combos y promociones del POS no se aplican en el precio que cotiza el bot.
