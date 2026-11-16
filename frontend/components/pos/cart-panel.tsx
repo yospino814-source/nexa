@@ -156,13 +156,13 @@ export function CartPanel({
 
   return (
     <div className="flex h-full flex-col bg-white">
-      <div className="space-y-4 border-b border-slate-100 p-5">
+      <div className="space-y-3 border-b border-slate-100 px-5 pt-[18px] pb-3.5">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight">Venta actual</h2>
+          <div className="flex items-baseline gap-2.5">
+            <h2 className="text-lg font-semibold tracking-[-0.01em]">Venta actual</h2>
             {!empty && (
-              <span className="rounded-full border border-teal-100 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-brand">
-                {lines.length} productos ({units} ítems)
+              <span className="text-[13px] text-slate-500 tabular-nums">
+                {units} {units === 1 ? "producto" : "productos"}
               </span>
             )}
           </div>
@@ -172,15 +172,15 @@ export function CartPanel({
               onClick={clear}
               disabled={empty}
               aria-label="Vaciar venta"
-              className="flex size-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+              className="flex size-9 items-center justify-center rounded-[10px] text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
             >
               <Trash2 className="size-4" />
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200/60 bg-slate-50/60 p-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-brand">
-            {customerAlias ? <Tag className="size-5" /> : <User className="size-5" />}
+        <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 py-2 pr-1.5 pl-2.5">
+          <span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+            {customerAlias ? <Tag className="size-4" /> : <User className="size-4" />}
           </span>
           <div className="min-w-0 flex-1 leading-tight">
             {customer ? (
@@ -212,14 +212,14 @@ export function CartPanel({
               }}
               title="Quitar cliente o alias"
               aria-label="Quitar cliente o alias"
-              className="flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 hover:text-rose-600"
+              className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-rose-600"
             >
               <X className="size-4" />
             </button>
           ) : null}
           <button
             onClick={() => setDialogOpen(true)}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[13px] font-semibold shadow-xs hover:bg-slate-50"
           >
             <Pencil className="size-3" /> {customer || customerAlias ? "Cambiar" : "Cliente (F4)"}
           </button>
@@ -229,7 +229,7 @@ export function CartPanel({
               disabled={!selectedLine || selectedLine.productId === null}
               aria-label="Descuento a la línea seleccionada (F6)"
               title="Descuento a la línea seleccionada (F6)"
-              className="flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+              className="flex size-8 items-center justify-center rounded-lg border border-slate-300 bg-white shadow-xs hover:bg-slate-50 disabled:opacity-40"
             >
               <Percent className="size-3.5" />
             </button>
@@ -237,14 +237,14 @@ export function CartPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5">
+      <div className="min-h-[180px] flex-1 overflow-y-auto px-2.5 py-2">
         {empty ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-slate-400">
-            <ShoppingCart className="size-12 stroke-1" />
-            <p className="text-sm">Escaneá o tocá un producto</p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 py-10 text-slate-400">
+            <ShoppingCart className="size-10" strokeWidth={1.5} />
+            <p className="text-sm text-slate-500">Escaneá o tocá un producto</p>
           </div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="flex flex-col gap-1">
             {lines.map((line, index) => {
               const ql = quote?.lines[index];
               const promoAmount = Number(ql?.discount.promotion ?? 0) + Number(ql?.discount.order ?? 0);
@@ -255,15 +255,15 @@ export function CartPanel({
                   key={line.key}
                   onClick={() => select(line.key)}
                   className={cn(
-                    "-mx-2 flex cursor-pointer items-center gap-3 rounded-xl px-2 py-4",
-                    selectedKey === line.key && "bg-teal-50/60",
+                    "nx-rise flex cursor-pointer items-center gap-3 rounded-xl py-2.5 pr-2.5 pl-3 [animation-duration:.24s]",
+                    selectedKey === line.key ? "bg-[#F7F8FF] shadow-[inset_0_0_0_1.5px_#3D4FE0]" : "bg-white",
                   )}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="truncate font-medium">{line.name}</p>
+                      <p className="truncate text-sm font-medium">{line.name}</p>
                       {line.tierName && (
-                        <span className="shrink-0 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                        <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
                           {line.tierName}
                         </span>
                       )}
@@ -273,7 +273,7 @@ export function CartPanel({
                         + {line.optionNames.join(", ")}
                       </p>
                     )}
-                    <p className="text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
                       {line.priceOverride != null && (
                         <span className="mr-1 line-through">{formatCOP(line.unitPrice)}</span>
                       )}
@@ -308,27 +308,27 @@ export function CartPanel({
                     )}
                   </div>
                   <div
-                    className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1"
+                    className="flex shrink-0 items-center overflow-hidden rounded-[10px] border border-slate-200 bg-white"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
                       onClick={() => setQty(line.key, line.qty - 1)}
                       aria-label="Quitar uno"
-                      className="flex size-9 items-center justify-center rounded-full bg-white shadow-xs hover:bg-slate-100"
+                      className="flex size-10 items-center justify-center text-slate-700 transition-transform hover:bg-indigo-50 active:scale-[0.86]"
                     >
-                      <Minus className="size-4" />
+                      <Minus className="size-4" strokeWidth={2.2} />
                     </button>
-                    <span className="w-8 text-center font-semibold tabular-nums">{line.qty}</span>
+                    <span className="w-8 text-center text-[15px] font-semibold tabular-nums">{line.qty}</span>
                     <button
                       onClick={() => setQty(line.key, line.qty + 1)}
                       disabled={line.maxQty != null && line.qty >= line.maxQty}
                       aria-label="Agregar uno"
-                      className="flex size-9 items-center justify-center rounded-full bg-white shadow-xs hover:bg-slate-100 disabled:opacity-40"
+                      className="flex size-10 items-center justify-center text-slate-700 transition-transform hover:bg-indigo-50 active:scale-[0.86] disabled:opacity-40"
                     >
-                      <Plus className="size-4" />
+                      <Plus className="size-4" strokeWidth={2.2} />
                     </button>
                   </div>
-                  <span className="w-20 text-right font-bold tabular-nums">
+                  <span className="w-[84px] shrink-0 text-right text-[15px] font-semibold tabular-nums">
                     {formatCOP(ql ? Number(ql.line_total) : linePrice(line) * line.qty)}
                   </span>
                   <button
@@ -337,7 +337,7 @@ export function CartPanel({
                       remove(line.key);
                     }}
                     aria-label={`Eliminar ${line.name}`}
-                    className="text-slate-300 hover:text-rose-500"
+                    className="text-slate-300 hover:text-rose-600"
                   >
                     <X className="size-4" />
                   </button>
@@ -348,10 +348,10 @@ export function CartPanel({
         )}
       </div>
 
-      <div className="space-y-4 border-t border-slate-100 p-5">
+      <div className="space-y-3.5 border-t border-slate-200 bg-[#FBFBFD] px-5 pt-3.5 pb-5">
         <div className="space-y-1.5 border-b border-slate-100 pb-3">
           {couponCode ? (
-            <div className="flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800">
+            <div className="flex items-center justify-between rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200 ring-inset">
               <span className="flex items-center gap-1.5 font-mono">
                 <Tag className="size-3.5 text-brand" />
                 {couponCode}
@@ -363,7 +363,7 @@ export function CartPanel({
                 type="button"
                 onClick={handleRemoveCoupon}
                 aria-label="Quitar cupón"
-                className="ml-2 text-teal-600 hover:text-rose-600"
+                className="ml-2 text-indigo-500 hover:text-rose-600"
               >
                 <X className="size-4" />
               </button>
@@ -376,12 +376,12 @@ export function CartPanel({
                 value={couponInput}
                 onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
                 disabled={empty}
-                className="flex-1 rounded-xl border border-slate-200 px-3 py-1.5 font-mono text-xs uppercase focus:border-brand focus:ring-1 focus:ring-brand disabled:opacity-40"
+                className="h-9 flex-1 rounded-[10px] border border-slate-300 bg-white px-3 font-mono text-xs uppercase outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-600/18 disabled:opacity-40"
               />
               <button
                 type="submit"
                 disabled={empty || !couponInput.trim()}
-                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-40"
+                className="h-9 rounded-[10px] border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-900 shadow-xs hover:bg-slate-50 disabled:opacity-40"
               >
                 Aplicar
               </button>
@@ -393,7 +393,7 @@ export function CartPanel({
         {quoteError && <p className="rounded-xl bg-rose-50 p-2 text-xs font-medium text-rose-600">{quoteError}</p>}
 
         <div className={cn("space-y-3 transition-opacity", quoteLoading && "opacity-50")}>
-          <dl className="space-y-1 text-sm text-slate-500">
+          <dl className="space-y-1.5 text-[13px] text-slate-500 tabular-nums">
             <div className="flex justify-between">
               <dt>Subtotal</dt>
               <dd className="tabular-nums">{formatCOP(Number(quote?.subtotal_gross ?? 0))}</dd>
@@ -409,9 +409,9 @@ export function CartPanel({
               <dd className="tabular-nums">{formatCOP(Number(quote?.tax_total ?? 0))}</dd>
             </div>
           </dl>
-          <div className="flex items-baseline justify-between border-t border-slate-100 pt-3">
-            <span className="text-sm font-bold tracking-wide uppercase">Total a pagar</span>
-            <span className="text-4xl font-extrabold tracking-tight tabular-nums">{formatCOP(total)}</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-[15px] font-semibold">Total a pagar</span>
+            <span className="text-[32px] font-bold tracking-[-0.03em] tabular-nums">{formatCOP(total)}</span>
           </div>
         </div>
         <div className={cn("grid gap-2", availableMethods.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
@@ -420,8 +420,10 @@ export function CartPanel({
               key={id}
               onClick={() => onMethodChange(id)}
               className={cn(
-                "flex h-12 items-center justify-center gap-2 rounded-full border text-sm font-medium transition-colors",
-                method === id ? "border-brand bg-teal-50 text-brand ring-1 ring-brand" : "border-slate-200 hover:bg-slate-50",
+                "flex h-11 items-center justify-center gap-2 rounded-[10px] border text-[13px] font-semibold transition-colors",
+                method === id
+                  ? "border-indigo-600 bg-indigo-50 text-indigo-700 shadow-[0_0_0_3px_rgb(61_79_224/0.14)]"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
               )}
             >
               <Icon className={cn("size-4", method !== id && tone)} />
@@ -433,7 +435,7 @@ export function CartPanel({
           type="button"
           onClick={printPreBill}
           disabled={empty}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] text-[13px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
         >
           <Printer className="size-4" /> Precuenta
         </button>
@@ -444,18 +446,18 @@ export function CartPanel({
         <button
           onClick={onCharge}
           disabled={empty || !quote || quoteLoading}
-          className="flex h-16 w-full items-center justify-between rounded-2xl bg-brand px-6 text-xl font-bold text-white shadow-lg shadow-teal-900/20 transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          className="btn-cobrar flex h-16 w-full items-center justify-between rounded-[14px] px-6 text-[19px] font-bold tabular-nums disabled:cursor-not-allowed"
         >
           <span>Cobrar {formatCOP(total)}</span>
           <span className="flex items-center gap-2">
-            <kbd className="rounded-md bg-white/15 px-2 py-0.5 text-xs font-medium">F9</kbd>
+            <kbd className="rounded-md bg-white/18 px-2 py-0.5 text-xs font-semibold">F9</kbd>
             <ArrowRight className="size-5" />
           </span>
         </button>
-        <div className="hidden flex-wrap justify-between gap-y-1 text-xs text-slate-400 lg:flex">
+        <div className="hidden flex-wrap justify-between gap-y-1 text-[11px] text-slate-500 lg:flex">
           {SHORTCUTS.map(([key, label]) => (
             <span key={key} className="flex items-center gap-1.5">
-              <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5">{key}</kbd>
+              <kbd className="rounded-md bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-600">{key}</kbd>
               {label}
             </span>
           ))}

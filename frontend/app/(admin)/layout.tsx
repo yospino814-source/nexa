@@ -4,7 +4,7 @@ import { RouteGuard } from "@/components/auth/route-guard";
 import { SessionGate } from "@/components/auth/session-gate";
 import { Sidebar } from "@/components/nexa/sidebar";
 
-/** Layout de administracion: sidebar de 72px + contenido (cada pagina pone su Topbar). */
+/** Layout de administración: menú de 84 px + contenido (cada página pone su Topbar). */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={null}>

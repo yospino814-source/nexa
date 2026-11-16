@@ -4,13 +4,124 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Rediseño Nexa POS (lienzo "Nexa POS · Rediseño", hoja 00).
+   Las pantallas usan clases de Tailwind por nombre (teal, slate, emerald…);
+   acá se reasignan esas paletas a la marca: índigo #3D4FE0, carbón #1A1D24,
+   fondo #F6F7FB, texto #14161C y los estados de la hoja de estilo. */
+@theme {
+  --color-teal-50: #EEF0FF;
+  --color-teal-100: #E0E4FF;
+  --color-teal-200: #C7CDFE;
+  --color-teal-300: #A3ADFB;
+  --color-teal-400: #7C88F5;
+  --color-teal-500: #5A68EC;
+  --color-teal-600: #3D4FE0;
+  --color-teal-700: #2F3DB8;
+  --color-teal-800: #283396;
+  --color-teal-900: #232C77;
+  --color-teal-950: #161B47;
+  --color-indigo-50: #EEF0FF;
+  --color-indigo-100: #E0E4FF;
+  --color-indigo-200: #C7CDFE;
+  --color-indigo-300: #A3ADFB;
+  --color-indigo-400: #7C88F5;
+  --color-indigo-500: #5A68EC;
+  --color-indigo-600: #3D4FE0;
+  --color-indigo-700: #2F3DB8;
+  --color-indigo-800: #283396;
+  --color-indigo-900: #232C77;
+  --color-indigo-950: #161B47;
+  --color-slate-50: #F6F7FB;
+  --color-slate-100: #EEF0F4;
+  --color-slate-200: #E4E7EE;
+  --color-slate-300: #D5D9E2;
+  --color-slate-400: #9CA3AF;
+  --color-slate-500: #6B7280;
+  --color-slate-600: #4B5563;
+  --color-slate-700: #374151;
+  --color-slate-800: #252A33;
+  --color-slate-900: #14161C;
+  --color-slate-950: #0F1115;
+  --color-gray-50: #F6F7FB;
+  --color-gray-100: #EEF0F4;
+  --color-gray-200: #E4E7EE;
+  --color-gray-300: #D5D9E2;
+  --color-gray-400: #9CA3AF;
+  --color-gray-500: #6B7280;
+  --color-gray-600: #4B5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #252A33;
+  --color-gray-900: #14161C;
+  --color-gray-950: #0F1115;
+  --color-emerald-50: #E9F8EF;
+  --color-emerald-100: #D3F1DF;
+  --color-emerald-200: #BFE8CF;
+  --color-emerald-300: #8FD8AE;
+  --color-emerald-400: #4CC07F;
+  --color-emerald-500: #12A150;
+  --color-emerald-600: #0E8A44;
+  --color-emerald-700: #0E7A3D;
+  --color-emerald-800: #0E5E31;
+  --color-emerald-900: #0B4A27;
+  --color-amber-50: #FFF7E0;
+  --color-amber-100: #FFEFC2;
+  --color-amber-200: #F5DFA0;
+  --color-amber-300: #F0C95C;
+  --color-amber-400: #EDB52A;
+  --color-amber-500: #E8A400;
+  --color-amber-600: #B98300;
+  --color-amber-700: #8A6100;
+  --color-amber-800: #7A5600;
+  --color-amber-900: #5C4100;
+  --color-rose-50: #FDECEC;
+  --color-rose-100: #FBD9D9;
+  --color-rose-200: #F7C6C6;
+  --color-rose-300: #F09A9A;
+  --color-rose-400: #E86565;
+  --color-rose-500: #DC2626;
+  --color-rose-600: #C81E1E;
+  --color-rose-700: #B91C1C;
+  --color-rose-800: #991B1B;
+  --color-rose-900: #7F1D1D;
+  --color-red-50: #FDECEC;
+  --color-red-100: #FBD9D9;
+  --color-red-200: #F7C6C6;
+  --color-red-300: #F09A9A;
+  --color-red-400: #E86565;
+  --color-red-500: #DC2626;
+  --color-red-600: #C81E1E;
+  --color-red-700: #B91C1C;
+  --color-red-800: #991B1B;
+  --color-red-900: #7F1D1D;
+  --color-sky-50: #E8F6FD;
+  --color-sky-100: #D0EDFB;
+  --color-sky-200: #BEE3F8;
+  --color-sky-300: #7DD3FC;
+  --color-sky-400: #38BDF8;
+  --color-sky-500: #0EA5E9;
+  --color-sky-600: #0284C7;
+  --color-sky-700: #0369A1;
+  --color-sky-800: #075985;
+  --color-sky-900: #0C4A6E;
+  --font-sans: var(--font-inter, "Inter"), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-carbon: #1A1D24;
+  --color-carbon-soft: #252A33;
+  --color-bone: #F4F1EA;
+  --color-grad-orange: #FF7A3D;
+  --color-grad-pink: #FF3D8B;
+  --color-grad-violet: #6C3EF5;
+  --color-grad-cyan: #1EC8F0;
+  --shadow-card: 0 1px 2px rgb(20 22 28 / 0.04), 0 12px 32px -20px rgb(20 22 28 / 0.22);
+  --shadow-pop: 0 0 0 1px rgb(20 22 28 / 0.06), 0 32px 80px -24px rgb(20 22 28 / 0.5);
+}
+
 @theme inline {
   --color-brand: var(--brand);
   --color-brand-dark: var(--brand-dark);
   --color-brand-soft: var(--brand-soft);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter, "Inter"), "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, monospace;
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -56,46 +167,46 @@
 }
 
 :root {
-  /* Nexa POS — ver design/specs/00-design-system.md */
-  --brand: #0f6e6e;
-  --brand-dark: #0b5252;
-  --brand-soft: #f0fdfa;
-  --background: #f8fafc; /* slate-50 */
-  --foreground: #0f172a; /* slate-900 */
+  /* Nexa POS — rediseño (hoja de estilo 00 del lienzo) */
+  --brand: #3d4fe0;
+  --brand-dark: #2f3db8;
+  --brand-soft: #eef0ff;
+  --background: #f6f7fb;
+  --foreground: #14161c;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #14161c;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  --popover-foreground: #14161c;
   --primary: var(--brand);
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9; /* slate-100 */
-  --secondary-foreground: #334155;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b; /* slate-500 */
-  --accent: #ccfbf1;
-  --accent-foreground: #0b5252;
-  --destructive: #f43f5e; /* rose-500 */
-  --success: #10b981; /* emerald-500 */
+  --secondary: #eef0f4;
+  --secondary-foreground: #374151;
+  --muted: #eef0f4;
+  --muted-foreground: #6b7280;
+  --accent: #eef0ff;
+  --accent-foreground: #2f3db8;
+  --destructive: #dc2626;
+  --success: #12a150;
   --success-foreground: #ffffff;
-  --warning: #f59e0b; /* amber-500 */
+  --warning: #e8a400;
   --warning-foreground: #451a03;
-  --border: #e2e8f0; /* slate-200 */
-  --input: #e2e8f0;
+  --border: #e4e7ee;
+  --input: #d5d9e2;
   --ring: var(--brand);
   --chart-1: var(--brand);
-  --chart-2: #334155;
-  --chart-3: #10b981;
-  --chart-4: #f59e0b;
-  --chart-5: #f43f5e;
-  --radius: 0.75rem;
-  --sidebar: #0f172a;
-  --sidebar-foreground: #94a3b8;
-  --sidebar-primary: #2dd4bf;
-  --sidebar-primary-foreground: #0f172a;
-  --sidebar-accent: #1e293b;
-  --sidebar-accent-foreground: #f8fafc;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #2dd4bf;
+  --chart-2: #1ec8f0;
+  --chart-3: #ff3d8b;
+  --chart-4: #12a150;
+  --chart-5: #e8a400;
+  --radius: 0.625rem;
+  --sidebar: #1a1d24;
+  --sidebar-foreground: #9ca3af;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #1a1d24;
+  --sidebar-accent: rgb(255 255 255 / 8%);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #252a33;
+  --sidebar-ring: #3d4fe0;
 }
 
 .dark {
@@ -227,5 +338,243 @@
     width: 32mm;
     height: 32mm;
     margin: 2mm auto;
+  }
+}
+
+/* Acción estrella (Cobrar): único lugar con el degradado de la marca. */
+.btn-cobrar {
+  background-image: linear-gradient(100deg, var(--color-grad-pink), var(--color-grad-violet));
+  color: #fff;
+  box-shadow:
+    0 12px 28px -8px rgb(108 62 245 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
+  transition: transform 0.14s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.btn-cobrar:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn-cobrar:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-cobrar:disabled {
+  background-image: none;
+  background-color: var(--color-slate-300);
+  box-shadow: none;
+}
+
+@keyframes nx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nx-rise {
+  animation: nx-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes nx-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes nx-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+.nx-body {
+  transform-origin: 80px 150px;
+  animation: nx-bob 3.2s ease-in-out infinite;
+}
+.nx-eyes {
+  transform-origin: 80px 76px;
+  animation: nx-blink 5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-body,
+  .nx-eyes,
+  .nx-rise {
+    animation: none;
+  }
+}
+
+/* Pantallas de acceso (lienzo 10–13): fondo oscuro con la pared de productos. */
+.auth-dark {
+  font-family: var(--font-onest, "Onest"), var(--font-sans);
+}
+.auth-display {
+  font-family: var(--font-unbounded, "Unbounded"), "Arial Black", system-ui, sans-serif;
+}
+.auth-dark a {
+  color: #c9b8ff;
+}
+.auth-dark a:hover {
+  color: #fff;
+}
+.auth-dark a[class*="bg-white"] {
+  color: #15131c;
+}
+/* Textos y superficies claras de los formularios, pasados al vidrio oscuro. */
+.auth-in-form .text-slate-900,
+.auth-in-form .text-slate-800,
+.auth-in-form .text-slate-700 {
+  color: #fff;
+}
+.auth-in-form .text-slate-600,
+.auth-in-form .text-slate-500,
+.auth-in-form .text-slate-400 {
+  color: #b9b6c8;
+}
+.auth-in-form .text-brand,
+.auth-in-form .text-teal-600,
+.auth-in-form .text-teal-800 {
+  color: #c9b8ff;
+}
+.auth-in-form .bg-slate-50,
+.auth-in-form .bg-slate-100,
+.auth-in-form .bg-white:not(button):not(a) {
+  background-color: rgb(255 255 255 / 0.06);
+}
+.auth-in-form .bg-teal-50 {
+  background-color: rgb(201 184 255 / 0.16);
+}
+.auth-in-form .border-slate-200 {
+  border-color: rgb(255 255 255 / 0.16);
+}
+.auth-in-form .bg-rose-50,
+.auth-in-form .bg-red-50 {
+  background-color: rgb(255 90 90 / 0.14);
+}
+.auth-in-form .text-rose-700,
+.auth-in-form .text-red-700,
+.auth-in-form .text-red-600 {
+  color: #ffc2c2;
+}
+.auth-in-form .border-rose-200,
+.auth-in-form .border-red-200 {
+  border-color: rgb(255 120 120 / 0.3);
+}
+.auth-in-form .bg-amber-50 {
+  background-color: rgb(232 164 0 / 0.14);
+}
+.auth-in-form .text-amber-600,
+.auth-in-form .text-amber-900 {
+  color: #ffd98a;
+}
+.auth-in-form input[type="checkbox"],
+.auth-in-form input[type="radio"] {
+  accent-color: #6c3ef5;
+}
+
+.auth-blob {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(80px);
+  will-change: transform;
+  animation: auth-drift 20s ease-in-out infinite alternate;
+}
+.auth-track {
+  display: flex;
+  gap: 18px;
+  width: max-content;
+  will-change: transform;
+  animation: auth-slide-l 70s linear infinite;
+}
+.auth-track.auth-rev {
+  animation-name: auth-slide-r;
+}
+.auth-track.auth-s2 {
+  animation-duration: 90s;
+}
+.auth-track.auth-s3 {
+  animation-duration: 80s;
+}
+.auth-paused .auth-track,
+.auth-paused .auth-blob {
+  animation-play-state: paused;
+}
+.auth-wall {
+  animation: auth-wall-in 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.auth-in-form {
+  animation: auth-form-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s both;
+}
+.auth-in-logo {
+  animation: auth-logo-in 1s cubic-bezier(0.2, 0.7, 0.2, 1) 0.15s both;
+}
+@keyframes auth-slide-l {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@keyframes auth-slide-r {
+  from {
+    transform: translate3d(-50%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes auth-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(60px, -40px, 0) scale(1.15);
+  }
+}
+@keyframes auth-wall-in {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes auth-form-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes auth-logo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8) rotate(-10deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-blob,
+  .auth-track,
+  .auth-wall,
+  .auth-in-form,
+  .auth-in-logo {
+    animation: none;
   }
 }

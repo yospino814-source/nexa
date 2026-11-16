@@ -30,7 +30,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
     </>
   );
   const pillClass = cn(
-    "flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700",
+    "flex h-9 items-center gap-2 rounded-full border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-900 shadow-xs",
     branches.length > 1 && "hover:bg-slate-50",
     className,
   );
@@ -72,11 +72,11 @@ export function UserMenu({ dark = false }: { dark?: boolean }) {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-2 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand">
+        <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-xl py-1 pr-1.5 pl-1 text-left outline-none hover:bg-slate-50 focus-visible:ring-4 focus-visible:ring-brand/20">
           <span
             className={cn(
-              "flex size-9 items-center justify-center rounded-full text-xs font-semibold relative",
-              dark ? "bg-slate-900 text-white" : "bg-teal-50 text-brand ring-1 ring-teal-100",
+              "relative flex size-9 items-center justify-center rounded-full text-[13px] font-semibold",
+              dark ? "bg-carbon text-white" : "bg-indigo-600 text-white",
             )}
           >
             {initials(name)}
@@ -87,9 +87,10 @@ export function UserMenu({ dark = false }: { dark?: boolean }) {
             )}
           </span>
           <span className="hidden leading-tight sm:block">
-            <span className="block text-sm font-semibold">{name}</span>
-            <span className="block text-xs text-brand">{ROLE_LABELS[branch.role] ?? branch.role}</span>
+            <span className="block text-[13px] font-semibold text-slate-900">{name}</span>
+            <span className="block text-xs text-slate-500">{ROLE_LABELS[branch.role] ?? branch.role}</span>
           </span>
+          <ChevronDown className="hidden size-3.5 text-slate-500 sm:block" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
           <DropdownMenuGroup>

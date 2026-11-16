@@ -187,12 +187,14 @@ export function PosScreen() {
       </div>
 
       {/* Escritorio / tablet horizontal: carrito fijo a la derecha */}
-      <aside className="hidden w-2/5 border-l border-slate-200 lg:block">{cart}</aside>
+      <aside aria-label="Venta actual" className="hidden w-[38%] min-w-[380px] shrink-0 py-4 pr-4 lg:block">
+        <div className="h-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card">{cart}</div>
+      </aside>
 
       {/* Celular / tablet vertical: barra inferior que se expande como hoja */}
       <button
         onClick={() => setCartOpen(true)}
-        className="fixed inset-x-3 bottom-3 z-20 flex h-14 items-center justify-between rounded-2xl bg-brand px-5 font-semibold text-white shadow-xl lg:hidden"
+        className="fixed inset-x-3 bottom-3 z-20 flex h-14 items-center justify-between rounded-2xl bg-carbon px-5 text-[15px] font-semibold text-white tabular-nums shadow-[0_16px_32px_-12px_rgb(20_22_28/0.6)] lg:hidden"
       >
         <span>
           {units} productos · {formatCOP(Number(quote?.total ?? 0))}

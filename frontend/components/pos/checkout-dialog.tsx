@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Check, CheckCircle2, Loader2, PlusCircle, Printer, ShoppingBag, X } from "lucide-react";
+import { Banknote, Check, Loader2, PlusCircle, Printer, ShoppingBag, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -397,7 +397,7 @@ export function CheckoutDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (receipt && !next ? finish() : onOpenChange(next))}>
       <DialogContent
-        className="max-h-[95vh] gap-0 overflow-y-auto rounded-3xl p-6 sm:max-w-lg sm:p-8"
+        className="max-h-[95vh] gap-0 overflow-y-auto rounded-[20px] p-6 shadow-pop sm:max-w-[720px] sm:p-7"
         onKeyDown={(e) => {
           if (e.key === "F10") {
             e.preventDefault();
@@ -428,22 +428,25 @@ export function CheckoutDialog({
           />
         ) : (
           <div className="space-y-6">
-            <div className="text-center">
-              <p className="flex items-center justify-center gap-2 text-xs font-semibold tracking-widest text-slate-500 uppercase">
-                <span className="size-2 rounded-full bg-emerald-500" /> Total a cobrar
-              </p>
-              <DialogTitle className="mt-2 text-5xl font-extrabold tracking-tight">
-                {formatCOP(total)} <span className="text-2xl font-bold text-slate-400">COP</span>
-              </DialogTitle>
-              <p className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600">
-                <ShoppingBag className="size-4" /> {units} artículos
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total a cobrar</p>
+                <DialogTitle className="text-[40px] leading-[1.15] font-bold tracking-[-0.035em] tabular-nums">
+                  {formatCOP(total)}
+                </DialogTitle>
+              </div>
+              <p className="flex items-center gap-2 rounded-xl bg-slate-50 py-2 pr-3 pl-2 text-sm font-semibold">
+                <span className="flex size-8 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+                  <ShoppingBag className="size-4" aria-hidden />
+                </span>
+                {units} artículos
               </p>
             </div>
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
-                  {payments.length > 1 ? "Agregar método" : "Método de pago"}
+                <p className="text-[13px] font-medium text-slate-700">
+                  {payments.length > 1 ? "Agregar método" : "Medio de pago"}
                 </p>
                 {remainingToCover > 0 && (
                   <span className="text-xs font-bold text-amber-600">
@@ -469,15 +472,16 @@ export function CheckoutDialog({
                       disabled={isDisabled}
                       onClick={() => selectOrAddMethod(id)}
                       className={cn(
-                        "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-sm font-medium transition-colors",
+                        "flex h-14 items-center justify-center gap-2.5 rounded-xl text-[15px] font-semibold transition-colors",
                         isSelected
-                          ? "border-2 border-brand bg-teal-50 text-brand font-bold"
-                          : "border-slate-200 hover:bg-slate-50",
-                        isDisabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+                          ? "border-[1.5px] border-indigo-600 bg-indigo-50 text-indigo-600"
+                          : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50",
+                        isDisabled && "cursor-not-allowed border-dashed bg-slate-50 text-slate-400 hover:bg-slate-50",
                       )}
                     >
-                      <Icon className="size-6" />
-                      {label}
+                      <Icon className="size-5" aria-hidden />
+                      <span className="hidden sm:inline">{label}</span>
+                      <span className="sm:hidden">{label.split(" ")[0]}</span>
                     </button>
                   );
                 })}
@@ -723,7 +727,7 @@ export function CheckoutDialog({
                           <label className="text-xs font-semibold text-slate-500 uppercase">
                             Monto recibido en efectivo
                           </label>
-                          <label className="flex items-center gap-2 rounded-2xl border-2 border-brand bg-white px-4 py-3">
+                          <label className="flex h-14 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-600/18">
                             <span className="text-2xl font-bold text-slate-400">$</span>
                             <input
                               autoFocus
@@ -746,10 +750,10 @@ export function CheckoutDialog({
                               type="button"
                               onClick={() => setReceived(quickAmt)}
                               className={cn(
-                                "h-11 rounded-full border text-sm font-semibold",
+                                "h-12 rounded-xl border text-[15px] font-semibold tabular-nums shadow-xs transition-transform active:scale-[0.97]",
                                 cashReceived === quickAmt
-                                  ? "border-brand bg-brand text-white"
-                                  : "border-slate-200 bg-white hover:bg-slate-100",
+                                  ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                                  : "border-slate-300 bg-white text-slate-900 hover:bg-slate-50",
                               )}
                             >
                               {i === 0 ? "Exacto" : formatCOP(quickAmt)}
@@ -759,16 +763,16 @@ export function CheckoutDialog({
 
                         <div
                           className={cn(
-                            "rounded-2xl border p-4 text-center",
-                            cashReceived >= p.amount ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50",
+                            "flex items-center justify-between rounded-[14px] px-[18px] py-4",
+                            cashReceived >= p.amount
+                              ? "bg-emerald-50 shadow-[inset_0_0_0_1px_#BFE8CF]"
+                              : "bg-rose-50 shadow-[inset_0_0_0_1px_#F7C6C6]",
                           )}
                         >
                           {cashReceived >= p.amount ? (
                             <>
-                              <p className="text-xs font-semibold tracking-wider text-emerald-700 uppercase">
-                                Cambio a entregar
-                              </p>
-                              <p className="text-4xl font-extrabold text-emerald-600 tabular-nums">
+                              <p className="text-[15px] font-semibold text-emerald-800">Cambio a entregar</p>
+                              <p className="text-[28px] font-bold tracking-[-0.02em] text-emerald-700 tabular-nums">
                                 {formatCOP(cashChange)}
                               </p>
                             </>
@@ -863,14 +867,14 @@ export function CheckoutDialog({
             <button
               onClick={() => confirm()}
               disabled={!canConfirm}
-              className="flex h-16 w-full items-center justify-center gap-3 rounded-2xl bg-brand text-xl font-bold text-white shadow-lg shadow-teal-900/20 hover:bg-brand-dark disabled:bg-slate-300 disabled:shadow-none"
+              className="btn-cobrar flex h-14 w-full items-center justify-center gap-3 rounded-[14px] text-base font-semibold disabled:cursor-not-allowed"
             >
-              {submitting ? <Loader2 className="size-6 animate-spin" /> : <Check className="size-6" />}
-              Confirmar pago (Enter)
+              {submitting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
+              Confirmar cobro (Enter)
             </button>
-            <p className="flex justify-between text-xs text-slate-400">
+            <p className="flex justify-between text-[13px] text-slate-500">
               <span>
-                Presioná <kbd className="rounded border bg-slate-50 px-1">Esc</kbd> para cancelar
+                Presioná <kbd className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">Esc</kbd> para volver
               </span>
               <span>Cajero en turno: {cashierName}</span>
             </p>
@@ -929,18 +933,24 @@ function ReceiptView({
         </span>
       </div>
 
-      <div className="text-center">
-        <CheckCircle2 className="mx-auto size-16 rounded-full bg-emerald-50 p-3 text-emerald-600" />
-        <DialogTitle className="mt-3 text-2xl font-extrabold tracking-tight">¡Venta registrada con éxito!</DialogTitle>
-        <p className="text-sm text-slate-500">El inventario se actualizó en tiempo real</p>
+      <div className="flex flex-col items-center gap-4 text-center">
+        <span className="nx-rise flex size-[76px] items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_0_0_10px_#E9F8EF]">
+          <Check className="size-[38px]" strokeWidth={2.6} aria-hidden />
+        </span>
+        <div>
+          <DialogTitle className="text-[26px] font-semibold tracking-[-0.022em]">¡Venta registrada con éxito!</DialogTitle>
+          <p className="mt-1 text-sm text-slate-500">El inventario se actualizó en tiempo real</p>
+        </div>
       </div>
 
       {method === "EFECTIVO" && change > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white">
-          <Banknote className="size-8 rounded-full bg-white/20 p-1.5" />
+        <div className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-[18px] shadow-[inset_0_0_0_1px_#BFE8CF]">
+          <Banknote className="size-8 text-emerald-600" aria-hidden />
           <div>
-            <p className="text-xs font-semibold tracking-wider uppercase opacity-80">Devolver cambio</p>
-            <p className="text-2xl font-extrabold">{formatCOP(change)} COP</p>
+            <p className="text-sm font-semibold text-emerald-800">Devolver cambio</p>
+            <p className="text-[44px] leading-[1.1] font-bold tracking-[-0.04em] text-emerald-700 tabular-nums">
+              {formatCOP(change)}
+            </p>
           </div>
         </div>
       )}
@@ -981,7 +991,7 @@ function ReceiptView({
           )}
           <div className="flex justify-between font-sans text-sm font-bold">
             <span>TOTAL PAGADO</span>
-            <span className="text-brand">{formatCOP(model.total)}</span>
+            <span className="text-indigo-600">{formatCOP(model.total)}</span>
           </div>
         </div>
 
@@ -1005,13 +1015,13 @@ function ReceiptView({
       )}
       <button
         onClick={() => window.print()}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 font-medium hover:bg-slate-50"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[15px] font-semibold shadow-xs hover:bg-slate-50"
       >
         <Printer className="size-4" /> {waitingDian ? "Imprimir sin esperar el QR" : "Imprimir"}
       </button>
       <button
         onClick={onNewSale}
-        className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand text-lg font-bold text-white hover:bg-brand-dark"
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 text-base font-semibold text-white shadow-[0_1px_2px_rgb(20_22_28/0.12),inset_0_1px_0_rgb(255_255_255/0.14)] hover:bg-indigo-700"
       >
         <PlusCircle className="size-5" /> Nueva venta (Enter)
       </button>

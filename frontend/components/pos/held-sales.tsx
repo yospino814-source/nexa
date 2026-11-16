@@ -95,7 +95,7 @@ export function HeldSales({ branchId }: { branchId: string }) {
       <button
         onClick={() => setOpen(true)}
         disabled={held.length === 0}
-        className="flex h-10 items-center gap-1.5 rounded-full border border-slate-200 px-3 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+        className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-50 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:bg-transparent disabled:text-slate-400"
       >
         <PauseCircle className="size-4" /> En espera ({held.length})
       </button>
