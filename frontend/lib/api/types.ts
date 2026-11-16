@@ -2211,3 +2211,40 @@ export type OrderFiscalDocument = {
 
 /** POST /v1/fiscal/test */
 export type FiscalTestResult = { ok: boolean; provider: FiscalProvider; message: string };
+
+/** Estados de un pedido por WhatsApp (src/whatsapp/engine.rs::OrderStatus). */
+export type WaOrderStatus = "NUEVO" | "PREPARANDO" | "EN_CAMINO" | "ENTREGADO" | "CANCELADO";
+
+export type WaOrderItem = { product_id: Uuid; name: string; qty: number; unit_price: Decimal };
+
+/** GET /v1/whatsapp/orders */
+export type WaOrder = {
+  id: Uuid;
+  branch_id: Uuid;
+  code: string;
+  customer_id: Uuid | null;
+  wa_phone: string;
+  contact_name: string | null;
+  items: WaOrderItem[];
+  subtotal: Decimal;
+  delivery_fee: Decimal;
+  total: Decimal;
+  pickup: boolean;
+  address: string | null;
+  zone_name: string | null;
+  age_confirmed: boolean;
+  /** LINK (pago adelantado), EFECTIVO o DATAFONO al recibir. */
+  payment_method: "LINK" | "EFECTIVO" | "DATAFONO" | string;
+  payment_status: "PENDIENTE" | "PAGADO" | string;
+  payment_reference: string | null;
+  status: WaOrderStatus;
+  courier_name: string | null;
+  sale_id: Uuid | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WaMessage = { direction: "IN" | "OUT"; body: string; created_at: string };
+
+/** GET /v1/whatsapp/orders/{id} */
+export type WaOrderDetail = { order: WaOrder; messages: WaMessage[] };

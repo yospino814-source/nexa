@@ -264,6 +264,9 @@ import type {
   StoreWhatsappQr,
   FiscalDocument,
   FiscalSettings,
+  WaOrder,
+  WaOrderDetail,
+  WaOrderStatus,
   FiscalStatus,
   FiscalTestResult,
   OrderFiscalDocument,
@@ -273,6 +276,74 @@ export * from "./types";
 export { ApiError, setAccessToken, setTokenProvider, setUnauthorizedHandler, USE_MOCKS } from "./client";
 
 const delay = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Modo demo: pedidos de WhatsApp de ejemplo, en memoria.
+const mockWaOrderStore: WaOrder[] = [];
+function mockWaOrders(branchId: Uuid): WaOrder[] {
+  if (mockWaOrderStore.length === 0) {
+    const now = Date.now();
+    const mk = (
+      n: number,
+      name: string,
+      items: [string, number, number][],
+      status: WaOrderStatus,
+      minutes: number,
+      extra: Partial<WaOrder> = {},
+    ): WaOrder => {
+      const subtotal = items.reduce((s, [, q, p]) => s + q * p, 0);
+      const fee = extra.pickup ? 0 : 4000;
+      const at = new Date(now - minutes * 60000).toISOString();
+      return {
+        id: `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`,
+        branch_id: branchId,
+        code: `W-01${n}`,
+        customer_id: null,
+        wa_phone: "57300555" + String(1000 + n),
+        contact_name: name,
+        items: items.map(([nm, qty, price], i) => ({
+          product_id: `00000000-0000-4000-8000-00000000020${i}`,
+          name: nm,
+          qty,
+          unit_price: String(price),
+        })),
+        subtotal: String(subtotal),
+        delivery_fee: String(fee),
+        total: String(subtotal + fee),
+        pickup: false,
+        address: "Calle 15 #8-20",
+        zone_name: "Centro",
+        age_confirmed: true,
+        payment_method: "EFECTIVO",
+        payment_status: "PENDIENTE",
+        payment_reference: null,
+        status,
+        courier_name: null,
+        sale_id: null,
+        created_at: at,
+        updated_at: at,
+        ...extra,
+      };
+    };
+    mockWaOrderStore.push(
+      mk(42, "Ramiro Epieyú", [["Whisky Old Parr 12 años 750 ml", 1, 165000], ["Aguardiente Antioqueño 750 ml", 1, 62000], ["Hielo bolsa 2 kg", 2, 4500], ["Coca-Cola 1,5 L", 1, 6500]], "NUEVO", 2, { payment_method: "LINK", payment_status: "PAGADO", payment_reference: "BOLD-284731" }),
+      mk(43, "Kevin Pinto", [["Cerveza Águila lata 330 ml", 6, 3200], ["Papas Margarita 105 g", 2, 5200]], "NUEVO", 5, { zone_name: "Marina", address: "Cra 3 #12-40" }),
+      mk(40, "Bar El Muelle", [["Águila lata · caja x24", 3, 72000]], "PREPARANDO", 14, { payment_method: "DATAFONO", zone_name: "Marina", address: "Malecón local 4" }),
+      mk(41, "Carmen Brito", [["Ron Medellín 3 años 750 ml", 1, 58000], ["Coca-Cola 1,5 L", 2, 6500], ["Hielo bolsa 2 kg", 2, 4500]], "PREPARANDO", 11, { pickup: true, address: null, zone_name: null, payment_method: "LINK", payment_status: "PENDIENTE" }),
+      mk(38, "Yaneth Pushaina", [["Aguardiente Antioqueño 750 ml", 1, 62000], ["Hielo bolsa 2 kg", 1, 4500]], "EN_CAMINO", 22, { courier_name: "Jhon" }),
+      mk(37, "Rosa Ipuana", [["Vino Gato Negro 750 ml", 1, 32000]], "ENTREGADO", 24, { payment_method: "LINK", payment_status: "PAGADO", payment_reference: "NEQUI-99812" }),
+    );
+  }
+  return mockWaOrderStore.map((o) => ({ ...o, branch_id: branchId }));
+}
+function mockWaMessages(o: WaOrder): { direction: "IN" | "OUT"; body: string; created_at: string }[] {
+  const t = o.created_at;
+  return [
+    { direction: "IN", body: "Buenas, ¿me mandan un pedido?", created_at: t },
+    { direction: "OUT", body: `¡Hola, ${o.contact_name ?? ""}! Claro, ¿qué te mando?`, created_at: t },
+    { direction: "IN", body: o.items.map((i) => `${i.qty} ${i.name}`).join(", "), created_at: t },
+    { direction: "OUT", body: `Listo. Tu pedido ${o.code} quedó confirmado.`, created_at: t },
+  ];
+}
 
 // Modo demo: la configuración fiscal vive en memoria.
 const mockFiscal = { settings: new Map<Uuid, FiscalSettings>() };
@@ -3186,6 +3257,55 @@ export const api = {
         return null;
       }
       return request(`/v1/fiscal/orders/${orderId}`);
+    },
+  },
+
+  whatsappOrders: {
+    /** GET /v1/whatsapp/orders: pedidos abiertos y los cerrados de las últimas 24 h. */
+    async list(branchId: Uuid): Promise<WaOrder[]> {
+      if (USE_MOCKS) {
+        await delay();
+        return mockWaOrders(branchId);
+      }
+      return request(`/v1/whatsapp/orders?branch_id=${branchId}`);
+    },
+    /** GET /v1/whatsapp/orders/{id}: pedido y la conversación con Nexi. */
+    async detail(id: Uuid): Promise<WaOrderDetail> {
+      if (USE_MOCKS) {
+        await delay();
+        const order = mockWaOrderStore.find((o) => o.id === id);
+        if (!order) throw new ApiError(404, "Pedido no encontrado", "NOT_FOUND");
+        return { order, messages: mockWaMessages(order) };
+      }
+      return request(`/v1/whatsapp/orders/${id}`);
+    },
+    /** POST /v1/whatsapp/orders/{id}/status: avanza el pedido y le avisa al cliente. */
+    async setStatus(id: Uuid, status: WaOrderStatus, courierName?: string | null): Promise<WaOrder> {
+      if (USE_MOCKS) {
+        await delay();
+        const order = mockWaOrderStore.find((o) => o.id === id);
+        if (!order) throw new ApiError(404, "Pedido no encontrado", "NOT_FOUND");
+        order.status = status;
+        if (courierName) order.courier_name = courierName;
+        order.updated_at = new Date().toISOString();
+        return { ...order };
+      }
+      return request(`/v1/whatsapp/orders/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status, courier_name: courierName ?? null }),
+      });
+    },
+    /** POST /v1/whatsapp/orders/{id}/paid: confirma a mano un pago adelantado. */
+    async markPaid(id: Uuid, reference: string): Promise<WaOrder> {
+      if (USE_MOCKS) {
+        await delay();
+        const order = mockWaOrderStore.find((o) => o.id === id);
+        if (!order) throw new ApiError(404, "Pedido no encontrado", "NOT_FOUND");
+        order.payment_status = "PAGADO";
+        order.payment_reference = reference;
+        return { ...order };
+      }
+      return request(`/v1/whatsapp/orders/${id}/paid`, { method: "POST", body: JSON.stringify({ reference }) });
     },
   },
 
