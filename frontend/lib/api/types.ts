@@ -26,6 +26,8 @@ export type CatalogItem = {
   /** Unidades disponibles (on_hand - reserved); `null` si no aplica. */
   available: Decimal | null;
   tier_barcodes?: TierBarcode[];
+  /** Marca de la foto (ms); null si no tiene. */
+  image_version?: number | null;
 };
 
 export type OrderStatus =
@@ -488,6 +490,7 @@ export type ProductRow = {
   archived: boolean;
   alcohol_degrees?: Decimal | null;
   volume_ml?: Decimal | null;
+  image_version?: number | null;
 };
 
 export type LocationStock = {
@@ -525,6 +528,7 @@ export type ProductDetail = {
   description: string | null;
   alcohol_degrees?: Decimal | null;
   volume_ml?: Decimal | null;
+  image_version?: number | null;
   variants: ProductRow[];
   tier_prices: ProductTierPrice[];
   option_groups: OptionGroupDetail[];

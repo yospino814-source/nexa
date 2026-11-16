@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState, type RefObject } from "react";
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 
 import type { CatalogItem } from "@/lib/api";
 import { formatCOP, toNumber } from "@/lib/format";
 import type { AddItemTier } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
+
+import { productImageUrl } from "@/lib/product-image";
 
 import { ProductArt } from "./product-art";
 
@@ -168,7 +170,7 @@ export function CatalogPanel({
       <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(172px,1fr))] gap-3 overflow-y-auto pb-24 lg:pb-4">
         {loading &&
           Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-[214px] animate-pulse rounded-2xl bg-slate-200/60" />
+            <div key={i} className="h-[236px] animate-pulse rounded-[22px] bg-slate-200/60" />
           ))}
         {!loading && visible.length === 0 && (
           <p className="col-span-full py-12 text-center text-sm text-slate-500">
@@ -185,6 +187,7 @@ function ProductCard({ item, onAdd }: { item: CatalogItem; onAdd: (item: Catalog
   const available = toNumber(item.available);
   const soldOut = available != null && available <= 0;
   const low = available != null && available > 0 && available <= LOW_STOCK;
+  const photo = productImageUrl(item.product_id, item.image_version);
 
   return (
     <button
@@ -192,32 +195,60 @@ function ProductCard({ item, onAdd }: { item: CatalogItem; onAdd: (item: Catalog
       disabled={soldOut}
       onClick={() => onAdd(item)}
       className={cn(
-        "group relative flex min-h-[214px] flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white px-2 pt-2 pb-3 text-left shadow-[0_1px_2px_rgb(20_22_28/0.04)] transition-transform duration-200 ease-[cubic-bezier(.2,.7,.2,1)]",
+        "group relative flex flex-col gap-2 rounded-[22px] bg-white p-2 pb-3 text-left shadow-[0_1px_2px_rgb(20_22_28/0.04),0_14px_32px_-22px_rgb(20_22_28/0.35)] ring-1 ring-slate-200/70 transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(.2,.7,.2,1)]",
         soldOut
           ? "cursor-not-allowed opacity-55"
-          : "hover:-translate-y-[3px] hover:border-indigo-200 hover:shadow-[0_16px_32px_-14px_rgb(61_79_224/0.35)] active:scale-[0.97]",
+          : "hover:-translate-y-1 hover:shadow-[0_2px_4px_rgb(20_22_28/0.05),0_24px_40px_-20px_rgb(61_79_224/0.35)] active:scale-[0.97]",
       )}
     >
-      <ProductArt name={item.name} category={item.category} muted={soldOut} />
-      <span className="line-clamp-2 min-h-[38px] px-1 text-sm leading-[1.35] font-medium text-slate-900">{item.name}</span>
-      <span className="mt-auto flex items-center justify-between gap-1.5 px-1">
+      <span className="relative grid h-[168px] place-items-center overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_32%,#FFFFFF_0%,#F3F4F8_62%,#E9EBF1_100%)]">
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photo}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={cn(
+              "absolute inset-0 size-full object-contain px-3 pt-2.5 pb-4 mix-blend-multiply transition-transform duration-300 group-hover:scale-[1.06]",
+              soldOut && "grayscale",
+            )}
+          />
+        ) : (
+          <span className="transition-transform duration-300 group-hover:scale-[1.06]">
+            <ProductArt name={item.name} category={item.category} muted={soldOut} height={130} bare />
+          </span>
+        )}
+        <span aria-hidden className="absolute inset-x-8 bottom-2.5 h-3 rounded-full bg-slate-900/15 blur-md" />
+        {(soldOut || low) && (
+          <span
+            className={cn(
+              "absolute top-2 left-2 inline-flex h-[22px] items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap backdrop-blur",
+              soldOut ? "bg-rose-50/90 text-rose-700" : "bg-amber-50/90 text-amber-700",
+            )}
+          >
+            {soldOut ? "Sin existencias" : `Quedan ${available}`}
+          </span>
+        )}
+      </span>
+      <span className="line-clamp-2 min-h-[38px] px-1.5 text-sm leading-[1.35] font-medium text-slate-900">{item.name}</span>
+      <span className="mt-auto flex items-center justify-between gap-2 px-1.5">
         <span
           className={cn(
             "text-lg font-bold tracking-[-0.02em] tabular-nums",
-            soldOut ? "text-slate-400" : "text-indigo-600",
+            soldOut ? "text-slate-400 line-through" : "text-slate-900",
           )}
         >
           {formatCOP(toNumber(item.price) ?? 0)}
         </span>
-        {soldOut ? (
-          <span className="inline-flex h-[22px] shrink-0 items-center rounded-full bg-rose-50 px-2 text-xs font-semibold whitespace-nowrap text-rose-700">
-            Sin existencias
+        {!soldOut && (
+          <span
+            aria-hidden
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-carbon text-white transition-transform group-hover:scale-110 group-active:scale-95"
+          >
+            <Plus className="size-4" strokeWidth={2.4} />
           </span>
-        ) : low ? (
-          <span className="inline-flex h-[22px] shrink-0 items-center rounded-full bg-amber-50 px-2 text-xs font-semibold whitespace-nowrap text-amber-700">
-            Quedan {available}
-          </span>
-        ) : null}
+        )}
       </span>
     </button>
   );

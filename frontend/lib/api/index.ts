@@ -5,6 +5,7 @@
 // caja obligatorio, idempotencia por id) para que la UI se comporte igual.
 
 import { ApiError, downloadBlob, request, saveBlob, USE_MOCKS } from "./client";
+import { mockPhotos } from "@/lib/product-image";
 import { MOCK_BRANCH_ID, mockCatalog, mockGetDashboard } from "./mock";
 import {
   mockExportReportCsv,
@@ -1512,7 +1513,10 @@ export const api = {
     async list(branchId: Uuid): Promise<CatalogItem[]> {
       if (USE_MOCKS) {
         await delay();
-        return structuredClone(mockCatalog);
+        return structuredClone(mockCatalog).map((i) => ({
+          ...i,
+          image_version: mockPhotos.has(i.product_id) ? 1 : null,
+        }));
       }
       return request(`/v1/catalog?branch_id=${branchId}`);
     },
@@ -2130,6 +2134,24 @@ export const api = {
   },
 
   products: {
+    /** PUT /v1/products/{id}/image: foto ya reducida (data URI WebP/JPEG/PNG). */
+    async setImage(id: Uuid, dataUrl: string): Promise<{ image_version: number }> {
+      if (USE_MOCKS) {
+        await delay();
+        mockPhotos.set(id, dataUrl);
+        return { image_version: Date.now() };
+      }
+      return request(`/v1/products/${id}/image`, { method: "PUT", body: JSON.stringify({ data: dataUrl }) });
+    },
+    /** DELETE /v1/products/{id}/image */
+    async removeImage(id: Uuid): Promise<void> {
+      if (USE_MOCKS) {
+        await delay();
+        mockPhotos.delete(id);
+        return;
+      }
+      await request(`/v1/products/${id}/image`, { method: "DELETE" });
+    },
     async list(params: ProductListParams = {}): Promise<ProductListResponse> {
       if (USE_MOCKS) {
         await delay();

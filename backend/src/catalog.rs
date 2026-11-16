@@ -25,6 +25,8 @@ pub struct CatalogItem {
     /// Unidades disponibles; `null` si no aplica.
     pub available: Option<Decimal>,
     pub tier_barcodes: Vec<TierBarcode>,
+    /// Marca de la foto; `None` si el producto no tiene foto.
+    pub image_version: Option<i64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -35,6 +37,7 @@ struct CatalogRow {
     price: Option<Decimal>,
     tax_code: Option<String>,
     available: Option<Decimal>,
+    image_version: Option<i64>,
 }
 
 /// Insumo de una receta con su cantidad.
@@ -66,7 +69,9 @@ select
          ) si on si.product_id = ri.input_product_id
         where r2.product_id = p.id)
     else coalesce(s.on_hand, 0) - coalesce(s.reserved, 0)
-  end as available
+  end as available,
+  (select (extract(epoch from pi.updated_at) * 1000)::bigint
+     from product_images pi where pi.product_id = p.id) as image_version
 from branch_products bp
 join products p on p.id = bp.product_id
 left join product_categories c on c.id = bp.category_id
@@ -138,6 +143,7 @@ pub async fn catalog(
                 price: r.price,
                 tax_code: r.tax_code,
                 available: r.available,
+                image_version: r.image_version,
                 tier_barcodes: tb,
             }
         })

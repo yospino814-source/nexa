@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Barcode, Loader2 } from "lucide-react";
+import { Barcode, ImagePlus, Loader2, Trash2 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -11,6 +11,8 @@ import {
   type ProductInput,
   type StockLevel,
 } from "@/lib/api";
+import { preparePhoto, productImageUrl } from "@/lib/product-image";
+import { ProductArt } from "@/components/pos/product-art";
 
 interface ProductFormDialogProps {
   open: boolean;
@@ -69,6 +71,10 @@ function ProductFormContent({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Foto: la que ya tiene (URL), una nueva (data URI) o "quitar".
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoChange, setPhotoChange] = useState<{ kind: "set"; data: string } | { kind: "remove" } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   useEffect(() => {
     if (product?.product_id) {
@@ -81,6 +87,7 @@ function ProductFormContent({
           if (detail.volume_ml) setVolumeMl(String(detail.volume_ml));
           if (detail.unit_measure_code)
             setUnitMeasureCode(detail.unit_measure_code);
+          setPhotoUrl(productImageUrl(product.product_id, detail.image_version));
         })
         .catch(() => {});
     }
@@ -161,15 +168,38 @@ function ProductFormContent({
               "Producto creado. El stock inicial quedó pendiente de aprobación por superar el umbral.";
           }
         }
+        await savePhoto(created.id);
         onSaved(successMsg);
       } else {
         await api.products.update(product.product_id, input);
+        await savePhoto(product.product_id);
         onSaved("Producto actualizado exitosamente.");
       }
     } catch (err: unknown) {
       setError(friendlyError(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function savePhoto(id: string) {
+    if (!photoChange) return;
+    if (photoChange.kind === "set") await api.products.setImage(id, photoChange.data);
+    else await api.products.removeImage(id);
+  }
+
+  async function pickPhoto(file: File | undefined) {
+    if (!file) return;
+    setPhotoBusy(true);
+    setError(null);
+    try {
+      const data = await preparePhoto(file);
+      setPhotoChange({ kind: "set", data });
+      setPhotoUrl(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo leer la foto.");
+    } finally {
+      setPhotoBusy(false);
     }
   }
 
@@ -200,6 +230,58 @@ function ProductFormContent({
       )}
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="relative grid size-[104px] shrink-0 place-items-center overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_35%,#fff,#EEF0F4)]">
+            {photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoUrl} alt="" className="absolute inset-0 size-full object-contain p-2 mix-blend-multiply" />
+            ) : (
+              <div className="w-full scale-90">
+                <ProductArt name={name || "Producto"} category={product?.category ?? null} height={104} />
+              </div>
+            )}
+            {photoBusy && (
+              <span className="absolute inset-0 grid place-items-center bg-white/70">
+                <Loader2 className="size-5 animate-spin text-slate-500" />
+              </span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-sm font-semibold text-slate-900">Foto del producto</p>
+            <p className="text-xs text-slate-500">
+              Mejor con fondo blanco y la botella de frente. Sale así en el POS y en el catálogo del bot.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 shadow-xs hover:bg-slate-50">
+                <ImagePlus className="size-4" aria-hidden />
+                {photoUrl ? "Cambiar foto" : "Subir foto"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  capture="environment"
+                  className="sr-only"
+                  onChange={(e) => {
+                    void pickPhoto(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {photoUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoUrl(null);
+                    setPhotoChange(isNew ? null : { kind: "remove" });
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  <Trash2 className="size-4" aria-hidden /> Quitar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Nombre del producto */}
           <div className="col-span-1 sm:col-span-2">

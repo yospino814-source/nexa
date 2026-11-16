@@ -1,5 +1,6 @@
 "use client";
 
+import { productImageUrl } from "@/lib/product-image";
 import { create } from "zustand";
 
 import type { CatalogItem, Customer, CustomTax, QuoteItemInput, QuoteResponse } from "@/lib/api";
@@ -14,6 +15,8 @@ export type CartLine = {
   /** null en un ítem libre. */
   productId: string | null;
   name: string;
+  /** Foto del producto para la línea del carrito. */
+  imageUrl?: string | null;
   unitPrice: number;
   basePrice?: number;
   /** Fraccion (0.19) o null si es exento. */
@@ -200,6 +203,7 @@ export const useCart = create<CartState>((set) => ({
             key,
             productId: item.product_id,
             name: item.name,
+            imageUrl: productImageUrl(item.product_id, item.image_version),
             basePrice,
             unitPrice,
             taxRate: toNumber(item.tax_rate),

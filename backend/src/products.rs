@@ -76,6 +76,9 @@ pub struct ProductRow {
     pub archived: bool,
     pub alcohol_degrees: Option<Decimal>,
     pub volume_ml: Option<Decimal>,
+    /// Marca de la foto (ms); `None` si no tiene. Va en `?v=` de la URL.
+    #[sqlx(default)]
+    pub image_version: Option<i64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -105,6 +108,8 @@ struct ProductDetailDbRow {
     pub description: Option<String>,
     pub alcohol_degrees: Option<Decimal>,
     pub volume_ml: Option<Decimal>,
+    #[sqlx(default)]
+    pub image_version: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -476,7 +481,8 @@ pub async fn list_products(
            p.parent_id,
            (p.archived_at is not null) as archived,
            p.alcohol_degrees,
-           p.volume_ml
+           p.volume_ml,
+           (select (extract(epoch from pi.updated_at) * 1000)::bigint from product_images pi where pi.product_id = p.id) as image_version
          from products p
          left join branch_products bp on bp.product_id = p.id and ($2::uuid is null or bp.branch_id = $2)
          left join product_categories c on c.id = bp.category_id
@@ -536,7 +542,8 @@ pub async fn get_product_detail_tx(
            p.allow_price_override,
            p.description,
            p.alcohol_degrees,
-           p.volume_ml
+           p.volume_ml,
+           (select (extract(epoch from pi.updated_at) * 1000)::bigint from product_images pi where pi.product_id = p.id) as image_version
          from products p
          left join branch_products bp on bp.product_id = p.id and ($3::uuid is null or bp.branch_id = $3)
          left join product_categories c on c.id = bp.category_id
@@ -569,7 +576,8 @@ pub async fn get_product_detail_tx(
            p.parent_id,
            (p.archived_at is not null) as archived,
            p.alcohol_degrees,
-           p.volume_ml
+           p.volume_ml,
+           (select (extract(epoch from pi.updated_at) * 1000)::bigint from product_images pi where pi.product_id = p.id) as image_version
          from products p
          left join branch_products bp on bp.product_id = p.id and ($2::uuid is null or bp.branch_id = $2)
          left join product_categories c on c.id = bp.category_id
@@ -630,6 +638,7 @@ pub async fn get_product_detail_tx(
             archived: row.archived,
             alcohol_degrees: row.alcohol_degrees,
             volume_ml: row.volume_ml,
+            image_version: row.image_version,
         },
         archived_at: row.archived_at,
         unit_measure_code: row.unit_measure_code,

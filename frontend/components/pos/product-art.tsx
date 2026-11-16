@@ -68,14 +68,18 @@ export function ProductArt({
   category,
   muted = false,
   height = 104,
+  bare = false,
 }: {
   name: string;
   category: string | null;
   muted?: boolean;
   height?: number;
+  /** Sin fondo de color: la silueta sola, para tarjetas con fondo propio. */
+  bare?: boolean;
 }) {
   const { shape, tone } = productArt(name, category);
-  const [fill, bg] = muted ? ["#B8BCC8", "#EEF0F4"] : TONES[tone];
+  const [fill, tileBg] = muted ? ["#B8BCC8", "#EEF0F4"] : TONES[tone];
+  const bg = bare ? "transparent" : tileBg;
   const [body, label] = SHAPES[shape];
   const iconH = Math.round(height * 0.85);
   return (

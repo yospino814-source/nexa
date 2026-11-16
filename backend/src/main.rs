@@ -22,6 +22,7 @@ pub mod payables;
 pub mod permissions;
 pub mod pricing;
 mod procurement;
+pub mod product_images;
 pub mod products;
 pub mod promotions;
 pub mod receivables;

@@ -16,6 +16,7 @@ import { HeldSales } from "./held-sales";
 import { PAYMENT_METHODS } from "./payment-methods";
 import { PriceOverrideDialog } from "./price-override-dialog";
 import { PrintTicket, ticketFromQuote, type TicketModel } from "./print-ticket";
+import { ProductArt } from "./product-art";
 
 /** Atajos del POS (F1.14), en el orden de la especificación. */
 const SHORTCUTS: [string, string][] = [
@@ -259,6 +260,14 @@ export function CartPanel({
                     selectedKey === line.key ? "bg-[#F7F8FF] shadow-[inset_0_0_0_1.5px_#3D4FE0]" : "bg-white",
                   )}
                 >
+                  <span className="relative grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-[radial-gradient(circle_at_50%_30%,#fff,#EEF0F4)]">
+                    {line.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={line.imageUrl} alt="" className="absolute inset-0 size-full object-contain p-1 mix-blend-multiply" />
+                    ) : (
+                      <ProductArt name={line.name} category={null} height={44} bare />
+                    )}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <p className="truncate text-sm font-medium">{line.name}</p>

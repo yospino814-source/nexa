@@ -198,6 +198,8 @@ Todos, salvo `health`, exigen `Authorization: Bearer <JWT de Supabase>`. Los err
 | GET | `/v1/products/{id}?branch_id=` | Detalle completo de producto (`inventory:read`) |
 | POST | `/v1/products` | Crear nuevo producto `{name, sku?, barcode?, kind, usage, unit_measure_code, purchase_uom_code?, purchase_factor?, tax_code, cost_price?, base_price?, reorder_qty?, max_qty?, track_lots?, allow_price_override?, has_variants?, description?, alcohol_degrees?, volume_ml?}` (`inventory:adjust`) |
 | PUT | `/v1/products/{id}` | Actualizar producto (`inventory:adjust`) |
+| PUT / DELETE | `/v1/products/{id}/image` | Foto del producto `{data}` en base64 o data URI; WebP, JPEG o PNG de hasta 512 KB, validado por su firma (`inventory:adjust`) |
+| GET | `/v1/public/product-images/{id}?v=` | Foto pública para `<img>`, con caché de un año (la `v` cambia con cada foto). Sin token |
 | POST | `/v1/products/{id}/variants` | Crear variante de producto (`inventory:adjust`) |
 | PUT | `/v1/branch-products/{product_id}` | Actualizar precio y disponibilidad por sucursal (`inventory:adjust`) |
 | GET | `/v1/customers?q=&status=&page=&page_size=` | Listado de clientes con saldo consolidado y mora (`customers:read`) |
