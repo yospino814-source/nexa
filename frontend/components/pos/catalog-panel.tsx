@@ -5,9 +5,10 @@ import { Plus, Search } from "lucide-react";
 
 import type { CatalogItem } from "@/lib/api";
 import { formatCOP, toNumber } from "@/lib/format";
-import type { AddItemTier } from "@/lib/stores/cart";
+import { useCart, type AddItemTier } from "@/lib/stores/cart";
 import { cn } from "@/lib/utils";
 
+import { flyToCart } from "@/lib/fly-to-cart";
 import { productImageUrl } from "@/lib/product-image";
 
 import { ProductArt } from "./product-art";
@@ -188,20 +189,30 @@ function ProductCard({ item, onAdd }: { item: CatalogItem; onAdd: (item: Catalog
   const soldOut = available != null && available <= 0;
   const low = available != null && available > 0 && available <= LOW_STOCK;
   const photo = productImageUrl(item.product_id, item.image_version);
+  const artRef = useRef<HTMLSpanElement>(null);
+  const inCart = useCart((st) =>
+    st.lines.reduce((n, l) => n + (l.productId === item.product_id ? l.qty : 0), 0),
+  );
+  const [pressed, setPressed] = useState(0);
 
   return (
     <button
       type="button"
       disabled={soldOut}
-      onClick={() => onAdd(item)}
+      onClick={() => {
+        onAdd(item);
+        flyToCart(artRef.current);
+        setPressed((n) => n + 1);
+      }}
       className={cn(
         "group relative flex flex-col gap-2 rounded-[22px] bg-white p-2 pb-3 text-left shadow-[0_1px_2px_rgb(20_22_28/0.04),0_14px_32px_-22px_rgb(20_22_28/0.35)] ring-1 ring-slate-200/70 transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(.2,.7,.2,1)]",
+        inCart > 0 && "ring-2 ring-indigo-600",
         soldOut
           ? "cursor-not-allowed opacity-55"
           : "hover:-translate-y-1 hover:shadow-[0_2px_4px_rgb(20_22_28/0.05),0_24px_40px_-20px_rgb(61_79_224/0.35)] active:scale-[0.97]",
       )}
     >
-      <span className="relative grid h-[168px] place-items-center overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_32%,#FFFFFF_0%,#F3F4F8_62%,#E9EBF1_100%)]">
+      <span ref={artRef} className="relative grid h-[168px] place-items-center overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_32%,#FFFFFF_0%,#F3F4F8_62%,#E9EBF1_100%)]">
         {photo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -219,9 +230,19 @@ function ProductCard({ item, onAdd }: { item: CatalogItem; onAdd: (item: Catalog
             <ProductArt name={item.name} category={item.category} muted={soldOut} height={130} bare />
           </span>
         )}
-        <span aria-hidden className="absolute inset-x-8 bottom-2.5 h-3 rounded-full bg-slate-900/15 blur-md" />
+        <span aria-hidden data-fly-skip className="absolute inset-x-14 bottom-3 h-2 rounded-full bg-slate-900/10 blur-sm" />
+        {inCart > 0 && (
+          <span
+            key={inCart}
+            data-fly-skip
+            className="nx-pop absolute top-2 right-2 grid h-7 min-w-7 place-items-center rounded-full bg-indigo-600 px-2 text-[13px] font-bold text-white tabular-nums shadow-[0_6px_14px_-4px_rgb(61_79_224/0.6)]"
+          >
+            ×{inCart}
+          </span>
+        )}
         {(soldOut || low) && (
           <span
+            data-fly-skip
             className={cn(
               "absolute top-2 left-2 inline-flex h-[22px] items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap backdrop-blur",
               soldOut ? "bg-rose-50/90 text-rose-700" : "bg-amber-50/90 text-amber-700",
@@ -243,8 +264,12 @@ function ProductCard({ item, onAdd }: { item: CatalogItem; onAdd: (item: Catalog
         </span>
         {!soldOut && (
           <span
+            key={pressed}
             aria-hidden
-            className="grid size-8 shrink-0 place-items-center rounded-full bg-carbon text-white transition-transform group-hover:scale-110 group-active:scale-95"
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-full bg-carbon text-white transition-transform group-hover:scale-110 group-active:scale-95",
+              pressed > 0 && "nx-pop",
+            )}
           >
             <Plus className="size-4" strokeWidth={2.4} />
           </span>

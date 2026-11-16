@@ -238,7 +238,7 @@ export function CartPanel({
         </div>
       </div>
 
-      <div className="min-h-[180px] flex-1 overflow-y-auto px-2.5 py-2">
+      <div data-cart-target className="min-h-[180px] flex-1 overflow-y-auto px-2.5 py-2">
         {empty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 py-10 text-slate-400">
             <ShoppingCart className="size-10" strokeWidth={1.5} />
@@ -327,7 +327,9 @@ export function CartPanel({
                     >
                       <Minus className="size-4" strokeWidth={2.2} />
                     </button>
-                    <span className="w-8 text-center text-[15px] font-semibold tabular-nums">{line.qty}</span>
+                    <span key={line.qty} className="nx-pop w-8 text-center text-[15px] font-semibold tabular-nums">
+                      {line.qty}
+                    </span>
                     <button
                       onClick={() => setQty(line.key, line.qty + 1)}
                       disabled={line.maxQty != null && line.qty >= line.maxQty}
@@ -420,7 +422,9 @@ export function CartPanel({
           </dl>
           <div className="flex items-baseline justify-between">
             <span className="text-[15px] font-semibold">Total a pagar</span>
-            <span className="text-[32px] font-bold tracking-[-0.03em] tabular-nums">{formatCOP(total)}</span>
+            <span key={total} className="nx-total text-[32px] font-bold tracking-[-0.03em] tabular-nums">
+              {formatCOP(total)}
+            </span>
           </div>
         </div>
         <div className={cn("grid gap-2", availableMethods.length === 4 ? "grid-cols-4" : "grid-cols-3")}>

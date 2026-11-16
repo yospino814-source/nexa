@@ -193,6 +193,7 @@ export function PosScreen() {
 
       {/* Celular / tablet vertical: barra inferior que se expande como hoja */}
       <button
+        data-cart-target
         onClick={() => setCartOpen(true)}
         className="fixed inset-x-3 bottom-3 z-20 flex h-14 items-center justify-between rounded-2xl bg-carbon px-5 text-[15px] font-semibold text-white tabular-nums shadow-[0_16px_32px_-12px_rgb(20_22_28/0.6)] lg:hidden"
       >

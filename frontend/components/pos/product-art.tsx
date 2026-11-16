@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 /**
  * Ilustración del producto en el POS cuando no tiene foto: la silueta del
  * envase (botella, lata, bolsa…) sobre un fondo suave del color de su tipo.
@@ -63,6 +65,28 @@ export function productArt(name: string, category: string | null): { shape: Shap
   return { shape: "caja", tone: (category && CATEGORY_TONE[category]) || "indigo" };
 }
 
+/** Mezcla un color con blanco (t > 0) o negro (t < 0). */
+function tint(hex: string, t: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
+    Math.round(t >= 0 ? v + (255 - v) * t : v * (1 + t)),
+  );
+  return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Tapas, cuellos y bordes que le dan el "envase real" a cada forma. */
+const CAPS: Partial<Record<Shape, { d: string; metal?: boolean }>> = {
+  botella: { d: "M25 1.5h14v12.5H25z" },
+  vino: { d: "M27.2 0h9.6v25H27.2z", metal: true },
+  pet: { d: "M26.5 1.5h11v8h-11z" },
+  lata: { d: "M20 18h24l3 5H17z", metal: true },
+  bolsa: { d: "M12 16q20-8 40 0l-.2 6q-19.8-8-39.6 0z" },
+};
+
+/**
+ * Envase dibujado con volumen: vidrio o lata con sombra en los bordes, brillo
+ * vertical, tapa, etiqueta y, sin fondo, su reflejo en el piso.
+ */
 export function ProductArt({
   name,
   category,
@@ -74,29 +98,100 @@ export function ProductArt({
   category: string | null;
   muted?: boolean;
   height?: number;
-  /** Sin fondo de color: la silueta sola, para tarjetas con fondo propio. */
+  /** Sin fondo de color: el envase solo con su reflejo, para tarjetas con fondo propio. */
   bare?: boolean;
 }) {
+  const id = useId().replace(/:/g, "");
   const { shape, tone } = productArt(name, category);
-  const [fill, tileBg] = muted ? ["#B8BCC8", "#EEF0F4"] : TONES[tone];
-  const bg = bare ? "transparent" : tileBg;
+  const [base, tileBg] = muted ? ["#A9AEBA", "#EEF0F4"] : TONES[tone];
   const [body, label] = SHAPES[shape];
-  const iconH = Math.round(height * 0.85);
+  const cap = CAPS[shape];
+  const vbH = bare ? 124 : 96;
+  const iconH = Math.round(height * (bare ? 0.98 : 0.85));
+  const glass = shape === "botella" || shape === "vino" || shape === "pet";
   return (
     <span
       aria-hidden
       className="grid place-items-center overflow-hidden rounded-xl"
-      style={{ height, background: bg }}
+      style={{ height, background: bare ? "transparent" : tileBg }}
     >
-      <svg
-        width={Math.round((iconH * 64) / 96)}
-        height={iconH}
-        viewBox="0 0 64 96"
-        style={{ filter: "drop-shadow(0 8px 10px rgba(20,22,28,.16))" }}
-      >
-        <path d={body} fill={fill} />
-        <path d={label} fill="#FFFFFF" fillOpacity=".75" />
+      <svg width={Math.round((iconH * 64) / vbH)} height={iconH} viewBox={`0 0 64 ${vbH}`}>
+        <defs>
+          <linearGradient id={`b${id}`} x1="0" x2="1">
+            <stop offset="0" stopColor={tint(base, -0.55)} />
+            <stop offset=".16" stopColor={tint(base, -0.12)} />
+            <stop offset=".38" stopColor={tint(base, 0.32)} />
+            <stop offset=".52" stopColor={base} />
+            <stop offset=".82" stopColor={tint(base, -0.28)} />
+            <stop offset="1" stopColor={tint(base, -0.6)} />
+          </linearGradient>
+          <linearGradient id={`l${id}`} x1="0" x2="1">
+            <stop offset="0" stopColor="#D9D2C2" />
+            <stop offset=".35" stopColor="#FFFDF7" />
+            <stop offset=".7" stopColor="#F4EFE4" />
+            <stop offset="1" stopColor="#CFC7B5" />
+          </linearGradient>
+          <linearGradient id={`c${id}`} x1="0" x2="1">
+            <stop offset="0" stopColor={cap?.metal ? "#7D8494" : "#0E1013"} />
+            <stop offset=".4" stopColor={cap?.metal ? "#F2F4F8" : "#4A505C"} />
+            <stop offset="1" stopColor={cap?.metal ? "#8A91A0" : "#0E1013"} />
+          </linearGradient>
+          <linearGradient id={`f${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#fff" stopOpacity=".55" />
+            <stop offset=".6" stopColor="#fff" stopOpacity="0" />
+          </linearGradient>
+          <filter id={`s${id}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation=".7" />
+          </filter>
+          {bare && (
+            <linearGradient id={`r${id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#fff" stopOpacity=".25" />
+              <stop offset=".5" stopColor="#fff" stopOpacity="0" />
+            </linearGradient>
+          )}
+          {bare && (
+            <mask id={`m${id}`}>
+              <rect x="0" y="96" width="64" height="28" fill={`url(#r${id})`} />
+            </mask>
+          )}
+        </defs>
+        {bare && (
+          <g mask={`url(#m${id})`} transform="translate(0 192) scale(1 -1)">
+            <path d={body} fill={`url(#b${id})`} />
+          </g>
+        )}
+        <path d={body} fill={`url(#b${id})`} />
+        {glass && <path d={body} fill={`url(#f${id})`} opacity=".35" />}
+        <path d={label} fill={`url(#l${id})`} />
+        <path d={label} fill="none" stroke={tint(base, -0.35)} strokeOpacity=".35" strokeWidth=".6" />
+        <LabelMarks label={label} color={muted ? "#8A90A0" : tint(base, -0.35)} />
+        {cap && <path d={cap.d} fill={`url(#c${id})`} />}
+        <path
+          d={shape === "lata" || shape === "six" || shape === "caja" ? "M22 26v50" : "M23 40q-1 22 0 42"}
+          stroke="#fff"
+          strokeOpacity={glass ? 0.7 : 0.45}
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          fill="none"
+          filter={`url(#s${id})`}
+        />
       </svg>
     </span>
+  );
+}
+
+/** Dos rayitas que simulan el texto de la etiqueta, centradas en ella. */
+function LabelMarks({ label, color }: { label: string; color: string }) {
+  // Todas las etiquetas son rectángulos "Mx yhWvH…".
+  const m = /^M(\d+) (\d+)h(\d+)v(\d+)/.exec(label);
+  if (!m) return null;
+  const [x, y, w, h] = m.slice(1).map(Number);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  return (
+    <g fill={color}>
+      <rect x={cx - w * 0.3} y={cy - 3.2} width={w * 0.6} height="2.4" rx="1.2" />
+      <rect x={cx - w * 0.2} y={cy + 1.6} width={w * 0.4} height="1.4" rx=".7" opacity=".6" />
+    </g>
   );
 }
