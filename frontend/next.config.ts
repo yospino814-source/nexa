@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+﻿import type { NextConfig } from "next";
 
 /**
  * URL del backend Rust, solo del lado del servidor. El navegador siempre llama
@@ -52,6 +52,9 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   cacheComponents: true,
   poweredByHeader: false,
+  experimental: {
+    agentUpgrade: "security",
+  },
   async headers() {
     // /design (solo en desarrollo) sirve HTML de Stitch con sus propios scripts.
     return [{ source: "/((?!design/).*)", headers: SECURITY_HEADERS }];
