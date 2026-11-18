@@ -4,6 +4,9 @@ import { RouteGuard } from "@/components/auth/route-guard";
 import { SessionGate } from "@/components/auth/session-gate";
 import { OperationTopbar } from "@/components/nexa/operation-topbar";
 
+/** Depende de la sesión del navegador: ver app/(admin)/layout.tsx. */
+export const instant = false;
+
 /** Layout de operacion: pantalla completa, barra minima de 56px, sin sidebar. */
 export default function OperationLayout({ children }: { children: React.ReactNode }) {
   return (
