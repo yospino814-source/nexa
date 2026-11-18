@@ -29,8 +29,15 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getClaims();
-  const signedIn = Boolean(data?.claims?.sub);
+  // Si Supabase no responde (red caída, JWKS inalcanzable), se trata como sin
+  // sesión: la ruta privada manda a /login en vez de devolver un 500.
+  let signedIn = false;
+  try {
+    const { data } = await supabase.auth.getClaims();
+    signedIn = Boolean(data?.claims?.sub);
+  } catch (err) {
+    console.error("proxy: no se pudo verificar la sesión", err);
+  }
   const { pathname, search } = request.nextUrl;
 
   if (!signedIn && !isPublicPath(pathname)) {
