@@ -1,0 +1,5 @@
+# Registros de los servidores de desarrollo.
+*.log
+
+# Notas locales con datos de prueba (pueden tener credenciales).
+backend/docs/notas_proyecto/05_Registro_Datos_de_Prueba.md

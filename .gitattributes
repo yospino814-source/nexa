@@ -1,0 +1,11 @@
+# Todo el texto se guarda con saltos de línea LF en el repositorio, aunque se
+# edite desde Windows. Evita diffs gigantes por CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary

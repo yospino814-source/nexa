@@ -1,4 +1,4 @@
-﻿import type { NextConfig } from "next";
+import type { NextConfig } from "next";
 
 /**
  * URL del backend Rust, solo del lado del servidor. El navegador siempre llama

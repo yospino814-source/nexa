@@ -47,7 +47,7 @@ pub enum Action {
 }
 
 impl Action {
-    /// Mapea cada Action al cÃ³digo de permiso granular correspondiente.
+    /// Mapea cada Action al código de permiso granular correspondiente.
     pub fn permission_code(&self) -> &'static str {
         match self {
             Action::Read => "inventory:read",
