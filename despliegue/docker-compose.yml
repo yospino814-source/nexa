@@ -1,0 +1,63 @@
+# Nexa POS en un VPS: Caddy (HTTPS) -> Next.js -> API Rust. La base esta en Supabase.
+# Solo Caddy publica puertos.
+services:
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../despliegue/backend.Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?falta DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL:?falta SUPABASE_URL}
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-10}
+      RUST_LOG: ${RUST_LOG:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 1g
+    logging: &logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  web:
+    build:
+      context: ../frontend
+      dockerfile: ../despliegue/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL:?falta SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?falta SUPABASE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_USE_BACKEND: "true"
+        BACKEND_URL: http://api:8080
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 1g
+    logging: *logs
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMINIO: ${DOMINIO:?falta DOMINIO}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    mem_limit: 256m
+    logging: *logs
+
+volumes:
+  caddy_data:
+  caddy_config:
