@@ -165,6 +165,12 @@ export function LoginScreen() {
           <Link href="/panel" className={primaryButtonClass}>
             Entrar al demo
           </Link>
+          <p className="text-center text-sm text-slate-500">
+            ¿No tenés cuenta?{" "}
+            <Link href="/registro" className="font-semibold text-brand hover:underline">
+              Crear cuenta
+            </Link>
+          </p>
         </div>
       </AuthShell>
     );
