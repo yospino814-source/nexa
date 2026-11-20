@@ -321,9 +321,9 @@ export function UsersScreen() {
                 className="h-10 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 outline-none hover:bg-slate-50 focus:border-slate-900"
               >
                 <option value="">Todos los roles</option>
-                {Object.entries(ROLE_LABELS).map(([code, label]) => (
+                {(["DUENO", ...ASSIGNABLE_ROLES] as const).map((code) => (
                   <option key={code} value={code}>
-                    {label}
+                    {ROLE_LABELS[code]}
                   </option>
                 ))}
               </select>

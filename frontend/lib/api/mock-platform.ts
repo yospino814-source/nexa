@@ -23,101 +23,74 @@ import { MOCK_BRANCH_ID } from "./mock";
 import { nitDv } from "../nit";
 
 const BRANCH_CENTRO = MOCK_BRANCH_ID;
-const BRANCH_ASADERO = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12";
+const BRANCH_CALLE15 = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12";
 
 export const mockBranchesList = [
-  { id: BRANCH_CENTRO, name: "Tienda Centro", code: "TC", city: "Medellín", activeTypes: ["Tienda", "Tienda virtual"], userCount: 4 },
-  { id: BRANCH_ASADERO, name: "Asadero El Vecino", code: "AV", city: "Medellín", activeTypes: ["Restaurante"], userCount: 4 },
+  { id: BRANCH_CENTRO, name: "Sede Centro", code: "SC", city: "Riohacha", activeTypes: ["Tienda", "Tienda virtual"], userCount: 3 },
+  { id: BRANCH_CALLE15, name: "Sede Calle 15", code: "S15", city: "Riohacha", activeTypes: ["Tienda"], userCount: 2 },
 ];
 
 export const mockBusinessInfo = {
-  commercial_name: "Supermercado El Vecino",
-  legal_name: "Supermercado El Vecino S.A.S",
+  commercial_name: "Licorera La 15",
+  legal_name: "Licorera La 15 S.A.S.",
   tax_id: "901.234.567-8",
-  phone: "+57 (604) 444-5566",
-  email: "administracion@elvecino.co",
-  address: "Cra. 43A #1-50, Medellín, Antioquia",
+  phone: "+57 (605) 727-4455",
+  email: "administracion@licorerala15.co",
+  address: "Calle 15 #7-40, Riohacha, La Guajira",
   iva_responsible: true as boolean | null,
 };
 
 const mockUsersData: TenantUser[] = [
   {
     id: "u1111111-1111-4111-8111-111111111111",
-    email: "carlos@elvecino.co",
+    email: "carlos@licorerala15.co",
     full_name: "Carlos Restrepo",
     role: "DUENO",
     branches: [
-      { id: BRANCH_CENTRO, name: "Tienda Centro" },
-      { id: BRANCH_ASADERO, name: "Asadero El Vecino" },
+      { id: BRANCH_CENTRO, name: "Sede Centro" },
+      { id: BRANCH_CALLE15, name: "Sede Calle 15" },
     ],
     active: true,
     created_at: "2026-01-10T08:00:00Z",
   },
   {
     id: "u2222222-2222-4222-8222-222222222222",
-    email: "camila@elvecino.co",
+    email: "camila@licorerala15.co",
     full_name: "Maria Camila Gómez",
     role: "ADMIN_CAJA",
-    branches: [{ id: BRANCH_CENTRO, name: "Tienda Centro" }],
+    branches: [{ id: BRANCH_CENTRO, name: "Sede Centro" }],
     active: true,
     created_at: "2026-01-15T09:30:00Z",
   },
   {
     id: "u3333333-3333-4333-8333-333333333333",
-    email: "juanp@elvecino.co",
+    email: "juanp@licorerala15.co",
     full_name: "Juan Pablo Montoya",
     role: "CAJERO",
-    branches: [{ id: BRANCH_CENTRO, name: "Tienda Centro" }],
+    branches: [{ id: BRANCH_CENTRO, name: "Sede Centro" }],
     active: true,
     created_at: "2026-02-01T10:00:00Z",
   },
   {
     id: "u4444444-4444-4444-8444-444444444444",
-    email: "diana@elvecino.co",
+    email: "diana@licorerala15.co",
     full_name: "Diana Marcela Uribe",
     role: "CAJERO",
-    branches: [{ id: BRANCH_ASADERO, name: "Asadero El Vecino" }],
+    branches: [{ id: BRANCH_CALLE15, name: "Sede Calle 15" }],
     active: true,
     created_at: "2026-02-05T11:15:00Z",
   },
   {
-    id: "u5555555-5555-4555-8555-555555555555",
-    email: "andres@elvecino.co",
-    full_name: "Andrés Felipe Ospina",
-    role: "MESERO",
-    branches: [{ id: BRANCH_ASADERO, name: "Asadero El Vecino" }],
-    active: true,
-    created_at: "2026-02-10T14:00:00Z",
-  },
-  {
-    id: "u6666666-6666-4666-8666-666666666666",
-    email: "luz@elvecino.co",
-    full_name: "Luz Marina Henao",
-    role: "COCINA",
-    branches: [{ id: BRANCH_ASADERO, name: "Asadero El Vecino" }],
-    active: true,
-    created_at: "2026-02-12T07:45:00Z",
-  },
-  {
     id: "u7777777-7777-4777-8777-777777777777",
-    email: "jhon@elvecino.co",
+    email: "jhon@licorerala15.co",
     full_name: "Jhon Jairo Moreno",
     role: "BODEGA",
     branches: [
-      { id: BRANCH_CENTRO, name: "Tienda Centro" },
-      { id: BRANCH_ASADERO, name: "Asadero El Vecino" },
+      { id: BRANCH_CENTRO, name: "Sede Centro" },
+      { id: BRANCH_CALLE15, name: "Sede Calle 15" },
     ],
     active: true,
     created_at: "2026-02-15T08:30:00Z",
-  },
-  {
-    id: "u8888888-8888-4888-8888-888888888888",
-    email: "mateo@elvecino.co",
-    full_name: "Mateo Álvarez",
-    role: "REPARTIDOR",
-    branches: [{ id: BRANCH_CENTRO, name: "Tienda Centro" }],
-    active: true,
-    created_at: "2026-02-20T09:00:00Z",
   },
 ];
 
@@ -231,7 +204,7 @@ const mockBranchSettings: Record<string, BranchSettings> = {
     },
     print: {
       ticket_width_mm: 80,
-      header_text: "Supermercado El Vecino S.A.S\nNIT: 901.234.567-8\nIVA Régimen Común",
+      header_text: "Licorera La 15 S.A.S.\nNIT: 901.234.567-8\nIVA Régimen Común",
       footer_text: "¡Gracias por su compra!\nConserve esta tirilla para cualquier reclamo o garantía.",
     },
   },
@@ -374,7 +347,7 @@ export function mockUpdateUserStatus(userId: Uuid, active: boolean): TenantUser 
 }
 
 export function mockPermissionsList(): { permissions: Permission[]; roles: Role[] } {
-  const roles: Role[] = ["DUENO", "ADMIN_CAJA", "CAJERO", "MESERO", "COCINA", "SUPERVISOR", "BODEGA", "REPARTIDOR"];
+  const roles: Role[] = ["DUENO", "ADMIN_CAJA", "SUPERVISOR", "CAJERO", "BODEGA"];
   return {
     permissions: structuredClone(PERMISSION_CATALOG),
     roles,
@@ -582,7 +555,7 @@ export async function mockCreateBranch(input: CreateBranchInput): Promise<Branch
     id,
     name,
     code: name.slice(0, 2).toUpperCase(),
-    city: "Medellín",
+    city: "Riohacha",
     activeTypes: ["Tienda"],
     userCount: 1,
   });
