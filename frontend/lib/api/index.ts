@@ -82,6 +82,7 @@ import {
   mockUsersList,
   mockWaiters,
   mockBusinessInfo,
+  mockBranchesList,
   mockUpdateBusiness,
   mockCreateBranch,
   mockUpdateBranch,
@@ -1502,7 +1503,7 @@ export const api = {
     async branches(): Promise<BranchAccess[]> {
       if (USE_MOCKS) {
         await delay();
-        return [{ id: MOCK_BRANCH_ID, name: "Sucursal Principal", code: null, role: "DUENO" }];
+        return mockBranchesList.map((b) => ({ id: b.id, name: b.name, code: b.code, role: "DUENO" as const }));
       }
       return request("/v1/branches");
     },
