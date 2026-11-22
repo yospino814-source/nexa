@@ -3,3 +3,6 @@
 
 # Notas locales con datos de prueba (pueden tener credenciales).
 backend/docs/notas_proyecto/05_Registro_Datos_de_Prueba.md
+
+# Variables de entorno reales del despliegue (nunca a git).
+despliegue/.env
