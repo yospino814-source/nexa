@@ -1235,3 +1235,114 @@ LINT_EXIT=0
 ```
 
 
+
+---
+
+## M18
+
+### 1. Cambios realizados
+
+| Tarea | Archivos | Commit |
+|---|---|---|
+| M18.1 Crear cuenta en el login demo | `frontend/components/auth/login-screen.tsx` | `526db17` |
+| M18.2 Sucursales del demo desde la lista mock | `frontend/lib/api/index.ts` (session.branches) | `6019d0d` |
+| M18.3 Roles de salida solamente | `frontend/lib/api/mock-platform.ts`, `mock.ts` | `8fabdc8` |
+| M18.4 Demo de licorería | `frontend/lib/api/mock-customers.ts`, `mock-inventory.ts`, `mock-procurement.ts`, `components/ordenes/orders-screen.tsx`, `components/configuracion/users-screen.tsx` | `a11919f` |
+
+### 2. Problema de codificación (mojibake) y resolución
+
+Las ediciones iniciales de M18 usaron herramientas de PowerShell 5.1 (`Get-Content`/`Set-Content`) que corrompieron la codificación UTF-8. Ejemplo: "¿No tenés cuenta?" quedó como "Â¿No tenÃ©s cuenta?". Los saltos de línea también cambiaron de LF a CRLF.
+
+Resolución: se guardó el diff en `../respaldos/m18-con-mojibake.patch`, se restauró cada archivo con `git checkout HEAD -- <archivo>`, y se reaplicaron los cambios de M18 usando la herramienta `edit_file` del agente (UTF-8 sin BOM, LF). Se configuró `git config core.autocrlf false`.
+
+Verificación post-corrección:
+- `grep -rn "Ã|Â" lib components app` → sin resultados ✓
+- `npx tsc --noEmit` → exit 0 ✓
+- `npm run lint` → exit 0 ✓
+- `npx next build` → exit 0, 57 páginas ✓
+
+### 3. Cambios fuera de alcance revertidos
+
+- `app/(operacion)/layout.tsx`: se restauró `export const instant = false;` que el agente había eliminado (commit `70f095d` del usuario).
+- `app/(admin)/modulos/page.tsx`: se revirtió `notFound()` que M18 no pedía.
+
+### 4. Verificación final
+
+- Grep de residuos de demo anterior: sin resultados en archivos de M18 ✓
+- "Medellín" aparece solo como nombre de producto "Ron Medellín" ✓
+- Demo en puerto 3200: /configuracion/usuarios no muestra Mesero, Cocina ni Repartidor ✓
+
+### 5. Preguntas abiertas
+
+- `app/(admin)/modulos/page.tsx` (~línea 20): el agente propuso agregar `notFound()` para módulos desactivados en producción. No se aplicó; podría ser parte de un módulo de permisos futuro.
+
+---
+
+## M19
+
+### 1. Tabla por tarea
+
+| Tarea | Archivos | Commit | Pruebas |
+|---|---|---|---|
+| M19.1 Despliegue dentro del repositorio | `.gitignore` (añade `despliegue/.env`) | `1a2651c` | `git status` no muestra `.env`; grep de secretos: vacío ✓ |
+| M19.2 Respaldos de la base | `despliegue/respaldos/respaldar.sh`, `restaurar.sh`, `.gitignore` | `920264c` | `bash -n` ✓; sin `DATABASE_URL` → exit 1 con mensaje ✓; sin args → muestra uso ✓ |
+| M19.3 Verificación posterior al despliegue | `despliegue/verificar.sh` | `e47a90a` | `bash -n` ✓; sin args → exit 1 ✓; con `no-existe.invalid` → 7 fallos, ~6 s, exit 1 ✓ |
+| M19.4 Guía de despliegue | `despliegue/LEEME.md` | `f0d8ee6` | Sin `RAMA_FRONTEND` ni `TU-PROYECTO` ✓; sin secretos en comandos ✓ |
+
+### 2. LEEME.md: orden final de secciones
+
+El LEEME.md original mencionaba "aprobar fase 3" y "copiar despliegue/ a mano". Se reescribió completo en M19.4. Orden final: encabezado (estado/advertencia DIAN) → cómo queda armado → lo que necesitás antes (incluye Supabase Auth URLs) → estructura de disco → primer despliegue en 7 pasos → actualizaciones y rollback → respaldos → verificar → disco y memoria → problemas comunes → si cambian variables públicas → nunca en chat ni git.
+
+No hubo choques de merge porque M19.4 reescribió el archivo completo de forma coordinada con las secciones de M19.2 y M19.3.
+
+### 3. Verificación del coordinador (salida completa)
+
+```
+git status --short despliegue/
+# → M despliegue/LEEME.md (antes del commit), limpio después
+
+grep -rniE "sb_secret|postgres://..." despliegue/
+# → "sin secretos" (vacío)
+
+bash -n despliegue/respaldos/respaldar.sh  → ok
+bash -n despliegue/respaldos/restaurar.sh  → ok
+bash -n despliegue/verificar.sh            → ok
+
+despliegue/respaldos/respaldar.sh (sin DATABASE_URL)
+# ERROR: la variable DATABASE_URL no está definida.
+# exit 1 ✓
+
+despliegue/respaldos/restaurar.sh (sin args)
+# Uso: DATABASE_URL=<url> ./restaurar.sh <ruta-al-archivo.dump>
+# exit 1 ✓
+
+despliegue/verificar.sh (sin args)
+# Uso: ./verificar.sh <dominio>
+# exit 1 ✓
+
+despliegue/verificar.sh no-existe.invalid
+# ✗ 1. /api/v1/health respondió 000 (esperado 200)
+# ✗ 2. /api/v1/health/db respondió 000
+# ✗ 3. /login respondió 000 (esperado 200)
+# ✗ 4. No se pudo leer el certificado HTTPS
+# ✗ 5. http://no-existe.invalid no redirigió a https://
+# ✗ 6. /api/v1/context sin token devolvió 000 (esperado 401)
+# ✗ 7. docker compose ps: algún servicio no está running/healthy
+# 7 punto(s) fallaron. exit 1 ✓ (completó en ~6 s)
+
+docker compose -f despliegue/docker-compose.yml config
+# → falla con "required variable DATABASE_URL is missing"
+# Esperado: el compose está bien escrito; falta .env local con valores reales.
+```
+
+### 4. Confirmación
+
+- No se conectó ningún servidor por SSH.
+- No se corrió `docker build` ni `docker compose up`.
+- No se aplicaron migraciones.
+- No se escribió ninguna clave, token, contraseña ni URL con credenciales en ningún archivo ni commit. Donde hace falta un secreto, va el nombre de la variable de entorno.
+
+### 5. Preguntas abiertas
+
+- `despliegue/docker-compose.yml`: `docker compose config` no pudo validarse localmente por falta de `.env` real. La validación completa se hará en el VPS.
+- `despliegue/verificar.sh` punto 7: usa `python3` para parsear JSON de `docker compose ps`. Si el VPS no tiene Python 3, el punto fallará. Alternativa: `jq`. Decisión queda para el despliegue real.
