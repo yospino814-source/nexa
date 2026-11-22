@@ -2,9 +2,9 @@
 
 Guía para instalar Nexa en un VPS con 8 GB de RAM y 4 vCPU.
 
-**Estado:** esta configuración no se ha construido completa todavía. Se validó el archivo `docker-compose.yml`, pero el build de prueba se detuvo porque se llenó el disco del computador local. La primera construcción real se hace en el VPS.
+**Estado:** la fase S está aprobada en código. El pendiente antes de abrir al público es aplicar las migraciones pendientes en Supabase; las aplica Claude, no el usuario ni un script automático.
 
-**No publicar para clientes todavía.** Antes hay que aprobar la fase 3 y aplicar las migraciones pendientes en Supabase. Ver `antigravity/REVISION-CLAUDE.md`, sección 10.
+**Qué NO queda publicado:** facturación electrónica DIAN. Esta versión es solo para negocios no obligados a emitir facturas electrónicas.
 
 ## Cómo queda armado
 
@@ -19,9 +19,25 @@ Caddy obtiene y renueva el certificado HTTPS solo. La API y el frontend no queda
 1. **Un dominio**, con un registro `A` apuntando a la IP del VPS. Por ejemplo, `app.tudominio.com`.
 2. **Docker y Docker Compose** en el VPS. Estos pasos suponen Ubuntu o Debian.
 3. **Plan Pro de Supabase.** El plan gratis se pausa tras una semana sin uso y no tiene backups.
-4. **Una URL de sitio en Supabase:** en *Authentication > URL Configuration*, agregá `https://app.tudominio.com`.
+4. **Supabase > Authentication > URL Configuration:**
+   - Site URL: `https://DOMINIO`
+   - Redirect URLs: `https://DOMINIO/login/restablecer` y `https://DOMINIO/onboarding`
+   Sin estas URLs, recuperar contraseña y confirmar correo no funcionan (el frontend usa `window.location.origin` en `login-screen.tsx` y `register-screen.tsx`).
 
-## Instalación
+## Cómo queda el disco
+
+```text
+/opt/nexa/              <- clon único de nexa/, rama feat/m18-demo
+  backend/
+  frontend/
+  despliegue/           <- acá se corre docker compose
+```
+
+Es un **solo repositorio** (`yospino814-source/nexa`). La carpeta `despliegue/` viaja dentro del repositorio: no hay que copiarla a mano.
+
+## Primer despliegue (orden obligatorio)
+
+Seguí este orden. No lo cambies.
 
 ### 1. Firewall
 
@@ -32,26 +48,15 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
-### 2. Código
-
-La carpeta debe quedar así, porque `docker-compose.yml` busca los proyectos a su lado:
-
-```text
-/opt/nexa/
-  backend/
-  frontend/
-  despliegue/
-```
+### 2. Clonar el repositorio
 
 ```sh
 sudo mkdir -p /opt/nexa && sudo chown "$USER" /opt/nexa
 cd /opt/nexa
-git clone -b RAMA https://github.com/yospino814-source/nexa .
+git clone -b feat/m18-demo https://github.com/yospino814-source/nexa .
 ```
 
-Es un solo repositorio (`nexa/`). `RAMA` es la rama aprobada y el repositorio es `yospino814-source/nexa`. La carpeta `despliegue/` viaja dentro del repositorio: no hay que copiarla a mano una vez que M19.1 la commitee.
-
-### 3. Variables
+### 3. Variables de entorno
 
 ```sh
 cd /opt/nexa/despliegue
@@ -60,34 +65,124 @@ chmod 600 .env
 nano .env
 ```
 
-`DATABASE_URL` tiene la contraseña de la base. Nunca la pegues en un chat ni la subas a git.
+Llenás `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` y `DOMINIO`.
+`DATABASE_URL` contiene la contraseña de la base: nunca la pegues en un chat ni la subas a git.
 
-### 4. Arrancar
+### 4. Respaldo previo (si ya hay datos en Supabase)
 
 ```sh
+export DATABASE_URL=<la-url-del-step-anterior>
+./respaldos/respaldar.sh
+```
+
+Guardá el archivo `.dump` que genera en un lugar fuera del VPS (disco local, S3, etc.).
+
+### 5. Claude aplica las migraciones
+
+Antes de levantar el código nuevo, Claude revisa y aplica las migraciones SQL pendientes. Nadie más las aplica.
+
+### 6. Arrancar
+
+```sh
+cd /opt/nexa/despliegue
 docker compose up -d --build
 docker compose ps
 ```
 
-La primera vez tarda varios minutos, porque compila Rust y Next.js.
+La primera vez tarda varios minutos: compila Rust y Next.js.
 
-### 5. Comprobar
+### 7. Comprobar
 
 ```sh
-curl https://app.tudominio.com/api/v1/health
-curl https://app.tudominio.com/api/v1/health/db
+./verificar.sh DOMINIO
 ```
 
-Después, abrí el dominio en el navegador e iniciá sesión.
+---
 
-## Actualizar
+## Actualizaciones
 
 ```sh
 cd /opt/nexa && git pull
-cd /opt/nexa/despliegue && docker compose up -d --build
+cd despliegue && ./respaldos/respaldar.sh   # respaldo antes de cualquier cambio
+# si hay migraciones nuevas, Claude las aplica aquí
+docker compose up -d --build
+./verificar.sh DOMINIO
 ```
 
-Las migraciones nunca se aplican desde aquí: las aplica Claude después de revisarlas, y siempre **antes** de actualizar el código.
+**Rollback:** si algo sale mal, volvés al commit anterior y reconstruís:
+
+```sh
+cd /opt/nexa && git checkout <hash-del-commit-anterior>
+cd despliegue && docker compose up -d --build
+```
+
+---
+
+## Respaldos
+
+Los respaldos los hace `pg_dump`, que debe ser de la misma versión mayor que el Postgres de Supabase (consultalo en Supabase > Project Settings > Database).
+
+### Hacer un respaldo
+
+```sh
+export DATABASE_URL=$(grep DATABASE_URL .env | cut -d= -f2-)
+./respaldos/respaldar.sh
+```
+
+Genera `respaldos/salida/nexa-AAAAMMDD-HHMM.dump`. Los archivos con más de 30 días se borran solos. El registro queda en `respaldos/registro.log`.
+
+**Guardá el `.dump` fuera del VPS** (disco local, S3, etc.); si el VPS se pierde, el respaldo se pierde con él.
+
+### Restaurar
+
+```sh
+export DATABASE_URL=$(grep DATABASE_URL .env | cut -d= -f2-)
+./respaldos/restaurar.sh respaldos/salida/nexa-AAAAMMDD-HHMM.dump
+```
+
+El script te pide escribir `RESTAURAR` (en mayúsculas) antes de hacer cualquier cambio.
+
+---
+
+## Comprobar el despliegue
+
+```sh
+./verificar.sh DOMINIO
+```
+
+El script comprueba, con `✓` o `✗` por punto:
+
+1. `https://DOMINIO/api/v1/health` responde 200.
+2. `https://DOMINIO/api/v1/health/db` responde 200. Falla si `DATABASE_URL` está mal.
+3. `https://DOMINIO/login` responde 200 y contiene `Nexa`.
+4. El certificado HTTPS es válido y le faltan más de 10 días para vencer.
+5. `http://DOMINIO` redirige a `https://`.
+6. `https://DOMINIO/api/v1/context` sin token devuelve 401, no 200. Si devuelve 200, la API está abierta: fallo grave.
+7. `docker compose ps` muestra `api`, `web` y `caddy` en `running` y `api` como `healthy` (se omite si `docker` no está disponible donde se corre el script).
+
+---
+
+## Disco y memoria
+
+El disco del VPS se llena con la caché de builds de Rust. Después de cada actualización:
+
+```sh
+docker system df
+docker builder prune -f
+docker image prune -f
+```
+
+El `docker-compose.yml` limita `api` y `web` a 1 GB de RAM cada uno. Ese límite aplica al contenedor en ejecución, no al build. Si el build de Rust muere por falta de memoria, bajá la concurrencia:
+
+```sh
+# en docker-compose.yml, en el build de api, agregá:
+#   args:
+#     CARGO_BUILD_JOBS: "2"
+```
+
+El VPS tiene 8 GB de RAM y 4 vCPU.
+
+---
 
 ## Problemas comunes
 
@@ -97,8 +192,17 @@ Las migraciones nunca se aplican desde aquí: las aplica Claude después de revi
 | La API se reinicia | `docker compose logs api`. Casi siempre es `DATABASE_URL`. |
 | `/api/v1/health` responde, pero `/health/db` no | La conexión a Supabase. Usar la URL de *Session pooler*. |
 | El login devuelve 401 en todo | Supabase debe usar *JWT Signing Keys* (ES256 o RS256). |
-| Se llena el disco | `docker system df`, y luego `docker builder prune` para borrar caché de builds. |
+| Se llena el disco | `docker system df`, luego `docker builder prune -f` y `docker image prune -f`. Correrlo después de cada actualización. |
+| El build de Rust muere | Bajar concurrencia con `CARGO_BUILD_JOBS=2` como build arg. |
+
+---
 
 ## Si cambian las variables públicas
 
 `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` quedan fijadas al compilar el frontend. Si cambian, hay que volver a correr `docker compose up -d --build`.
+
+---
+
+## Nunca en el chat ni en git
+
+`DATABASE_URL`, la clave secreta de Supabase ni ninguna contraseña. Si el usuario las pega accidentalmente en algún lado, se rotan de inmediato en Supabase.
