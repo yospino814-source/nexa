@@ -83,7 +83,7 @@ const INITIAL_MOCK_ORDERS: MockOrder[] = [
     items: [
       { qty: 2, name: "Coca-Cola 400 ml", category: "Bebidas frías", unitPrice: 3500 },
       { qty: 1, name: "Café Sello Rojo 250 g", category: "Grano molido", unitPrice: 9500 },
-      { qty: 1, name: "Pan Tajado Bimbo", category: "Panadería", unitPrice: 6900 },
+      { qty: 1, name: "Six pack Águila", category: "Cerveza", unitPrice: 17500 },
       { qty: 2, name: "Empanada de Carne", category: "Frito típico", unitPrice: 4000 },
       { qty: 1, name: "Tostada Aguacate", category: "Especialidad", unitPrice: 11100 },
     ],

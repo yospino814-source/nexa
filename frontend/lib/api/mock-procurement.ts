@@ -54,73 +54,73 @@ const dec = (n: number): Decimal => cents(n).toFixed(2);
 export const mockSuppliers: Supplier[] = [
   {
     id: "20000000-0000-4000-8000-000000000001",
-    name: "Distribuidora Los Andes S.A.S.",
+    name: "Distribuidora La Guajira",
     tax_id: "900.123.456-1",
-    contact_name: "Carlos Mendoza",
+    contact_name: "Carlos Iguarán",
     phone: "3104567890",
-    email: "pedidos@losandes.co",
-    address: "Av. Boyacá # 72-10, Bogotá",
-    notes: "Distribuidor mayorista de granos y abarrotes. Despacho los martes y jueves.",
+    email: "pedidos@laguajira.co",
+    address: "Calle 15 # 10-40, Riohacha",
+    notes: "Licores nacionales y abarrotes.",
     active: true,
     created_at: new Date(Date.now() - 60 * 24 * 3600_000).toISOString(),
   },
   {
     id: "20000000-0000-4000-8000-000000000002",
-    name: "Bebidas y Refrescos de Colombia S.A.",
+    name: "Bavaria Riohacha",
     tax_id: "890.900.120-3",
     contact_name: "Mariana Silva",
     phone: "3156789012",
-    email: "ventas@bebidascol.com",
-    address: "Zona Industrial Cazucá, Soacha",
-    notes: "Línea completa de gaseosas, cervezas y aguas.",
+    email: "ventas@bavaria.co",
+    address: "Km 2 Vía Maicao, Riohacha",
+    notes: "Cervezas Águila, Poker, Club Colombia y aguas.",
     active: true,
     created_at: new Date(Date.now() - 55 * 24 * 3600_000).toISOString(),
   },
   {
     id: "20000000-0000-4000-8000-000000000003",
-    name: "Lácteos del Campo Ltda.",
-    tax_id: "860.012.345-6",
+    name: "Licores del Caribe",
+    tax_id: "901.345.678-1",
     contact_name: "Jorge Henao",
     phone: "3001234567",
-    email: "contacto@lacteosdelcampo.com",
-    address: "Km 4 Vía Chía - Cota",
-    notes: "Productos lácteos frescos. Entrega refrigerada interdiaria.",
+    email: "contacto@licorescaribe.com",
+    address: "Carrera 7 # 12-25, Riohacha",
+    notes: "Aguardientes, rones y whiskies importados.",
     active: true,
     created_at: new Date(Date.now() - 50 * 24 * 3600_000).toISOString(),
   },
   {
     id: "20000000-0000-4000-8000-000000000004",
-    name: "Aseo y Limpieza La Candelaria",
+    name: "Snacks y Pasabocas de la Costa",
     tax_id: "901.456.789-2",
     contact_name: "Patricia Castro",
     phone: "3209876543",
-    email: "atencion@aseocandelaria.co",
-    address: "Calle 19 # 28-40, Medellín",
-    notes: "Insumos de aseo, jabones y detergentes institucionales.",
+    email: "atencion@snackscosta.co",
+    address: "Calle 14 # 8-30, Riohacha",
+    notes: "Papas Margarita, platanitos y maní.",
     active: true,
     created_at: new Date(Date.now() - 40 * 24 * 3600_000).toISOString(),
   },
   {
     id: "20000000-0000-4000-8000-000000000005",
-    name: "Molinos y Granos del Valle",
+    name: "Distribuidora de Hielo El Polo",
     tax_id: "800.234.567-8",
-    contact_name: "Gustavo Restrepo",
+    contact_name: "Gustavo Gómez",
     phone: "3123456789",
-    email: "ordenes@granosdelvalle.com",
-    address: "Carrera 50 # 12-30, Cali",
-    notes: "Arroz, harina, café y legumbres seleccionadas.",
+    email: "ordenes@hieloelpolo.com",
+    address: "Carrera 10 # 15-20, Riohacha",
+    notes: "Hielo en bolsa y conservas.",
     active: true,
     created_at: new Date(Date.now() - 35 * 24 * 3600_000).toISOString(),
   },
   {
     id: "20000000-0000-4000-8000-000000000006",
-    name: "Snacks y Pasabocas La Granja",
+    name: "Gaseosas y Bebidas Guajiras",
     tax_id: "900.789.012-4",
     contact_name: "Lucía Ortiz",
     phone: "3187654321",
-    email: "pedidos@lagranjasnacks.com",
-    address: "Bodega 4, Parque Industrial Siberia",
-    notes: "Papas fritas, platanitos y confitería.",
+    email: "pedidos@bebidasguajiras.com",
+    address: "Av. Circunvalar # 5-10, Riohacha",
+    notes: "Gaseosas Coca-Cola y agua Cristal.",
     active: true,
     created_at: new Date(Date.now() - 30 * 24 * 3600_000).toISOString(),
   },
@@ -150,87 +150,87 @@ function buildMockPurchases(): Purchase[] {
       invDaysAgo: 3,
       status: "PENDIENTE",
       items: [
-        { catIdx: 0, qty: 48, unitCost: 2150 }, // Coca-Cola
-        { catIdx: 7, qty: 24, unitCost: 1900 }, // Cerveza
+        { catIdx: 11, qty: 48, unitCost: 4100 },
+        { catIdx: 6, qty: 24, unitCost: 2200 },
       ],
       notes: "Pedido de reposición para el fin de semana.",
     },
     {
       daysAgo: 4,
-      supplierIdx: 0, // Los Andes
+      supplierIdx: 0,
       doc: "FAC-10492",
       invDaysAgo: 5,
       status: "PENDIENTE",
       items: [
-        { catIdx: 1, qty: 50, unitCost: 1980 }, // Arroz Diana
-        { catIdx: 4, qty: 15, unitCost: 12000 }, // Huevos
+        { catIdx: 1, qty: 50, unitCost: 16500 },
+        { catIdx: 3, qty: 15, unitCost: 33000 },
       ],
-      notes: "Verificar fecha de vencimiento de los huevos al recibir.",
+      notes: "Verificar estampillas de licores al recibir.",
     },
     {
       daysAgo: 6,
-      supplierIdx: 2, // Lácteos
+      supplierIdx: 2,
       doc: "FAC-0492",
       invDaysAgo: 6,
       status: "RECIBIDA",
       items: [
-        { catIdx: 2, qty: 30, unitCost: 2950 }, // Leche
-        { catIdx: 8, qty: 24, unitCost: 1750 }, // Yogur
+        { catIdx: 2, qty: 30, unitCost: 31000 },
+        { catIdx: 4, qty: 10, unitCost: 89000 },
       ],
     },
     {
       daysAgo: 10,
-      supplierIdx: 3, // Aseo
+      supplierIdx: 2,
       doc: "FAC-3108",
       invDaysAgo: 11,
       status: "RECIBIDA",
       items: [
-        { catIdx: 5, qty: 40, unitCost: 1450 }, // Jabón
-        { catIdx: 11, qty: 20, unitCost: 9200 }, // Detergente
+        { catIdx: 0, qty: 40, unitCost: 28000 },
+        { catIdx: 5, qty: 10, unitCost: 102000 },
       ],
     },
     {
       daysAgo: 15,
-      supplierIdx: 5, // Snacks
+      supplierIdx: 3,
       doc: "FAC-5520",
       invDaysAgo: 16,
       status: "RECIBIDA",
       items: [
-        { catIdx: 9, qty: 60, unitCost: 1350 }, // Papas
-        { catIdx: 10, qty: 50, unitCost: 920 }, // Chocolatina
+        { catIdx: 13, qty: 60, unitCost: 3200 },
+        { catIdx: 14, qty: 50, unitCost: 4800 },
       ],
     },
     {
       daysAgo: 20,
-      supplierIdx: 4, // Granos Valle
+      supplierIdx: 4,
       doc: "FAC-7731",
       invDaysAgo: 21,
       status: "RECIBIDA",
       items: [
-        { catIdx: 6, qty: 30, unitCost: 6300 }, // Café
-        { catIdx: 1, qty: 40, unitCost: 1950 }, // Arroz
+        { catIdx: 15, qty: 50, unitCost: 2200 },
+        { catIdx: 10, qty: 20, unitCost: 23500 },
       ],
     },
     {
       daysAgo: 26,
-      supplierIdx: 1, // Bebidas
+      supplierIdx: 1,
       doc: "FAC-8610",
       invDaysAgo: 27,
       status: "RECIBIDA",
       items: [
-        { catIdx: 0, qty: 72, unitCost: 2100 },
-        { catIdx: 7, qty: 48, unitCost: 1850 },
+        { catIdx: 11, qty: 72, unitCost: 4000 },
+        { catIdx: 7, qty: 48, unitCost: 2800 },
       ],
     },
     {
       daysAgo: 32,
-      supplierIdx: 0, // Los Andes
+      supplierIdx: 0,
       doc: "FAC-10115",
       invDaysAgo: 33,
       status: "RECIBIDA",
       items: [
-        { catIdx: 1, qty: 60, unitCost: 1950 },
-        { catIdx: 4, qty: 20, unitCost: 11800 },
+        { catIdx: 8, qty: 30, unitCost: 13000 },
+        { catIdx: 9, qty: 30, unitCost: 13000 },
       ],
     },
     {
@@ -1702,12 +1702,12 @@ export async function mockPurchaseSuggestions(
       items: [
         {
           product_id: "prod-003",
-          name: "Leche Entera 1L",
+          name: "Ron Medellín 3 años 750 ml",
           on_hand: "5.0000",
           min_qty: "15.0000",
           suggested_qty: "20.0000",
           purchase_uom: "CANASTILLA",
-          last_cost: "4200.00",
+          last_cost: "31000.00",
         },
       ],
     },

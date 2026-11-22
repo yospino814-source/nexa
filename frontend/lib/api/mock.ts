@@ -38,21 +38,22 @@ function item(
 }
 
 export const mockCatalog: CatalogItem[] = [
-  item(1, "Coca-Cola 400 ml", "Bebidas", 3500, "IVA19", 42),
-  item(2, "Arroz Diana 500 g", "Abarrotes", 2800, null, 18),
-  item(3, "Leche 1 L", "Lácteos", 4200, null, 6),
-  item(4, "Pan tajado", "Panadería", 6900, null, 0),
-  item(5, "Huevos AA x30", "Abarrotes", 15900, null, 11),
-  item(6, "Jabón en barra", "Aseo y Hogar", 2300, "IVA19", 54),
-  item(7, "Café 250 g", "Abarrotes", 9500, "IVA19", 8),
-  item(8, "Cerveza 330 ml", "Bebidas", 2900, "IVA19", 3),
-  item(9, "Yogur fresa 200 g", "Lácteos", 2600, null, 22),
-  item(10, "Papas fritas 45 g", "Snacks y Dulces", 2200, "IVA19", 35),
-  item(11, "Chocolatina 30 g", "Snacks y Dulces", 1500, "IVA19", 4),
-  item(12, "Detergente 1 kg", "Aseo y Hogar", 12900, "IVA19", 15),
-  item(13, "Aceite Premier 1 L", "Abarrotes", 12500, null, 0),
-  item(14, "Atún Van Camp's 160 g", "Abarrotes", 8200, null, 2),
-  item(15, "Agua Cristal 600 ml", "Bebidas", 2000, null, 28),
+  item(1, "Aguardiente Antioqueño 750 ml", "Aguardiente", 38000, "IVA19", 42),
+  item(2, "Aguardiente Antioqueño sin azúcar 375 ml", "Aguardiente", 22000, "IVA19", 28),
+  item(3, "Ron Medellín 3 años 750 ml", "Ron", 42000, "IVA19", 19),
+  item(4, "Ron Viejo de Caldas 750 ml", "Ron", 45000, "IVA19", 25),
+  item(5, "Whisky Old Parr 12 años 750 ml", "Whisky", 115000, "IVA19", 14),
+  item(6, "Whisky Buchanan's 12 años 750 ml", "Whisky", 135000, "IVA19", 11),
+  item(7, "Cerveza Águila lata 330 ml", "Cerveza", 3000, "IVA19", 80),
+  item(8, "Club Colombia Dorada 330 ml", "Cerveza", 3800, "IVA19", 65),
+  item(9, "Six pack Águila", "Cerveza", 17500, "IVA19", 22),
+  item(10, "Cerveza Poker lata x6", "Cerveza", 17500, "IVA19", 30),
+  item(11, "Vino Gato Negro 750 ml", "Vinos", 32000, "IVA19", 16),
+  item(12, "Coca-Cola 1,5 L", "Gaseosas y agua", 5500, "IVA19", 35),
+  item(13, "Agua Cristal 600 ml", "Gaseosas y agua", 2000, null, 40),
+  item(14, "Papas Margarita 105 g", "Snacks", 4500, "IVA19", 24),
+  item(15, "Maní La Especial 180 g", "Snacks", 6500, "IVA19", 18),
+  item(16, "Hielo bolsa 2 kg", "Hielo", 4000, null, 50),
 ];
 
 const HOURLY_PROFILE: readonly { gross: number; count: number }[] = [
